@@ -36,7 +36,7 @@ class EvalRecord(BaseModel):
     expected_vessel_match: VesselMatch
     expected_mmsi: int | None
     expected_missing_inputs: list[str] = []
-    labeler: str = Field(description="정답을 정한 사람. 경계는 하정운")
+    labeler: str = Field(description="정답을 정한 사람")
     label_reason: str = Field(min_length=1, description="사유 한 줄")
     labeled_at: datetime | None = None
     actual_arrival: datetime | None = Field(default=None, description="사후, 예측 적중용")

@@ -58,7 +58,7 @@ class CustomsRecord(BaseModel):
     stage_code: str | None = Field(default=None, description="prgsStCd, 현재 통관 단계 코드")
     stage_name: str | None = Field(default=None, description="현재 단계명. 가장 최근 이력 줄의 처리구분(cargTrcnRelaBsopTpcd), 이력이 없으면 csclPrgsStts")
     shed_name: str | None = Field(default=None, description="shedNm, 장치장명")
-    discharge_port: str | None = Field(default=None, description="dsprCd, 양륙항 코드(예: KRPUS). 부산이 아니면 unsupported (09-28 추가)")
+    discharge_port: str | None = Field(default=None, description="dsprCd, 양륙항 코드(예: KRPUS). 부산이 아니면 unsupported")
     # 화물이 어디서 어디로 가나 (예: ldprCd=CNTAO, ldprNm=Qingdao, lodCntyCd=CN)
     discharge_port_name: str | None = Field(default=None, description="dsprNm, 양륙항 이름(예: 부산항)")
     loading_port: str | None = Field(default=None, description="ldprCd, 적재항 코드(예: CNTAO)")
@@ -66,7 +66,7 @@ class CustomsRecord(BaseModel):
     loading_country: str | None = Field(default=None, description="lodCntyCd, 적출국 코드(예: CN)")
     mrn: str | None = Field(
         default=None,
-        description="cargMtNo 앞 11자리, 입항 적하목록 관리번호. 해수부 선박운항정보 mrNum과 같아서 배(호출부호)를 특정한다 (09-23 추가)",
+        description="cargMtNo 앞 11자리, 입항 적하목록 관리번호. 해수부 선박운항정보 mrNum과 같아서 배(호출부호)를 특정한다",
     )
     # UNI-PASS 연계가이드 v4.1 API001 응답 항목. 값이 없으면(빈 태그) None인 선택 필드
     forwarder_name: str | None = Field(default=None, description="frwrEntsConm, 포워더명(예: 가공 포워더). 비어 오는 화물이 많다. LLM에 넘겨도 된다")
@@ -78,7 +78,7 @@ class CustomsRecord(BaseModel):
     )
     goods_name: str | None = Field(
         default=None,
-        description="prnm, 품명. 적하목록에 적힌 영어 그대로(예: TEST GOODS). 채팅 에이전트 LLM에는 가고 판정 LLM에는 안 간다 (10-06 오후)",
+        description="prnm, 품명. 적하목록에 적힌 영어 그대로(예: TEST GOODS). 채팅 에이전트 LLM에는 가고 판정 LLM에는 안 간다",
     )
     stage_history: list[CustomsStage] = Field(default_factory=list)
     # 화면 전용 처리 이력 원문. exclude=True라 model_dump에 안 나와 판정 LLM 입력(llm.judge)에 섞이지 않는다

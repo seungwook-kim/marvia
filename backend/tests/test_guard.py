@@ -184,7 +184,7 @@ def test_router_blocks_without_calling_llm(monkeypatch):
 
 # services/chat.py가 없는 환경에서는 이 절만 건너뛴다
 needs_chat = pytest.mark.skipif(importlib.util.find_spec("backend.app.services.chat") is None,
-                                reason="services/chat.py가 아직 없는 브랜치 (자연어 창구 PR 전)")
+                                reason="services/chat.py가 없는 환경")
 
 
 @pytest.fixture(autouse=True)

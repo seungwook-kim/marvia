@@ -47,13 +47,13 @@ class AgentRequest(BaseModel):
     follow_up_question: str | None = Field(default=None, max_length=300, description="후속 질의. 300자 제한 (SDD 7절)")
     resolved_mmsi: int | None = Field(default=None, description="되묻기 후 사용자가 고른 선박")
     voyage_no: str | None = Field(default=None, max_length=20, pattern=VOYAGE_PATTERN,
-                                  description="되묻기 후 입력. 영문·숫자·공백·-·/·. 20자까지 (10-06 점검)")
+                                  description="되묻기 후 입력. 영문·숫자·공백·-·/·. 20자까지")
     forwarder_eta: date | None = None
     # 적하목록 관리번호(예: 26PCLUVK37I). UNI-PASS에 B/L이 아직 없을 때 해수부 입항 신고로 배를 찾는 데만 쓴다 (docs/specs/mrn-fallback.md)
     mrn: str | None = Field(default=None, description="MRN 11자. 선택")
     # 서류 사진에서 사용자가 확인한 출항일. 내 화물 현황 표 출항 칸(user_cargo.departed_on, source 'document')에 적는 데만 쓴다
     # (services/cargo.upsert_assessment). 판정·되묻기 구분·LLM 입력에는 쓰지 않는다. 사용자가 직접 적은 날짜(manual)는 덮지 않는다
-    departed_on: date | None = Field(default=None, description="서류 사진에서 읽은 출항일 (10-06)")
+    departed_on: date | None = Field(default=None, description="서류 사진에서 읽은 출항일")
 
     @field_validator("voyage_no", mode="before")
     @classmethod
@@ -178,7 +178,7 @@ class CustomsInfo(BaseModel):
     forwarder_name: str | None = Field(default=None, description="포워더명 frwrEntsConm")
     carrier_name: str | None = Field(default=None, description="선사·항공사 shcoFlco")
     container_no: str | None = Field(default=None, description="컨테이너 번호 cntrNo. 여러 개면 ', '로 이은 한 문자열")
-    goods_name: str | None = Field(default=None, description="품명 prnm. 적하목록 영어 그대로 (10-06 오후 추가)")
+    goods_name: str | None = Field(default=None, description="품명 prnm. 적하목록 영어 그대로")
 
 
 class BerthInfo(BaseModel):

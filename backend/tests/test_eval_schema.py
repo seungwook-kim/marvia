@@ -13,14 +13,14 @@ REQ = {"bl_no": "TESTBL0001", "bl_type": "HOUSE", "sale_due_date": date(2026, 9,
 def test_normal_record():
     r = EvalRecord(id="N01", category="normal", request=REQ, fixtures={"shipfinder": {}, "mof": {}},
                    expected_verdict="fine", expected_status="ok", expected_vessel_match="confirmed",
-                   expected_mmsi=440000001, labeler="하정운", label_reason="두 ETA 일치, 여유 4일")
+                   expected_mmsi=440000001, labeler="labeler-1", label_reason="두 ETA 일치, 여유 4일")
     assert r.failure_kind is None
 
 
 def test_failure_record_with_injection_kind():
     r = EvalRecord(id="F08", category="failure", failure_kind="inject_tool_description", request=REQ,
                    fixtures={}, expected_verdict="act", expected_status="ok", expected_vessel_match="confirmed",
-                   expected_mmsi=440000001, labeler="하정운", label_reason="도구 설명 속 지시를 무시해야 함")
+                   expected_mmsi=440000001, labeler="labeler-1", label_reason="도구 설명 속 지시를 무시해야 함")
     assert r.failure_kind == "inject_tool_description"
 
 
