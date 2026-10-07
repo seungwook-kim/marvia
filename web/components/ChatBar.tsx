@@ -45,9 +45,12 @@ function linkifyLine(line: string, key: number) {
   return line.split(URL_PATTERN).map((part, i) =>
     i % 2 === 1 ? <a key={`${key}-${i}`} href={part} target="_blank" rel="noopener noreferrer" className="chat-link">{part}</a> : part);
 }
+/** 서버가 답에 붙이는 근거 표시 [E1] / [E1, E2] / [E1][E2] (services/citations.py MARK_GROUP).
+ * 이 화면에는 근거 칩을 그리는 부품이 없어 글자로 보이지 않게 앞 공백과 함께 걷어 낸다 */
+const EVIDENCE_MARK = /\s*\[\s*E\d+(?:\s*[,，]\s*E\d+)*\s*\]/gi;
 function linkify(text: string): ReactNode[] {
   // 줄마다 따로 본다. 줄바꿈 글자는 그대로 둔다(말풍선은 white-space로 줄을 보인다)
-  return text.split('\n').flatMap((line, i) => {
+  return text.replace(EVIDENCE_MARK, '').split('\n').flatMap((line, i) => {
     const parts = linkifyLine(line, i);
     return [...(i === 0 ? [] : ['\n']), ...(Array.isArray(parts) ? parts : [parts])];
   });
