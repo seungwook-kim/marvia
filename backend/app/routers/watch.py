@@ -169,7 +169,9 @@ def add_vessel_watch(body: VesselBody, user: Annotated[CurrentUser | None, Depen
             # DB 연결을 열기 전에 찾는다: 외부 검색이 느려도 연결을 붙잡고 있지 않게
             if not (body.call_sign or "").strip():
                 raise vsvc.VesselWatchError("invalid")
-            mmsi = vsvc.resolve_mmsi(body.call_sign)
+            mmsi = vsvc.resolve_mmsi(body.call_sign, body.name)  # 호출부호로 못 찾으면 선명으로 한 번 더 (10-08)
+        # 상세를 안 열어 위치 캐시가 비었으면 한 번 받아 둔다. add_vessel이 그 값을 지도 첫 점으로 넣는다 (10-08)
+        vsvc.fetch_position(mmsi)
         with ops.open_conn() as conn:
             return vsvc.add_vessel(conn, user.id, mmsi, body.name, body.flag, body.dest, body.eta)
     except vsvc.VesselWatchError as e:

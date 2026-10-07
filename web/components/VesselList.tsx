@@ -34,6 +34,15 @@ const when = (x: string | null | undefined) => x ? dateTime(x, true) : '-';
 /** 줄과 지도 점을 잇는 이름 */
 const keyOf = (v: {call_sign: string | null; ship_name: string}) => `${v.call_sign ?? ''}|${v.ship_name}`;
 
+/** 자세히 결과의 배 번호를 지켜보기에 넘겨도 되는지 (10-08 입항 목록 지켜보기 422).
+ * 자세히는 선명으로 찾은 첫 후보라 호출부호가 다른 배일 수 있다(services/vessel_detail.py). 호출부호가 정확히 같을 때만 넘기고,
+ * 아니면 null을 넘겨 서버가 호출부호로 다시 찾게 한다(services/vessel_watch.resolve_mmsi). 다른 배를 지켜보게 하면 안 된다 */
+function detailMmsi(v: VesselItem, e: DetailEntry | undefined): number | null {
+  const found = e?.status === 'done' ? e.data.vessel : null;
+  const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
+  return found?.mmsi && same(found.call_sign, v.call_sign) ? found.mmsi : null;
+}
+
 /** 이 세션에서 받은 자세히 결과. 새 검색을 해도 남아서 지도에 계속 찍힌다 */
 const cache = new Map<string, DetailEntry>();
 
@@ -156,8 +165,9 @@ export function VesselList({data}: {data: ChatResponse}) {
               onClick={() => pick(v)} onMouseEnter={() => setHover(k)} onMouseLeave={() => setHover(null)}>
               <td className="c-name"><div className="vl-name">
                 <button type="button" className="ship-link" onClick={e => { e.stopPropagation(); pick(v); }} aria-pressed={open} aria-expanded={open}>{v.ship_name}</button>
-                {/* 해수부 신고에는 MMSI가 없어 호출부호로 올린다(서버가 찾는다). 호출부호가 없는 배는 지켜볼 수 없어 버튼을 그리지 않는다 */}
-                {v.call_sign ? <span className="vl-watch" onClick={e => e.stopPropagation()}><WatchVesselButton callSign={v.call_sign} name={v.ship_name} flag={v.nationality} eta={v.expected_arrival}/></span> : null}
+                {/* 해수부 신고에는 MMSI가 없어 호출부호로 올린다(서버가 찾는다). 호출부호가 없는 배는 지켜볼 수 없어 버튼을 그리지 않는다.
+                    자세히를 이미 받았으면 그 배 번호를 같이 보낸다(detailMmsi, 10-08): 서버가 다시 찾지 않아 ShipFinder 호출이 준다 */}
+                {v.call_sign ? <span className="vl-watch" onClick={e => e.stopPropagation()}><WatchVesselButton mmsi={detailMmsi(v, entries[k])} callSign={v.call_sign} name={v.ship_name} flag={v.nationality} eta={v.expected_arrival}/></span> : null}
               </div></td>
               <td className="c-flag">{cell(v.nationality)}</td>
               <td className="c-prev">{cell(v.previous_port)}</td>

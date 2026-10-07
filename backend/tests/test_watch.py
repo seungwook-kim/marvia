@@ -42,6 +42,7 @@ class FakeConn:
 
     def __init__(self):
         self.rows: list[dict] = []
+        self.positions: dict[tuple, tuple] = {}  # watch_positions (mmsi, ts) → 넣은 값
 
     def add(self, bl=BL, user=USER, **over) -> dict:
         row = {"user_id": user, "cargo_key": cargo.cargo_key(bl), "bl_encrypted": crypto.encrypt(bl),
@@ -95,6 +96,15 @@ class FakeConn:
             for r in self.rows:
                 if (r["user_id"], r["cargo_key"]) == (user, key):
                     r.update(changed_from=old, changed_at=at, change_seen=False)
+            return _Cur(rowcount=1)
+        if q.startswith("SELECT vessel_mmsi FROM user_cargo"):
+            found = [r for r in self.rows if (r["user_id"], r["cargo_key"]) == tuple(params)]
+            return _Cur([(r["vessel_mmsi"],) for r in found])
+        if q.startswith("INSERT INTO watch_positions"):
+            # 첫 위치 점 (services/watch.seed_position). (mmsi, ts)가 같으면 넣지 않는다 (ON CONFLICT DO NOTHING)
+            if (params[0], params[1]) in self.positions:
+                return _Cur(rowcount=0)
+            self.positions[(params[0], params[1])] = params
             return _Cur(rowcount=1)
         raise AssertionError(f"예상하지 못한 SQL: {q}")
 
@@ -188,6 +198,62 @@ def test_set_watch_without_key(monkeypatch):
 
 
 # ── watch_state ──
+
+# ── 켤 때 첫 위치 점 (services/watch.seed_position, 10-08) ──
+
+def _pos(mmsi=440123456, last_time=datetime(2026, 10, 8, 3, tzinfo=timezone.utc)):
+    """ShipFinderClient.position이 캐시에 남기는 값 모양 (모의 좌표)."""
+    return SimpleNamespace(mmsi=mmsi, last_time=last_time, fetched_at=datetime(2026, 10, 8, 3, 5, tzinfo=timezone.utc),
+                           lat=35.0, lng=129.0, sog=12.5, cog=60.0, navistat=0)
+
+
+@pytest.fixture
+def pos_cache(monkeypatch):
+    """테스트마다 빈 ShipFinder 캐시. 클래스 변수라 다른 테스트가 담은 위치가 섞이지 않게 바꿔 끼운다."""
+    from backend.app.clients.cache import ResponseCache
+    from backend.app.clients.shipfinder import ShipFinderClient
+    cache = ResponseCache()
+    monkeypatch.setattr(ShipFinderClient, "cache", cache)
+    return cache
+
+
+def test_set_watch_on_seeds_cached_position_once(pos_cache):
+    conn = FakeConn()
+    conn.add()
+    pos_cache.set("shipfinder:pos:440123456", _pos())
+    svc.set_watch(conn, USER, BL, True)
+    assert list(conn.positions) == [(440123456, datetime(2026, 10, 8, 3, tzinfo=timezone.utc))]
+    svc.set_watch(conn, USER, BL, True)  # 다시 켜도 같은 보고 시각은 한 줄
+    svc.set_watch(conn, USER, BL, False)
+    svc.set_watch(conn, USER, BL, True)
+    assert len(conn.positions) == 1 and conn.row()["watch"] is True
+
+
+def test_set_watch_on_without_cache_or_vessel_has_no_point(pos_cache):
+    conn = FakeConn()
+    conn.add()
+    assert svc.set_watch(conn, USER, BL, True) is True and conn.positions == {}  # 캐시 없음
+    pos_cache.set("shipfinder:pos:440123456", _pos(last_time=None))
+    svc.set_watch(conn, USER, BL, True)
+    assert conn.positions == {}  # 보고 시각 없음
+    other = FakeConn()
+    other.add(vessel_mmsi=None)
+    assert svc.set_watch(other, USER, BL, True) is True and other.positions == {}  # 배를 못 정한 화물
+
+
+def test_set_watch_on_still_works_when_seed_fails(pos_cache, monkeypatch):
+    conn = FakeConn()
+    conn.add()
+    pos_cache.set("shipfinder:pos:440123456", _pos())
+    real = conn.execute
+
+    def broken(sql, params=()):
+        if "INSERT INTO watch_positions" in sql:
+            raise RuntimeError("db down")
+        return real(sql, params)
+    monkeypatch.setattr(conn, "execute", broken)
+    assert svc.set_watch(conn, USER, BL, True) is True and conn.row()["watch"] is True
+
 
 def test_watch_state():
     conn = FakeConn()

@@ -2,6 +2,7 @@
 
 하는 일:
   set_watch()        결과 화면의 "지켜보기" 켜기·끄기. 사용자당 최대 MAX_WATCH건
+  seed_position()    켜는 순간 이미 받아 둔 배 위치를 지도 첫 점으로 남긴다 (ShipFinder를 새로 부르지 않는다)
   watch_state()      그 화물이 저장됐는지, 지켜보는 중인지 (버튼 상태)
   pending_changes()  아직 안 본 판정 변화 목록 ("다음 접속 때 표시" 띠)
   mark_seen()        화면에 보여 줬으니 "봤음"으로 바꾸기
@@ -32,6 +33,7 @@ from datetime import datetime, timezone
 
 from backend.app import crypto
 from backend.app.clients.kakao import KakaoError
+from backend.app.clients.shipfinder import ShipFinderClient
 from backend.app.observability.langfuse import session_scope
 from backend.app.observability.logging import log_failure
 from backend.app.schemas.agent import AgentRequest
@@ -97,7 +99,55 @@ def set_watch(conn, user_id: str, bl_no: str, on: bool) -> bool:
             raise WatchError("limit")
         conn.execute("UPDATE user_cargo SET watch = true, updated_at = now() WHERE user_id = %s AND cargo_key = %s",
                      [user_id, key])
+    _seed_cargo_position(conn, user_id, key)
     return True
+
+
+# 첫 위치 점 SQL. worker/collector.py INSERT_WATCH_POSITION과 같은 문장이다 (같은 보고 시각은 한 줄만, UNIQUE (mmsi, ts)).
+# backend가 worker를 import하지 않게 여기 따로 둔다. 둘 중 하나를 고치면 같이 고친다
+INSERT_WATCH_POSITION = """
+INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (mmsi, ts) DO NOTHING
+"""
+
+
+def seed_position(conn, mmsi: int | None) -> bool:
+    """지켜보기를 켜는 순간, 이 api 프로세스가 이미 받아 둔 그 배 위치를 watch_positions에 첫 점으로 넣는다 (10-08).
+
+    왜: 위치 이력은 수집 워커만 쌓는데, 워커 스케줄러는 ShipFinder 하루 한도 때문에 꺼져 있다(WORKER_SCHEDULE=off).
+    그래서 지켜보기를 켜도 감시 지도에 점이 하나도 없었다. 화물 판정·선박 자세히 보기가 MCP(get_live_position)로 받은 위치는
+    ShipFinderClient 클래스 캐시(shipfinder:pos:{mmsi})에 남아 있고, MCP가 같은 api 프로세스에 붙어 있어(/mcp) 여기서도 보인다.
+    그 값을 버리지 않고 쓴다. ShipFinder는 새로 부르지 않는다 (하루 50회 한도).
+    캐시에 없거나(TTL rules.md api_cache_ttl_hours가 지났거나) 보고 시각(last_time)이 없으면 넣지 않는다:
+    언제 위치인지 모르면 지나온 길에 못 놓는다 (worker/collector.py와 같은 규칙).
+    실패해도 예외를 밖으로 내지 않는다. 지켜보기 켜기 자체는 그대로 돼야 한다. 넣었으면 True."""
+    if not mmsi:
+        return False
+    try:
+        entry = ShipFinderClient.cache.entry(f"shipfinder:pos:{mmsi}")
+        pos = entry.value if entry else None
+        if pos is None or getattr(pos, "last_time", None) is None:
+            return False
+        cur = conn.execute(INSERT_WATCH_POSITION,
+                           (mmsi, pos.last_time, pos.fetched_at, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat))
+        return bool(getattr(cur, "rowcount", 0))
+    except Exception as e:  # DB 연결은 autocommit이라(db.connect) 이 문장이 실패해도 앞의 켜기는 이미 저장돼 있다
+        log_failure("watch_seed_position", type(e).__name__)
+        return False
+
+
+def _seed_cargo_position(conn, user_id: str, key: str) -> None:
+    """B/L 화물의 배 번호(vessel_mmsi)를 읽어 seed_position에 넘긴다. 배를 못 정한 화물(null)은 아무것도 하지 않는다.
+    배를 정하지 못한 화물에 후보 중 하나의 위치를 찍으면 엉뚱한 배를 내 화물로 보이게 한다."""
+    try:
+        row = conn.execute("SELECT vessel_mmsi FROM user_cargo WHERE user_id = %s AND cargo_key = %s",
+                           [user_id, key]).fetchone()
+    except Exception as e:
+        log_failure("watch_seed_position", type(e).__name__)
+        return
+    if row and row[0]:
+        seed_position(conn, row[0])
 
 
 def watch_state(conn, user_id: str, bl_no: str) -> dict:

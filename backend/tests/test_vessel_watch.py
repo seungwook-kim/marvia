@@ -34,6 +34,7 @@ class FakeConn:
     def __init__(self, positions=None):
         self.rows: dict[tuple, dict] = {}
         self.positions = positions or {}
+        self.inserted: list = []  # 켤 때 넣은 첫 위치 점 (services/watch.seed_position)
 
     def execute(self, sql, params=()):
         q = " ".join(sql.split())
@@ -50,6 +51,9 @@ class FakeConn:
         if q.startswith("SELECT mmsi, name, flag, dest, eta, created_at FROM vessel_watch"):
             return _Cur([(m, r["name"], r["flag"], r["dest"], r["eta"], r["created_at"])
                          for (u, m), r in self.rows.items() if u == params[0]])
+        if q.startswith("INSERT INTO watch_positions"):
+            self.inserted.append(params)
+            return _Cur(rowcount=1)
         if "FROM watch_positions" in q:
             return _Cur(self.positions.get(params[0], [])[:params[1]])
         raise AssertionError(f"예상 못 한 SQL: {q}")
@@ -64,6 +68,17 @@ class _Ctx:
 
     def __exit__(self, *exc):
         return False
+
+
+@pytest.fixture(autouse=True)
+def no_shipfinder(monkeypatch):
+    """테스트가 진짜 ShipFinder를 부르지 않게 기본 클라이언트를 막고, 위치 캐시를 테스트마다 비운다.
+    켜기 전에 위치를 받는 길(fetch_position, 10-08)이 생겨서, 키가 있는 PC에서 mmsi로 올리는 테스트가 실제 호출을 하지 않게 한다.
+    클라이언트가 필요한 테스트는 _use로 바꿔 끼운다."""
+    from backend.app.clients.cache import ResponseCache
+    from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
+    monkeypatch.setattr(ShipFinderClient, "cache", ResponseCache())
+    monkeypatch.setattr(vsvc, "make_client", lambda: (_ for _ in ()).throw(ShipFinderError("bad_key", "테스트")))
 
 
 @pytest.fixture
@@ -251,6 +266,81 @@ def test_mmsi_wins_and_neither_is_422(db, me, monkeypatch):
     assert r.json()["mmsi"] == 440999901 and client.queries == []  # mmsi가 있으면 검색하지 않는다
     for body in ({"name": "TEST STAR"}, {"name": "TEST STAR", "call_sign": "  "}):
         assert _call("post", "/api/watch/vessels", body, me).status_code == 422
+
+
+def test_call_sign_miss_falls_back_to_name_with_same_sign(db, me, monkeypatch):
+    # 호출부호 검색 0건, 선명 검색에 같은 호출부호 배가 하나 → 200 (10-08 입항 목록 지켜보기 422)
+    class ByQuery(_FakeClient):
+        def search(self, keywords, max=10):
+            self.hits = [] if keywords == "TST01" else [(440999901, "TST01"), (333, "OTHER9")]
+            return super().search(keywords, max)
+    client = _use(monkeypatch, ByQuery())
+    r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
+    assert r.status_code == 200 and r.json()["mmsi"] == 440999901
+    assert client.queries == ["TST01", "TEST STAR"] and client.closed
+
+
+def test_name_fallback_without_same_sign_is_still_422(db, me, monkeypatch):
+    # 선명이 같아도 호출부호가 다른 배는 고르지 않는다
+    class ByQuery(_FakeClient):
+        def search(self, keywords, max=10):
+            self.hits = [] if keywords == "TST01" else [(333, "OTHER9"), (444, None)]
+            return super().search(keywords, max)
+    client = _use(monkeypatch, ByQuery())
+    r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
+    assert r.status_code == 422 and db.rows == {} and client.queries == ["TST01", "TEST STAR"]
+
+
+def test_add_seeds_cached_position_without_calling_shipfinder(monkeypatch):
+    from types import SimpleNamespace
+    from backend.app.clients.cache import ResponseCache
+    from backend.app.clients.shipfinder import ShipFinderClient
+    cache = ResponseCache()
+    monkeypatch.setattr(ShipFinderClient, "cache", cache)
+    monkeypatch.setattr(vsvc, "make_client", lambda: (_ for _ in ()).throw(AssertionError("ShipFinder를 부르면 안 된다")))
+    conn = FakeConn()
+    vsvc.add_vessel(conn, USER, 440999901, "TEST STAR")
+    assert conn.inserted == []  # 캐시 없음: 점 없이 켜진다
+    cache.set("shipfinder:pos:440999901", SimpleNamespace(
+        last_time=NOW, fetched_at=NOW, lat=35.0, lng=129.0, sog=12.5, cog=60.0, navistat=0))
+    vsvc.add_vessel(conn, USER, 440999901, "TEST STAR")
+    assert conn.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0)] and (USER, 440999901) in conn.rows
+
+
+class _PosClient(_FakeClient):
+    """위치 조회도 하는 가짜. 진짜 클라이언트처럼 받은 값을 ShipFinderClient 캐시에 넣는다. fail이면 조회가 실패한다."""
+
+    def __init__(self, hits=(), fail=False):
+        super().__init__(hits)
+        self.fail, self.positions = fail, []
+
+    def position(self, mmsi):
+        from types import SimpleNamespace
+        from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
+        self.positions.append(mmsi)
+        if self.fail:
+            raise ShipFinderError("timeout", "secret-url 시간 초과")
+        pos = SimpleNamespace(mmsi=mmsi, last_time=NOW, fetched_at=NOW, lat=35.0, lng=129.0, sog=12.5, cog=60.0, navistat=0)
+        ShipFinderClient.cache.set(f"shipfinder:pos:{mmsi}", pos)
+        return pos
+
+
+def test_watch_without_detail_fetches_position_once_and_seeds_point(db, me, monkeypatch):
+    # 상세를 안 열어 캐시가 빈 배: 켜기 전에 위치를 한 번 받아 첫 점으로 넣는다 (10-08 사용자 결정)
+    client = _use(monkeypatch, _PosClient([(440999901, "TST01")]))
+    r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
+    assert r.status_code == 200 and client.positions == [440999901]
+    assert db.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0)]
+    # 다시 켜면 캐시가 있어 위치를 다시 부르지 않는다 (하루 50회 한도)
+    again = _use(monkeypatch, _PosClient())
+    assert _call("post", "/api/watch/vessels", VESSEL, me).status_code == 200 and again.positions == []
+
+
+def test_position_failure_still_turns_watch_on_without_point(db, me, monkeypatch):
+    client = _use(monkeypatch, _PosClient(fail=True))
+    r = _call("post", "/api/watch/vessels", VESSEL, me)
+    assert r.status_code == 200 and client.positions == [440999901] and client.closed
+    assert db.inserted == [] and (USER, 440999901) in db.rows and "secret-url" not in r.text
 
 
 # ── 워커·마이그레이션 ──
