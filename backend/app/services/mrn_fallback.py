@@ -16,6 +16,7 @@ from backend.app.schemas.agent import (
     AgentRequest, AgentResponse, BerthInfo, EtaInfo, Evidence, Position, VesselInfo,
 )
 from backend.app.services.vessel_detail import _freshness
+from backend.app.services.vessel_pick import single
 # MCP 도구는 /mcp를 거쳐 부른다 (10-02, services/mcp_client.py)
 from backend.app.services.mcp_client import estimate_distance, get_live_position, get_vessel_candidates
 
@@ -57,8 +58,11 @@ def assess(request: AgentRequest) -> AgentResponse | None:
     ais_eta = calc_eta = distance_nm = None
     found = get_vessel_candidates(ship_name=plan.ship_name or "", call_sign=plan.call_sign)
     cands = [] if "error" in found else (found.get("candidates") or [])
-    if cands:
-        c = cands[0]
+    # 호출부호를 알면 후보 도구가 같은 호출부호·IMO마다 최신·최근 신호로 거른 뒤 MMSI가 하나일 때만 그 배다
+    # (10-08 결정, services/vessel_pick.py). 여러 척이면 맨 앞을 고르지 않고 해수부 정보만으로 답한다 (EC-03과 같은 길).
+    # 호출부호가 없을 때만 전처럼 가장 비슷한 선명 후보를 쓴다
+    c = (single(cands) if plan.call_sign else (cands[0] if cands else None))
+    if c is not None:
         vessel = VesselInfo(mmsi=c["mmsi"], imo=c.get("imo"), name=c.get("name") or plan.ship_name,
                             call_sign=plan.call_sign, flag=c.get("flag") or plan.nationality, ship_type=c.get("ship_type"),
                             voyage_no=None)
@@ -79,7 +83,8 @@ def assess(request: AgentRequest) -> AgentResponse | None:
         else:
             log_failure("mrn_fallback_position", pos["error"].get("code"))  # EC-03: 해수부 정보만으로 계속
     else:
-        log_failure("mrn_fallback_vessel", (found.get("error") or {}).get("code", "not_found"))
+        code = (found.get("error") or {}).get("code") or ("ambiguous" if cands else "not_found")
+        log_failure("mrn_fallback_vessel", code)
 
     when = plan.expected_arrival.astimezone(timezone(timedelta(hours=9))).strftime("%m월 %d일 %H:%M") if plan.expected_arrival else "확인되지 않음"
     answer = (f"{NO_CUSTOMS_YET} {plan.ship_name}호가 {when} 부산 입항 예정이고 접안 예정지는 {plan.facility or '확인되지 않음'}입니다. "

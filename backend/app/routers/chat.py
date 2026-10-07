@@ -416,7 +416,13 @@ def chat_stream(body: ChatRequest, user_id: Annotated[str | None, Depends(curren
 def vessel_detail_view(call_sign: str | None = Query(default=None, max_length=20),
                        ship_name: str | None = Query(default=None, max_length=100),
                        user_id: Annotated[str | None, Depends(current_user_id)] = None) -> dict:
-    """선박 표에서 선명을 눌렀을 때. 해수부 일정 + AIS 위치 + 부산까지 거리. 판정은 하지 않는다 (services/vessel_detail.py)."""
+    """선박 표에서 선명을 눌렀을 때. 해수부 일정 + AIS 위치 + 부산까지 거리. 판정은 하지 않는다 (services/vessel_detail.py).
+
+    하루 횟수 상한 (10-08 결정): 캐시(10분)에 없는 새 조회만 사용자당 하루 rules.md vessel_detail_daily_limit번까지.
+    한 번에 ShipFinder를 2~3회 쓰고 하루 50회를 다 쓰면 판정까지 막히기 때문이다. 캐시에서 답하는 조회는 언제나 된다.
+    로그인 없이 쓰면(인증 꺼짐) 모두 한 몫을 같이 쓴다."""
     if not (call_sign or ship_name):
         raise HTTPException(status_code=400, detail="호출부호나 선명이 필요합니다")
+    if not vessel_detail.cached(call_sign, ship_name) and not vessel_detail.take_daily_slot(user_id):
+        raise HTTPException(status_code=429, detail="오늘 선박 자세히 보기 조회 횟수를 다 썼습니다. 내일 다시 시도해 주세요.")
     return vessel_detail.detail(call_sign, ship_name)

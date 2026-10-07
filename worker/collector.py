@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from backend.app.clients.mof import MAX_PAGES, MofClient, SailingPlan
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
+from backend.app.services.vessel_pick import pick_by_call_sign
 
 # 입항 신고를 오늘부터 며칠 뒤까지 볼지. 해수부 신고가 1주 앞까지 나온다 (09-24~30 조회 264척, 2026-09-23 실측).
 # mcp_server/tools/port_schedule.py의 LOOKAHEAD_DAYS와 같은 근거다
@@ -180,15 +181,13 @@ def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget) -> dict:
     return {"watched": len(mmsis), "watch_positions_new": saved, "watch_positions_failed": failed}
 
 
-def _pick_hit(hits, call_sign: str):
-    """호출부호가 정확히 같은 검색 결과 중 가장 최근에 보고한 MMSI.
+def _pick_hit(hits, call_sign: str, now: datetime | None = None):
+    """호출부호로 지금 그 호출부호를 쓰는 배 한 척. 하나로 못 정하면 None (services/vessel_pick.py, 10-08 결정).
 
-    한 호출부호에 MMSI가 여러 개 나올 수 있다 (09-23 실측: BOBQ2에 MMSI 3개). 최근 보고가 지금 쓰는 번호다.
+    한 호출부호에 MMSI가 여러 개 나올 수 있다 (09-23 실측: 한 호출부호에 MMSI 3개). 전에는 가장 최근에 보고한 것을 골랐는데,
+    최근 신호를 보낸 배가 둘 이상이면 어느 쪽인지 모르면서 하나를 골랐다. 지켜보기·후보 도구와 같은 규칙으로 맞췄다.
     """
-    same = [h for h in hits if h.call_sign and h.call_sign.upper() == call_sign.upper()]
-    if not same:
-        return None
-    return max(same, key=lambda h: h.last_time or datetime.min.replace(tzinfo=timezone.utc))
+    return pick_by_call_sign(hits, call_sign, now=now)  # now: 최근 신호를 재는 기준 시각 (select_targets와 같은 시각)
 
 
 def select_targets(conn, reports: list[SailingPlan], sf: ShipFinderClient, budget: Budget,
@@ -210,7 +209,7 @@ def select_targets(conn, reports: list[SailingPlan], sf: ShipFinderClient, budge
         if len(known) + len(added) >= MAX_TARGETS or not budget.take():
             break
         try:
-            hit = _pick_hit(sf.search(r.call_sign).hits, r.call_sign)
+            hit = _pick_hit(sf.search(r.call_sign).hits, r.call_sign, now)
         except ShipFinderError as e:
             no_match.append({"call_sign": r.call_sign, "code": e.code})
             continue
