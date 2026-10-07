@@ -3,6 +3,7 @@
 책임: POST /api/document가 돌려주는 모양을 고정한다. 프론트 확인 화면이 이 모양을 그대로 그린다.
 판정 요청(AgentRequest)으로 바로 넘기지 않는다. 사용자가 확인·수정한 값만 /api/agent로 간다 (SDD 비전 울타리).
 필드를 바꾸면 프론트가 같이 깨지므로 PR 리뷰를 거친다 (CLAUDE.md 계약 파일 규칙).
+10-08 사용자 결정: 채팅 입력창 사진 첨부는 확인 화면 없이 bl_status가 ok일 때만 바로 조회한다 (bl_status, important 추가, 선택 칸).
 10-02 (정운 승인, 결정 6): B/L 조건 세 칸 + 인코텀즈와 화물 인도 연락처(회사·역할·회사 전화) 칸을 더했다.
 이 칸들은 서류에 없는 경우가 흔해서(도착 통지서엔 운임 조건이 없기도 하다) 비어도 missing을 걸지 않는다.
 값이 있을 때만 검사(not_in_text, format, ambiguous)를 건다. 사용자가 확인 화면에서 고른 값만 저장된다 (POST /api/memory/document-facts).
@@ -74,3 +75,13 @@ class DocumentResponse(BaseModel):
     # status는 그대로 partial이고 코드가 뽑은 B/L도 그대로 준다. 화면이 "AI가 서류 글자를 정리하지 못했어요"를 보여 주고,
     # 평가 스크립트가 제공사 실패와 틀린 답을 가르는 데 쓴다. 옛 모양의 응답도 읽히도록 기본값을 null로 둔다
     llm_error: str | None = None
+    # 10-08 사용자 결정 (additive, 선택): 채팅 입력창에 사진을 붙여 보내면 확인 화면 없이 바로 조회한다.
+    # 그래서 "B/L로 바로 조회해도 되나"를 코드가 정해 화면에 준다 (routers/document.bl_status_of). LLM이 정하지 않는다.
+    #   ok: B/L을 읽었고 검사를 모두 통과 → 화면이 그 B/L로 바로 조회한다
+    #   uncertain: B/L 모양 값은 있지만 검사에 걸렸다 → 조회하지 않고 사용자에게 직접 입력을 부탁한다
+    #   none: B/L을 못 읽었다
+    # 옛 모양의 응답도 읽히도록 기본값을 둔다 (화면은 없으면 fields로 같은 규칙을 다시 계산한다)
+    bl_status: Literal["ok", "uncertain", "none"] = "none"
+    # 10-08: 검사를 통과한 "중요한 칸"의 이름만 (vessel, voyage, eta, etd). 값은 넣지 않는다.
+    # 사진을 다시 보여 주지 않기로 해서(10-08 사용자 결정), 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다
+    important: list[Literal["vessel", "voyage", "eta", "etd"]] = Field(default_factory=list)

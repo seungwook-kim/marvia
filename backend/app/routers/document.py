@@ -1,13 +1,18 @@
-"""POST /api/document: 서류 사진에서 조회 값 7칸과 출항일(etd)을 뽑아 확인 화면용으로 돌려준다 (docs/specs/document-extract.md).
+"""POST /api/document: 서류 사진에서 조회 값 7칸과 출항일(etd)을 뽑고, 바로 조회해도 되는지(bl_status)를 코드로 정해 돌려준다
+(docs/specs/document-extract.md, 10-08 사용자 결정으로 확인 화면 대신 채팅 입력창 첨부).
 
 처리 순서 (Spec "흐름"):
   1~2. 전처리 + OCR               services/doc_ocr.read_lines (로컬, 외부 호출 없음). PDF(%PDF로 시작)는 read_pdf: 글자층 먼저, 없으면 그림으로 OCR
   3.   B/L 번호를 코드로 뽑고 가림   doc_ocr.take_bl, mask_bl. 가려지지 않으면 LLM을 부르지 않는다
   4.   나머지 6칸                   services/llm.extract_doc_fields (소형 모델, LLM_MODEL)
   5.   칸 검사                      doc_ocr.check_fields, B/L 조건·연락처는 doc_ocr.check_conditions (10-02 결정 6)
-여기서 판정하지 않고 LLM SDK를 import하지 않는다 (CLAUDE.md). 뽑은 값으로 /api/agent를 부르지도 않는다. 사용자가 확인한 뒤 프론트가 부른다.
+  6.   바로 조회해도 되나            bl_status_of, important_of (10-08 사용자 결정, 코드가 정한다)
+여기서 판정하지 않고 LLM SDK를 import하지 않는다 (CLAUDE.md). 뽑은 값으로 /api/agent·/api/chat을 부르지도 않는다.
+10-08 사용자 결정: 채팅 입력창에 사진을 붙여 보내면 확인 화면 없이, 화면이 bl_status가 ok일 때만 그 B/L로 채팅 조회를 보낸다
+(web/components/ChatBar.tsx, AppProvider.askWithAttachment). 예전 "읽은 값으로 바로 조회하지 않는다"는 이 결정으로 바뀌었다.
 대형 비전 모델로 넘기기는 2차다. 지금은 검사에 걸리면 needs_review=true로 사용자에게 맡긴다.
 """
+import re
 from contextlib import nullcontext
 from typing import Annotated
 
@@ -26,6 +31,11 @@ router = APIRouter(prefix="/api", tags=["document"])
 # 사진 한 장 상한. 폰 사진이 보통 2~5MB라 넉넉히 잡되, 큰 파일로 서버 메모리를 쓰게 두지 않는다 (Spec EC-02, 임시값)
 MAX_BYTES = 10 * 1024 * 1024
 LLM_FIELDS = ("vessel", "voyage", "eta", "pol", "pod", "item", "etd")  # etd: 10-06, 없으면 null (프롬프트에 아직 없을 때도 안전)
+# 바로 조회 판단에 쓰는 B/L 모양: 영문·숫자 8~20자 + 숫자 하나 이상.
+# schemas/agent.py _BL_PATTERN과 services/chat.py _BL(숫자 하나 이상)을 둘 다 만족해야 채팅이 B/L로 알아듣는다
+_BL_OK = re.compile(r"^(?=[A-Z0-9]*\d)[A-Z0-9]{8,20}$")
+# "중요한 칸": 내 배를 확인하는 데 쓰는 값 (10-08). 이름만 화면에 알린다
+IMPORTANT_FIELDS = ("vessel", "voyage", "eta", "etd")
 # 서류 종류 → 거래처 출처 이름 (메모장 거래처 출처 목록, docs/specs/memory.md)
 DOC_KIND = {"bl": "B/L", "arrival_notice": "A/N"}
 
@@ -103,5 +113,25 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
         mrn=doc_ocr.take_mrn(ocr.lines),  # 세관에 아직 없는 화물의 대체 조회용 (mrn-fallback)
         doc_kind=doc_kind,
         llm_error=llm_error,
+        bl_status=bl_status_of(fields),
+        important=important_of(fields),
     )
+
+
+def bl_status_of(fields: DocumentFields) -> str:
+    """사진의 B/L로 바로 조회해도 되는지 코드가 정한다 (10-08 사용자 결정: 첨부 사진은 확인 화면 없이 조회).
+    ok: 값이 있고, 검사(missing, not_in_text, format, ambiguous)에 하나도 안 걸렸고, 채팅이 B/L로 알아듣는 모양이다.
+    uncertain: 값은 있지만 위 조건 중 하나라도 어긋난다. 틀린 번호로 남의 화물을 조회하지 않게 조회를 멈춘다.
+    none: 값이 없다."""
+    bl = fields.bl_no
+    if not bl.value:
+        return "none"
+    if bl.checks or not _BL_OK.match(bl.value):
+        return "uncertain"
+    return "ok"
+
+
+def important_of(fields: DocumentFields) -> list[str]:
+    """검사를 통과한 중요한 칸(IMPORTANT_FIELDS)의 이름만 돌려준다. 값은 담지 않는다 (10-08: 읽은 내용을 다시 보여 주지 않는다)."""
+    return [k for k in IMPORTANT_FIELDS if getattr(fields, k).value and not getattr(fields, k).checks]
 

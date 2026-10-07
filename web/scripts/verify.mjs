@@ -194,25 +194,28 @@ try {
     assert(await page.locator('.vessel-results .leaflet-container').count() <= 1, 'only the selected vessel keeps a map');
     check(`vessel search + inline detail switch/cleanup ${width}`);
 
-    // 서류 사진: 드로어에서 확인한 값만 입력창에 넣고 자동으로 조회하지 않는다
+    // 서류 사진 (10-08 사용자 결정): 입력창에 붙이면 칩만 보이고 확인 화면은 없다. 붙이기만 해서는 보내지 않고,
+    // 보내면 사진에서 B/L을 읽어 바로 조회한다. 화면에는 가린 번호만 말한다 (데모 fixture: MRVDEMO1101, 가공값)
     const turnCount = await turns(page);
     // 휴대폰: 펼친 상세 시트가 입력창을 덮으므로 손잡이로 접는다 (넓은 화면에는 손잡이가 없다)
     if (await handle.isVisible() && (await handle.getAttribute('aria-expanded')) === 'true') await handle.click();
-    const docTrigger = page.getByRole('button', {name: '서류 사진으로 채우기'});
-    await docTrigger.click(); await page.getByRole('dialog').waitFor();
-    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '패널 닫기', 'drawer focus starts on close');
-    assert(await page.evaluate(() => document.querySelector('.app-shell').hasAttribute('inert')), 'page behind the drawer is inert');
-    for (let t = 0; t < 25; t++) await page.keyboard.press('Tab');
-    assert(await page.evaluate(() => !!document.activeElement?.closest('.drawer')), 'focus stays inside the drawer');
-    if (width === 1440 && !interactionsOnly) await audit(page, `document-drawer-${width}`);
-    await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({state: 'detached'});
-    assert(await page.evaluate(() => !!document.activeElement?.classList.contains('doc-trigger')), 'Esc returns focus to the trigger');
-    await docTrigger.click(); await page.getByRole('dialog').waitFor();
+    await input(page).fill('');
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
-    await page.locator('.drawer input[type=file]').setInputFiles({name: 'notice.png', mimeType: 'image/png', buffer: png});
-    await page.getByRole('button', {name: '확인한 값으로 채우기'}).click(); await page.getByRole('dialog').waitFor({state: 'detached'});
-    assert.match(await input(page).inputValue(), /MRVDEMO1101/); assert.equal(await turns(page), turnCount, 'document never sends by itself');
-    check(`document drawer focus/inert/Esc + fills composer without sending ${width}`);
+    const photo = {name: 'notice.png', mimeType: 'image/png', buffer: png};
+    await page.locator('.composer input[type=file]').setInputFiles(photo); await page.locator('.attach-chip').waitFor();
+    assert.equal(await page.getByRole('dialog').count(), 0, 'attaching opens no confirmation screen');
+    assert.equal(await turns(page), turnCount, 'attaching alone never sends');
+    if (width === 1440 && !interactionsOnly) await audit(page, `composer-attachment-${width}`);
+    await page.getByRole('button', {name: '첨부한 notice.png 빼기'}).click();
+    assert.equal(await page.locator('.attach-chip').count(), 0, 'chip remove button drops the attachment');
+    await page.locator('.composer input[type=file]').setInputFiles(photo); await page.locator('.attach-chip').waitFor();
+    await page.getByRole('button', {name: 'AI에게 질문 보내기'}).click();  // 글 없이 사진만 보내도 된다
+    await page.locator('.chat-turn.user .chat-attach-img').last().waitFor();
+    await page.waitForFunction(n => document.querySelectorAll('.chat-turn').length >= n + 3, turnCount);  // 사용자 + 코드 문장 + 답
+    const note = await page.locator('.chat-turn.assistant').nth(-2).innerText();
+    assert.match(note, /MRV\*+101/); assert.doesNotMatch(note, /MRVDEMO1101/, 'note shows only the masked B/L');
+    await page.locator('.pending-card').waitFor({state: 'detached'});
+    check(`composer attachment: chip, remove, send image-only, masked note + lookup ${width}`);
 
     // 이력: 필터, 저장된 판정 재생, 다시 조회해도 재생 스냅샷 조건 그대로
     await page.getByRole('link', {name: '조회 이력'}).first().click(); await page.locator('.hist-list > li').first().waitFor();

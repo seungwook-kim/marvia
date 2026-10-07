@@ -1,11 +1,11 @@
 'use client';
 /** 조회 입력 폼 (SDD 5.13 TopBar, 계약 C2). 백엔드와 같은 B/L 정규화·검사를 먼저 해서 400을 줄인다.
  * 판매 예정일은 선택이다 (09-29 계약 변경). 요청에 status나 fixture ID 같은 칸을 더하지 않는다.
+ * 서류 사진 버튼은 지웠다 (10-08 사용자 결정): 사진은 채팅 입력창에 첨부하고 확인 화면 없이 조회한다 (ChatBar). 이 폼은 지금 화면에 쓰이지 않는다.
  */
 import {useEffect, useState, type FormEvent} from 'react';
 import {ArrowRight, Camera, Check, ChevronDown, LoaderCircle, Search, X} from 'lucide-react';
 import {useApp} from './AppProvider';
-import {DocumentPanel, type DocumentValues} from './DocumentPanel';
 import {isLive, liveExamples, selectFixture} from '@/lib/api';
 import type {AgentRequest} from '@/lib/types';
 import {maskBl} from '@/lib/format';
@@ -17,7 +17,6 @@ export function TopBar() {
   const [date, setDate] = useState(request.sale_due_date ?? '');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [choice, setChoice] = useState('');
-  const [docOpen, setDocOpen] = useState(false);
 
   useEffect(() => { setBl(request.bl_no); setType(request.bl_type); setDate(request.sale_due_date ?? ''); }, [request]);
 
@@ -53,12 +52,6 @@ export function TopBar() {
     setErrors({}); setBl(c.bl_no); setType(c.bl_type); setDate(sale);
   }
 
-  /** 서류 사진에서 확인한 값: B/L은 폼에, 항차·입항 예정일은 되묻기 화면용으로 둔다. 조회는 사용자가 누른다. */
-  function applyDocument(v: DocumentValues) {
-    setBl(v.bl_no); setErrors({}); setDocOpen(false);
-    setDocHints(v.voyage_no || v.forwarder_eta || v.departed_on ? {voyage_no: v.voyage_no, forwarder_eta: v.forwarder_eta, bl_no: v.bl_no, departed_on: v.departed_on} : null);
-  }
-
   return <section className="query-section" aria-label="화물 조회">
     <form className="query-form" onSubmit={submit} noValidate>
       <div className="form-field bl-field">
@@ -79,15 +72,13 @@ export function TopBar() {
     </form>
     <div className="query-foot">
       <div className="query-foot-actions">
-      <button type="button" className="doc-trigger" onClick={() => setDocOpen(o => !o)} aria-expanded={docOpen} disabled={loading}><Camera size={13}/>서류 사진으로 채우기</button>
       <label className="example-select">예시 화물 {isLive
         ? <select aria-label="예시 화물" value="" disabled={loading} onChange={e => chooseLive(e.target.value)}><option value="">선택하기</option>{liveExamples.map(c => <option value={c.id} key={c.id}>{c.label} · {c.bl_no}</option>)}</select>
         : <select aria-label="예시 화물" value="" disabled={loading} onChange={e => chooseDemo(e.target.value)}><option value="">선택하기</option>{data.demo.choices.slice(0, 3).map(c => <option value={c.id} key={c.id}>{c.label} · {maskBl(c.request.bl_no)}</option>)}</select>}
         <ChevronDown size={12}/></label>
       </div>
     </div>
-    {docOpen && <DocumentPanel onApply={applyDocument} onClose={() => setDocOpen(false)} disabled={loading}/>}
-    {docHints && !docOpen && <p className="doc-hint"><Camera size={13}/>서류에서 확인한 값
+    {docHints && <p className="doc-hint"><Camera size={13}/>서류에서 확인한 값
       {docHints.voyage_no && <> · 항차 <strong>{docHints.voyage_no}</strong></>}
       {docHints.forwarder_eta && <> · 입항 예정 <strong>{docHints.forwarder_eta}</strong></>}
       {docHints.departed_on && <> · 출항 <strong>{docHints.departed_on}</strong></>}

@@ -57,7 +57,6 @@ export function Drawer({title, description, onClose, children, wide = false}: {
 
   return createPortal(<div className={`drawer-overlay${closing ? ' closing' : ''}`} onMouseDown={e => { if (e.target === e.currentTarget) requestClose(); }}>
     <section ref={panel} className={`drawer ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      {/* 서류 확인처럼 자기 제목을 그리는 내용이면 이 제목은 스크린리더용으로만 남긴다(CSS :has, document.css). 닫기 버튼·포커스 트랩·Esc·inert는 그대로 */}
       <header className="drawer-head">
         <div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div>
         <button type="button" className="drawer-close" onClick={requestClose} aria-label="패널 닫기" title="닫기"><X size={18}/></button>
