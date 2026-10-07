@@ -49,3 +49,6 @@ evals/fixtures/replay/positions/
 
 # 실서비스 DB 덤프 (회원 개인정보 포함). 커밋 금지
 db_dump/
+
+# 에이전트 작업용 git worktree (Claude Code가 .claude/worktrees/에 만든다). 커밋하지 않는다 (10-08)
+.claude/worktrees/
