@@ -1,4 +1,4 @@
-"""키 없이 도는 서버 데모 13건(라이브 모의 화물 10건 + 평가셋 3건)의 재생 파일을 만든다 (SDD 6.1, CLAUDE.md "REPLAY_MODE=true면 키 없이 데모", 09-29, 10-06 확장).
+"""키 없이 도는 서버 데모 13건(라이브 모의 화물 10건 + 평가셋 3건)의 재생 파일을 만든다 (SDD 6.1, CLAUDE.md "REPLAY_MODE=true면 키 없이 데모").
 
     python -m scripts.make_demo                              # 로컬: 만든 뒤 REPLAY_MODE=true로 서버를 켠다
     docker compose exec api python -m scripts.make_demo      # compose: 떠 있는 api 컨테이너 안에서 만든다
@@ -9,9 +9,9 @@
   TESTBL26  실패    F04  위치 조회 권한 없음 → 판정 보류(partial)
 
 왜 날짜를 옮기나:
-  평가셋은 "09-22 12:00" 기준 시각(clock)으로 적혀 있다. 평가 실행기는 시계를 그 시각에 고정하지만
+  평가셋은 고정된 기준 시각(clock)으로 적혀 있다. 평가 실행기는 시계를 그 시각에 고정하지만
   서버는 실제 현재 시각을 쓴다. 그대로 두면 오늘 돌릴 때 위치가 며칠 전 것(오래된 위치)이 되고
-  입항 예정일도 이미 지난 날짜가 된다. 그래서 모든 시각을 "지금 - clock"만큼 뒤로 옮겨 쓴다 (09-29 결정: 서버 시계는 건드리지 않는다).
+  입항 예정일도 이미 지난 날짜가 된다. 그래서 서버 시계는 건드리지 않고 모든 시각을 "지금 - clock"만큼 뒤로 옮겨 쓴다.
   - 시각(ISO 문자열, epoch 초): 차이만큼 그대로 옮긴다. 배 위치는 늘 "30분 전 수신"이 된다
   - 날짜만 있는 값(판매 예정일, UNI-PASS 입항일): 한국 날짜 기준 일수만 옮긴다. 그래야 여유 일수가 평가셋과 같게(N01은 4일) 나온다
 
@@ -28,18 +28,18 @@ F04만 배를 바꾼다:
   LLM_MODEL이 비어 있으면 evals/fixtures/replay/llm/marvia-judge.json의 녹화 답을 쓴다 (services/llm.py _replay_answer).
   녹화 답은 이 데모 입력(판매 예정일을 안내한 날짜로 넣거나 비움)에만 맞다.
 
-라이브 데모 10건 (10-06 정운 결정, 발표 서버용):
+라이브 데모 10건 (발표 서버용):
   DEMOQD2610001 ~ DEMOQD2610010. 순항·주의·긴급 세 등급과 되묻기, 반출 완료를 실제 API 응답처럼 필드를 다 채운 모의 화물로 보여 준다.
   시나리오 목록은 scripts/demo_live.py의 SPECS이고, 그것을 펼친 문항이 evals/fixtures/demo_live.jsonl이다 (평가셋이 아니다).
   평가셋 3건(TESTBL01·04·26)은 그대로 같이 쓴다. 10건과 3건은 한 폴더에 같이 써서 해수부 _ALL.xml이 모두의 배를 담는다
-  (evals/replay_fixtures._write_all. 전에는 마지막에 쓴 문항만 남아 N01이 마지막이어야 했다).
+  (evals/replay_fixtures._write_all).
   위치 이력(6시간 간격)은 positions/<MMSI>.json으로 써서 서버가 DB 대신 읽는다 (clients/replay.position_history).
 
-서류 대조 데모 10건 (10-05 추가, 10-06부터 서버 데모에는 안 쓴다):
+서류 대조 데모 10건 (서버 데모에는 안 쓴다):
   TESTBL41~50. 동명 선박 중 세관 입항일·적재항과 해수부 입항 신고가 맞는 배를 확정하는 기능
   (services/identify.match_by_papers)과 그 경계를 보여 준다. 문항은 evals/fixtures/demo_papers.jsonl
   (평가셋이 아니다). 기능 확인은 backend/tests/test_demo_papers.py가 build_with_papers로 계속 한다.
-  서버 데모에 안 넣는 이유: 라이브 시연은 위 10건으로 정했다 (10-06 정운 결정). 이 문항 파일과 테스트는 기능 근거로 남겨 둔다.
+  라이브 시연은 위 10건으로 하고, 이 문항 파일과 테스트는 기능 근거로 남겨 둔다.
 """
 from __future__ import annotations
 
@@ -59,9 +59,8 @@ DATASET = ROOT / "evals" / "dataset.jsonl"
 PAPERS = ROOT / "evals" / "fixtures" / "demo_papers.jsonl"  # 서류 대조 데모 10건 (평가셋 아님, 모듈 설명)
 LIVE = ROOT / "evals" / "fixtures" / "demo_live.jsonl"  # 라이브 데모 10건 (평가셋 아님. scripts/demo_live.py가 만든다)
 
-# (평가셋 문항 id, 화면에 보일 이름, 기대 결과). 쓰는 순서도 이 순서다. N01을 마지막에 둬서
-# 해수부 _ALL.xml(호출부호 없이 부를 때 읽는 전체 목록)이 정상 건의 배로 남게 한다 (evals/replay_fixtures.py _write_mof)
-# 그래서 F04는 MRN으로 훑는 조회(identify_mrn)가 not_found 경고를 남긴다. 위치 조회 실패로 판정 보류하는 결과는 평가와 같다
+# (평가셋 문항 id, 화면에 보일 이름, 기대 결과). 쓰는 순서도 이 순서다.
+# F04는 MRN으로 훑는 조회(identify_mrn)가 not_found 경고를 남긴다. 위치 조회 실패로 판정 보류하는 결과는 평가와 같다
 DEMO_CASES = [
     ("F04", "실패", "partial: 위치 조회 권한 없음, 판정 보류"),
     ("B01", "되묻기", "insufficient: 같은 이름 배 2척, 어느 배인지 되묻기"),
@@ -92,7 +91,7 @@ def shift_value(key: str, value, delta: timedelta, days: timedelta):
         return value + int(delta.total_seconds())
     if isinstance(value, str) and ISO_DATETIME.match(value):
         return (datetime.fromisoformat(value) + delta).isoformat()
-    if key in ("prcsDttm", "rlbrDttm") and isinstance(value, str) and len(value) == 14:  # UNI-PASS 처리일시 YYYYMMDDHHMMSS (한국 시각, 10-06)
+    if key in ("prcsDttm", "rlbrDttm") and isinstance(value, str) and len(value) == 14:  # UNI-PASS 처리일시 YYYYMMDDHHMMSS (한국 시각)
         return (datetime.strptime(value, "%Y%m%d%H%M%S") + delta).strftime("%Y%m%d%H%M%S")
     if key == "etprDt" and isinstance(value, str) and len(value) == 8:  # UNI-PASS 입항일 YYYYMMDD
         return (datetime.strptime(value, "%Y%m%d").date() + days).strftime("%Y%m%d")
@@ -134,8 +133,8 @@ def build(now: datetime, out_dir: Path = REPLAY_DIR) -> list[dict]:
 
 
 def build_all(now: datetime, out_dir: Path = REPLAY_DIR) -> tuple[list[dict], list[dict]]:
-    """서버 데모 전부를 새로 쓴다: 라이브 10건을 먼저, 평가셋 3건을 나중에 (순서는 이제 결과에 영향이 없다. 해수부 _ALL.xml이 이어 붙는다).
-    (3건 안내, 라이브 10건 안내)를 돌려준다. 서류 대조 10건은 더 이상 쓰지 않는다 (build_with_papers)."""
+    """서버 데모 전부를 새로 쓴다: 라이브 10건을 먼저, 평가셋 3건을 나중에 (해수부 _ALL.xml이 이어 붙어 순서는 결과에 영향이 없다).
+    (3건 안내, 라이브 10건 안내)를 돌려준다. 서류 대조 10건은 build_with_papers가 따로 쓴다."""
     _clear(out_dir)
     live = _write_live(now, out_dir)
     return _write_three(now, out_dir), live
@@ -222,7 +221,7 @@ def _write_three(now: datetime, out_dir: Path) -> list[dict]:
 
 
 def refresh(out_dir: Path = REPLAY_DIR) -> datetime:
-    """서버가 도는 중에 데모 재생 파일을 새로 만든다 (10-05 결정: 재생 모드 배포는 4시간마다 자동으로, backend/app/main.py).
+    """서버가 도는 중에 데모 재생 파일을 새로 만든다 (재생 모드 서버는 4시간마다 자동으로, backend/app/main.py).
 
     _clear로 지우고 다시 쓰면 그 사이(수 밀리초) 들어온 요청이 파일을 못 찾는다. 그래서 옆 임시 폴더에 다 만든 뒤
     폴더 이름을 바꿔 끼운다. 녹화 LLM 답(llm/)처럼 이 스크립트가 만들지 않는 폴더는 건드리지 않는다.

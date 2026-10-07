@@ -1,4 +1,4 @@
-"""B9 도구 설명 검사. MCP 클라이언트가 보는 설명이 SDD 5.9 형식을 지키는지 본다.
+"""도구 설명 검사. MCP 클라이언트가 보는 설명이 SDD 5.9 형식을 지키는지 본다.
 
 SDD 5.9: 각 tool description은 "언제 쓰는가" 한 문장 + 입력 설명.
 SDD 7절: 도구 설명도 데이터라서 "무조건 믿어라"류 문장을 넣지 않는다. 무엇을 믿을지는 Skill이 정한다.
@@ -9,7 +9,7 @@ from mcp_server.server import mcp
 
 EXPECTED_TOOLS = {"get_vessel_candidates", "get_live_position", "get_port_schedule", "estimate_distance"}
 
-# 설명에 넣지 않는 판단·지시 표현. 신뢰 순서는 skills/ais-reliability, 등급은 services/verdict.py와 skills/cargo-verdict가 맡는다 (CLAUDE.md 폴더 표)
+# 설명에 넣지 않는 판단·지시 표현. 신뢰 순서는 skills/ais-reliability, 등급은 services/verdict.py와 skills/cargo-verdict가 맡는다
 FORBIDDEN_PHRASES = ("믿는다", "믿어라", "무조건", "판정하지 말고", "되물어야")
 
 
@@ -26,7 +26,7 @@ def test_four_tools_registered(tools):
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_TOOLS))
 def test_marked_read_only(tools, name):
-    """4종 모두 조회·계산만 해서 읽기 전용 표시(readOnlyHint)가 붙어 있다 (D9 도구 권한 정책)."""
+    """4종 모두 조회·계산만 해서 읽기 전용 표시(readOnlyHint)가 붙어 있다 (도구 권한 정책)."""
     annotations = tools[name].annotations
     assert annotations is not None, f"{name} 도구 표시(annotations) 없음"
     assert annotations.readOnlyHint is True, f"{name} 읽기 전용 표시 없음"

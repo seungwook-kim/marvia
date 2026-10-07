@@ -1,4 +1,4 @@
-"""화면 예시 데이터(web/lib/fixtures/*.json)에 응답 모델의 새 칸을 채운다 (10-08).
+"""화면 예시 데이터(web/lib/fixtures/*.json)에 응답 모델에서 빠진 칸을 채운다.
 
     python -m scripts.fill_web_fixtures
 

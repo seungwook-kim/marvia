@@ -1,8 +1,8 @@
-"""계약 C7(평가 레코드). 근거: SDD 3.7, PRD 8절.
+"""계약 C7: evals/dataset.jsonl 한 줄의 모양 (SDD 3.7, PRD 8절).
 
-책임: evals/dataset.jsonl 한 줄의 모양. 30건 = 정상 8(fine 4·act 4) · 경계 판정형 9 · 경계 보류형 5 · 실패 8.
+30건 = 정상 8(fine 4·act 4) · 경계 판정형 9 · 경계 보류형 5 · 실패 8.
 - request는 C2 그대로, fixtures는 도구별 가공 응답(실제 원본 아님, ShipFinder 약관).
-- expected_*는 사람이 모델 실행 전에 정한다. labeler·label_reason 필수 (D6).
+- expected_*는 사람이 모델 실행 전에 정한다. labeler·label_reason 필수.
 - actual_arrival은 입항 뒤에 채우는 사후 값. 판정 정확도와 섞지 않는다 (PRD 8절 정답 기준 ②).
 """
 from __future__ import annotations

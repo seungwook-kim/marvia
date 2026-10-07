@@ -1,11 +1,10 @@
-"""화면 계약 검사(web/scripts/verify-contract.mjs)가 읽는 백엔드 응답 스냅샷을 Pydantic 모델에서 다시 만든다 (10-08).
+"""화면 계약 검사(web/scripts/verify-contract.mjs)가 읽는 백엔드 응답 스냅샷을 Pydantic 모델에서 다시 만든다.
 
     python -m scripts.make_backend_contract          # web/scripts/backend-contract.json을 다시 쓴다
     python -m scripts.make_backend_contract --check  # 지금 파일이 모델과 같은지만 본다 (다르면 종료 코드 1)
 
 왜 만드나:
-  예전 스냅샷은 손으로 옮긴 사본이라, 응답에 칸이 늘어도(customs_detail, departed_on, llm_error 등) 아무도 몰랐다.
-  화면 검사는 통과하는데 실제 응답 모양은 지키지 못하는 상태였다. 모델에서 바로 뽑으면 둘이 어긋날 수 없다.
+  손으로 옮긴 스냅샷은 응답에 칸이 늘어도 따라가지 못한다. 모델에서 바로 뽑으면 화면 검사와 실제 응답 모양이 어긋날 수 없다.
 
 모양 (verify-contract.mjs validate가 읽는 작은 스키마):
   {"type": "object", "properties": {...}, "required": [모든 칸]}  응답은 기본값 칸도 늘 직렬화되므로 칸 전부가 필수다

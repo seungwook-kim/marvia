@@ -4,7 +4,7 @@
 레포에 둔다 (EVAL_REPORT.md 1·2절 근거). 트레이스 입력·출력 원문은 읽지도 쓰지도 않는다.
 화면에 B/L 가린 값, 모델 출력이 들어 있을 수 있어서다 (CLAUDE.md 보안 규칙, SDD 3.5).
 
-쓰는 API (이 조직은 09-16 이후 생성이라 옛 /api/public/traces·scores·dataset runs는 410을 돌려준다):
+쓰는 API (이 조직은 옛 /api/public/traces·scores·dataset runs에 410을 돌려준다):
   - GET /api/public/v2/metrics          관측(observation)·점수 집계
   - GET /api/public/v2/prompts          프롬프트 이름·버전 목록, 이름별 production 버전
   - GET /api/public/datasets            평가셋 이름·문항 수·실행 이름
@@ -44,7 +44,7 @@ def _ts(text: str) -> datetime:
 def _all_scores(c: "Client") -> list[dict] | dict:
     """v3 scores를 끝까지 넘겨 받는다. 이름·값·시각만 남긴다. 실패하면 {"error": ...}."""
     out, cursor = [], None
-    for _ in range(100):  # 100개 x 100쪽이면 이 프로젝트 점수(10-02 780개)를 넉넉히 덮는다
+    for _ in range(100):  # 100개 x 100쪽이면 이 프로젝트 점수를 넉넉히 덮는다
         params = {"limit": 100, "fromTimestamp": c.since, "toTimestamp": c.until}
         if cursor:
             params["cursor"] = cursor
@@ -79,7 +79,7 @@ class Client:
 
     def get(self, path: str, **params) -> dict:
         # 429는 한도가 1분 안에 풀릴 때만 기다렸다 다시 부른다. metrics API는 이 계정에서 하루 100번 한도라
-        # (10-02 x-ratelimit-limit 100, reset 다음 날) 길게 기다려도 소용없다. 그때는 오류로 돌려주고
+        # 길게 기다려도 소용없다. 그때는 오류로 돌려주고
         # main()이 이전 실행에서 받은 값을 그대로 둔다(_merge_previous)
         for attempt in range(3):
             try:
@@ -213,11 +213,11 @@ def collect(c: Client) -> dict:
         s["dataset_runs_not_in_experiments"] = sorted({r for r in runs if r not in ex_names})
         s["dataset_runs_duplicate_names"] = sorted({r for r in runs if runs.count(r) > 1})
 
-    # 실험(실행)별 점수: 평가 실행기는 한 실행의 score를 모두 실행 끝 시각으로 남긴다(10-02 확인, score timestamp =
+    # 실험(실행)별 점수: 평가 실행기는 한 실행의 score를 모두 실행 끝 시각으로 남긴다(score timestamp =
     # 실험 endTime). 그래서 v3 scores를 전부 받아 실행 시작 ~ 끝 + 5초 구간으로 나눠 센다. 실행은 한 번에 하나씩
     # 순서대로 돌아서(evals/run_eval.py max_concurrency=1) 구간이 겹치지 않는다. metrics API(하루 100번 한도)를
     # 실행마다 부르지 않으려고 v3 scores 목록(100개씩)을 쓴다. 점수 값만 쓰고 트레이스 내용은 읽지 않는다.
-    # 09-29·09-30 실행은 결과 JSON이 레포에 없어서 EVAL_REPORT.md 4절 전후 비교의 근거로 쓴다
+    # 결과 JSON이 레포에 없는 실행은 이 값이 EVAL_REPORT.md 4절 전후 비교의 근거다
     if isinstance(s["experiments"], list):
         scores = _all_scores(c)
         for e in s["experiments"]:

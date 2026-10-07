@@ -1,4 +1,4 @@
-"""시연용 가공 화물을 한 사용자에게 넣는다 (10-07, docs/mockups/v2/A-enterprise-navy.html의 데이터).
+"""시연용 가공 화물을 한 사용자에게 넣는다 (docs/mockups/v2/A-enterprise-navy.html의 데이터).
 
 실제로 움직이는 B/L을 찾기 어려워서, 로그인한 계정 하나에 화물 9건(긴급 2, 주의 3, 순항 4)을 만든다.
 - user_cargo: 판정·여유 일수·통관 단계·선박·포워더·지켜보기(watch=true), 그중 3건은 판정 변동(changed_from, change_seen=false)

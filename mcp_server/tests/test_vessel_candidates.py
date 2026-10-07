@@ -1,4 +1,4 @@
-"""B3 get_vessel_candidates 단위 테스트. fixture 클라이언트로 키 없이 돈다."""
+"""get_vessel_candidates 단위 테스트. fixture 클라이언트로 키 없이 돈다."""
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -78,7 +78,7 @@ def test_nationality_filters_out_other_flags(fake):
 
 
 def test_flag_is_fetched_even_when_position_fails(monkeypatch):
-    """위치가 없는 배(신호 끊김)도 국적은 받는다. 전에는 위치가 실패하면 국적도 건너뛰었다 (09-28, 평가 B14)."""
+    """위치가 없는 배(신호 끊김)도 국적은 받는다. 국적으로 동명 선박을 거를 수 있어야 한다."""
     body = {"status": 0, "msg": "", "data": [
         {"match_type": 1, "mmsi": 351999301, "imo": 9900301, "call_sign": "3ETS1", "ship_name": "TEST STAR", "last_time": _fresh()}]}
 
@@ -104,14 +104,14 @@ def test_call_sign_is_carried_for_mof_lookup(fake):
 
 
 def test_call_sign_search_keeps_exact_call_sign_only(fake):
-    """호출부호로 찾으면 호출부호가 같은 배만 남긴다. 대소문자는 가리지 않는다 (09-28, MRN 식별)."""
+    """호출부호로 찾으면 호출부호가 같은 배만 남긴다. 대소문자는 가리지 않는다 (MRN 식별)."""
     fake()
     got = get_vessel_candidates("TEST STAR", call_sign="tst02")["candidates"]
     assert [c["mmsi"] for c in got] == [440999102]
 
 
 def test_call_sign_search_drops_old_holders(fake):
-    """호출부호는 다른 배에 다시 배정된다. 최근에 신호를 보낸 배만 지금 그 호출부호를 쓰는 배다 (09-28 실측: 같은 호출부호 3척)."""
+    """호출부호는 다른 배에 다시 배정된다. 최근에 신호를 보낸 배만 지금 그 호출부호를 쓰는 배다."""
     fake(stale_mmsi=(440999102,))
     assert get_vessel_candidates("TEST STAR", call_sign="TST02")["candidates"] == []
 
@@ -135,7 +135,7 @@ def test_search_failure_returns_tool_error(fake, monkeypatch):
 
 
 def test_failed_detail_lookup_is_logged(monkeypatch, caplog):
-    """후보 한 척의 위치 조회가 실패하면 목록은 그대로 주되 로그를 남긴다. 국적까지 모르면 B14 비교를 못 한다."""
+    """후보 한 척의 위치 조회가 실패하면 목록은 그대로 주되 로그를 남긴다. 국적까지 모르면 국적 비교를 못 한다."""
     body = {"status": 0, "msg": "", "data": [
         {"match_type": 1, "mmsi": 351999301, "imo": 9900301, "call_sign": "3ETS1", "ship_name": "TEST STAR", "last_time": _fresh()}]}
 

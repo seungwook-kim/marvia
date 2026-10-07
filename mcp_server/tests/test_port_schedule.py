@@ -1,4 +1,4 @@
-"""B6 get_port_schedule 단위 테스트. fixture XML로 키 없이 돈다."""
+"""get_port_schedule 단위 테스트. fixture XML로 키 없이 돈다."""
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -134,7 +134,7 @@ def test_call_sign_search_reads_one_page(fake):
 
 
 def test_final_revision_is_not_planned_arrival(fake):
-    """최종 신고의 시각은 실제 입항 시각이라 예정으로 돌려주지 않는다 (2026-09-23 실측).
+    """최종 신고의 시각은 실제 입항 시각이라 예정으로 돌려주지 않는다.
 
     arrival_report_busan.xml: TEST11은 변경(09-24 12:00), TEST12는 최종(09-22 13:54).
     """
@@ -143,7 +143,7 @@ def test_final_revision_is_not_planned_arrival(fake):
     assert get_port_schedule(call_sign="TEST12", ship_name="테스트벌크12")["planned_arrival"] is None
 
 
-# ── 도구는 예외를 던지지 않는다 (C4, 10-06 점검) ──
+# ── 도구는 예외를 던지지 않는다 (C4, SDD 3.4) ──
 
 def test_missing_key_returns_bad_key_error(monkeypatch):
     """클라이언트 만들기에서 난 실패(키 없음)도 {error}로, 코드는 bad_key 그대로."""
@@ -166,7 +166,7 @@ def test_unexpected_exception_returns_bad_response(monkeypatch):
 
 
 def test_defaults_come_from_rules():
-    """조회 기간·선명 비교 기준은 port-busan/rules.md 프론트매터 값이다 (C6, 10-06)."""
+    """조회 기간·선명 비교 기준은 port-busan/rules.md 프론트매터 값이다 (C6)."""
     from backend.app.services.rules import rule
 
     assert port_schedule.LOOKBACK_DAYS == rule("port_schedule_lookback_days")

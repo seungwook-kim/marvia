@@ -1,4 +1,4 @@
-"""에러 로깅 실패 훈련 (D6 에러 로깅 확인, 09-29).
+"""에러 로깅 실패 훈련: 실패 경로마다 기대한 로그 줄이 남는지 확인한다.
 
     python -m scripts.failure_drill --list            # 시나리오 목록: 무엇을 바꾸나 · 기대 줄 · LLM 필요 여부
     python -m scripts.failure_drill --no-llm          # LLM 없이 도는 것만 (비용 0, 외부 API 호출 0)
@@ -13,8 +13,7 @@
 왜 필요한가:
   단위 테스트는 가짜 LLM·가짜 응답으로 함수 하나씩 본다. 실제 모델(LLM_MODEL)이 진짜로 실패했을 때
   라우터까지 올라와 같은 줄이 찍히는지는 요청 하나를 끝까지 돌려 봐야 안다.
-  09-29 평가 실행에서 터미널에 "failure" 한 단어만 찍혀 원인을 몰랐던 일(logging.py log_failure 설명)이
-  다시 없는지, 명령 하나로 다시 확인하려는 장치다.
+  실패 원인이 로그에 남는지 명령 하나로 다시 확인하려는 장치다.
 
 어떻게:
   평가 실행기(evals/run_eval.py)를 그대로 다시 쓴다. 외부 API는 REPLAY 재생, 시계는 문항의 clock, DB는 끈다.
@@ -197,7 +196,7 @@ def _judge_not_configured() -> dict:
 
 
 def _judge_gave_up_f08() -> dict:
-    # 평가 실행기가 F08에서 llm.chat을 "{}"를 돌려주는 가짜로 바꾼다 (run_eval._llm_failure_replay).
+    # 평가 실행기가 계약 위반 문항(F08)에서 llm.chat을 "{}"를 돌려주는 가짜로 바꾼다 (run_eval._llm_failure_replay).
     # 실제 LLM은 부르지 않지만 judge의 JSON 검사와 라우터의 3회 재시도 경로는 진짜다
     return _run_case("F08", "b")
 
@@ -223,7 +222,7 @@ def _validate_gave_up() -> dict:
 def _db_bad_url(case_id: str) -> Callable[[], dict]:
     def run() -> dict:
         # psycopg를 시계 멈춤(freeze_time) 밖에서 먼저 불러 둔다. 안에서 처음 불리면 가짜 datetime 때문에
-        # "datetime.date size changed" 경고가 찍힌다 (09-29 이 스크립트 첫 실행에서 봄)
+        # "datetime.date size changed" 경고가 찍힌다
         import psycopg  # noqa: F401
 
         os.environ["DATABASE_URL"] = BAD_DB_URL
@@ -352,7 +351,7 @@ SCENARIOS = [
              False, "constructed (TestClient)", _history(bad_url=True)),
 
     # 도구 실패: 평가셋 재생 자료에서 자연히 나온다
-    # 09-29 결정: 시간 초과는 평가셋에 있는 예전 위치(캐시)로 대신하고 partial로 판정한다. 그래서 도구 실패
+    # 시간 초과는 평가셋에 있는 예전 위치(캐시)로 대신하고 partial로 판정한다. 그래서 도구 실패
     # 대신 "캐시로 대체" 줄이 남는다. 캐시도 없는 시간 초과는 backend/tests/test_cache.py가 본다
     Scenario("tool_timeout_f02", "평가셋 F02 (위치 조회 타임아웃 재생, 캐시 위치로 대체, 규칙 판정기)",
              [("shipfinder:pos", "timeout served_from_cache")],
@@ -465,7 +464,7 @@ def main() -> None:
     # 서버 코드는 이 뒤에 import해야 한다. 클라이언트가 import·생성 때 이 값들을 읽는다
     run_eval._setup_env()
     from evals.replay_fixtures import use_error_replay
-    use_error_replay()  # F02 타임아웃 재생 (평가 실행기와 같다)
+    use_error_replay()  # 타임아웃 재생 (평가 실행기와 같다)
     catcher = _setup_logging()
 
     # --no-llm은 LLM을 실제로 부르는 시나리오만 뺀다. SKIP은 아무것도 부르지 않으니 이유를 보이게 남긴다

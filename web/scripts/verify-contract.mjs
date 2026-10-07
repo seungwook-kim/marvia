@@ -8,7 +8,7 @@ import path from 'node:path';
 import Module from 'node:module';
 import ts from 'typescript';
 const root=process.cwd();
-// Windows 작업 사본(core.autocrlf)은 줄끝이 CRLF라 LF 기준 정규식이 백엔드 파일에서 못 맞았다. 읽을 때 LF로 맞춘다 (10-08)
+// Windows 작업 사본(core.autocrlf)은 줄끝이 CRLF라 LF 기준 정규식이 못 맞는다. 읽을 때 LF로 맞춘다
 const readText=(f)=>fs.readFileSync(f,'utf8').replace(/\r\n/g,'\n');
 const {definitions}=JSON.parse(readText('scripts/backend-contract.json'));
 function validate(value,schema,at){
@@ -29,14 +29,14 @@ for(const id of ['ok','partial','insufficient','failed','unsupported','watch','a
  if(r.days_margin!==null)assert(r.evidence.some(e=>e.field==='days_margin'&&Number(e.value)===r.days_margin));
 }
 validate(JSON.parse(readText('lib/fixtures/history.json')),definitions.HistoryResponse,'history');
-// 서류 사진 응답과 화물 비서 기억 (10-02, schemas/document.py · schemas/memory.py). 칸이 하나라도 다르면 실패한다
+// 서류 사진 응답과 화물 비서 기억 (schemas/document.py · schemas/memory.py). 칸이 하나라도 다르면 실패한다
 const documentFixture=JSON.parse(readText('lib/fixtures/document.json'));validate(documentFixture,definitions.DocumentResponse,'document');
 const memoryFixture=JSON.parse(readText('lib/fixtures/memory.json'));validate(memoryFixture,definitions.MemoryResponse,'memory');
 // 화면에 가는 기억에는 가린 번호만 있다. 가리지 않은 예시 B/L(MRVDEMO + 숫자)이 섞이면 안 된다 (SDD 3.5)
 assert(!/MRVDEMO\d{4}/.test(JSON.stringify(memoryFixture)),'memory fixture must not contain an unmasked B/L');
 assert.equal(new Set(memoryFixture.items.map(i=>i.id)).size,memoryFixture.items.length,'memory item ids must be unique');
 // In-memory transpilation runs exactly lib/api.ts; it does not create duplicate test code.
-// api.ts가 다른 .ts(lib/auth.ts)를 불러도 같은 방식으로 옮겨 읽게 한다 (10-01, 로그인 추가)
+// api.ts가 다른 .ts(lib/auth.ts)를 불러도 같은 방식으로 옮겨 읽게 한다
 const tsOptions={compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true,target:ts.ScriptTarget.ES2022}};
 Module._extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(readText(f),tsOptions).outputText,f);
 const filename=path.join(root,'lib/api.ts');
@@ -53,7 +53,7 @@ assert.deepEqual(await api.getHistory('different-session'),{items:[],available:t
 const candidates=JSON.parse(readText('lib/fixtures/insufficient.json')).vessel_candidates;
 assert.equal((await api.getAgentResponse({...req('insufficient'),resolved_mmsi:candidates[0].mmsi})).status,'ok');
 assert.equal((await api.getAgentResponse({...req('insufficient'),resolved_mmsi:candidates[1].mmsi,voyage_no:'EXAMPLE'})).status,'insufficient');
-// 처리 단계 소식 (docs/specs/chat-progress.md, 10-02). lib/progress.ts를 그대로 옮겨 실행한다
+// 처리 단계 소식 (docs/specs/chat-progress.md). lib/progress.ts를 그대로 옮겨 실행한다
 const progressFile=path.join(root,'lib/progress.ts');
 const pm=new Module(progressFile);pm.filename=progressFile;pm._compile(ts.transpileModule(readText(progressFile),tsOptions).outputText,progressFile);
 const {createSseParser,isStage,stageLabels}=pm.exports;
@@ -65,13 +65,13 @@ assert(isStage('judge')&&!isStage('made-up'));
 // 화면 라벨과 서버 단계 이름이 같아야 한다. 한쪽에만 있으면 화면이 단계를 버리거나 서버가 못 보낸다
 const backendStages=[...readText(path.join(root,'../backend/app/services/progress.py')).match(/STAGES = \(([\s\S]*?)\n\)/)[1].matchAll(/"([a-z_]+)"/g)].map(m=>m[1]);
 assert.deepEqual(Object.keys(stageLabels).sort(),backendStages.slice().sort(),'progress stage names differ between web and backend');
-// B/L 2~3개 비교 표 (ChatCargoTable, 10-05). 줄의 칸 이름이 서버 ChatCargo와 같아야 하고, 여유 일수 문구는 VerdictCard와 같은 말이다
+// B/L 2~3개 비교 표 (ChatCargoTable). 줄의 칸 이름이 서버 ChatCargo와 같아야 하고, 여유 일수 문구는 VerdictCard와 같은 말이다
 const chatSrc=readText(path.join(root,'../backend/app/routers/chat.py'));
 const backendCargo=[...chatSrc.match(/class ChatCargo\(BaseModel\):[\s\S]*?\n\n\nclass/)[0].matchAll(/^    ([a-z_]+): /gm)].map(m=>m[1]);
 const webCargo=[...readText(path.join(root,'lib/types.ts')).match(/export interface ChatCargo \{([\s\S]*?)\n\}/)[1].matchAll(/\b([a-z_]+)\??:/g)].map(m=>m[1]);
 assert.deepEqual([...new Set(webCargo)].sort(),backendCargo.slice().sort(),'ChatCargo fields differ between web and backend');
 assert(/cargos: list\[ChatCargo\] = \[\]/.test(chatSrc),'ChatResponse.cargos must default to an empty list');
-// 대화로 지켜보기 (10-06): 서버 ChatResponse의 watch_offer·watch_set 모양과 기본값(null)이 화면 타입과 같아야 한다
+// 대화로 지켜보기: 서버 ChatResponse의 watch_offer·watch_set 모양과 기본값(null)이 화면 타입과 같아야 한다
 assert(/watch_offer: [A-Za-z]+ \| None = None/.test(chatSrc),'ChatResponse.watch_offer must default to None');
 assert(/watch_set: [A-Za-z]+ \| None = None/.test(chatSrc),'ChatResponse.watch_set must default to None');
 const typesSrc=readText(path.join(root,'lib/types.ts'));
@@ -79,7 +79,7 @@ const backendFields=(cls)=>{const m=chatSrc.match(new RegExp(`class ${cls}\\(Bas
 const webFields=(name)=>[...typesSrc.match(new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\}`))[1].matchAll(/\b([a-z_]+)\??:/g)].map(x=>x[1]).sort();
 assert.deepEqual(webFields('WatchOffer'),backendFields('WatchOffer'),'WatchOffer fields differ between web and backend');
 assert.deepEqual(webFields('WatchSet'),backendFields('WatchSet'),'WatchSet fields differ between web and backend');
-// 대화 목록 (10-06): 고정된 계약의 칸 이름이 화면 타입과 같아야 한다. 백엔드 파일이 아직 없어도 돌 수 있게 화면 쪽만 정적으로 본다
+// 대화 목록: 고정된 계약의 칸 이름이 화면 타입과 같아야 한다. 백엔드 파일 없이도 돌 수 있게 화면 쪽만 정적으로 본다
 assert.deepEqual(webFields('ConversationSummary'),['id','title','updated_at'].sort(),'ConversationSummary fields');
 assert.deepEqual(webFields('ConversationMessage'),['created_at','extra','role','text'],'ConversationMessage fields');
 assert.deepEqual(webFields('ConversationDetail'),['context','id','messages','result','title'],'ConversationDetail fields');
@@ -97,7 +97,7 @@ assert.equal(marginText({days_margin:-2,sale_due_date:'2026-10-11'}),'2일 늦�
 assert.equal(marginText({days_margin:0,sale_due_date:'2026-10-11'}),'0일 여유');
 assert.equal(marginText({days_margin:null,sale_due_date:'2026-10-11'}),'확인 안 됨');
 assert.equal(marginText({days_margin:null,sale_due_date:null}),'판매 예정일 없음');
-// 로그인 뒤 돌아올 주소에 #이 남으면 ##access_token이 되어 supabase-js가 출입증을 못 읽는다 (lib/auth.ts returnAddress, 10-02)
+// 로그인 뒤 돌아올 주소에 #이 남으면 ##access_token이 되어 supabase-js가 출입증을 못 읽는다 (lib/auth.ts returnAddress)
 const authFile=path.join(root,'lib/auth.ts');
 const am=new Module(authFile);am.filename=authFile;am.paths=Module._nodeModulePaths(path.dirname(authFile));am._compile(ts.transpileModule(readText(authFile),tsOptions).outputText,authFile);
 const {parseParametersFromURL}=Module.createRequire(authFile)('@supabase/auth-js/dist/main/lib/helpers.js');

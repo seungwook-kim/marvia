@@ -1,4 +1,4 @@
-"""평가셋 30건을 Langfuse Dataset에 올린다 (필수 조건 4 "Langfuse 평가셋 30건+ Dataset", SDD 5.12).
+"""평가셋 30건을 Langfuse Dataset에 올린다 (SDD 5.12).
 
     python -m evals.push_dataset          # .env의 LANGFUSE 키로 올린다
 

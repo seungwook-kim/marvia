@@ -1,4 +1,4 @@
-"""B4 get_live_position 단위 테스트. fixture 클라이언트를 넣어 키 없이 돈다."""
+"""get_live_position 단위 테스트. fixture 클라이언트를 넣어 키 없이 돈다."""
 import json
 from pathlib import Path
 
@@ -33,13 +33,13 @@ def test_returns_raw_values_and_both_times(use_fixture):
     assert (r["mmsi"], r["lat"], r["lng"], r["sog"], r["navistat"]) == (440999001, 35.1, 129.05, 0.0, 8)
     assert (r["dest"], r["destcode"]) == ("BUSAN, KR", "KRPUS")
     assert r["source"] == "shipfinder"
-    # last_time은 선박이 보고한 시각, fetched_at은 우리가 조회한 시각. 둘 다 있어야 C-4가 stale을 판정한다
+    # last_time은 선박이 보고한 시각, fetched_at은 우리가 조회한 시각. 둘 다 있어야 신호 계산이 stale을 판정한다
     assert r["last_time"] and r["fetched_at"] and r["last_time"] != r["fetched_at"]
     assert r["ais_eta"] is None  # 이 응답에는 eta 키가 없다
 
 
 def test_does_not_judge_freshness(use_fixture):
-    """freshness·stale 판정은 services/signals.py 몫이라 도구 출력에 없다 (작업 리스트 경계 정리)."""
+    """freshness·stale 판정은 services/signals.py 몫이라 도구 출력에 없다."""
     use_fixture("position_busan_anchored.json")
     r = get_live_position(440999001)
     assert "freshness" not in r and "stale" not in r
@@ -56,7 +56,7 @@ def test_failure_returns_tool_error_not_exception(fixture, code, retryable, use_
     assert r["error"]["message"]
 
 
-# ── 도구는 예외를 던지지 않는다 (C4, 10-06 점검) ──
+# ── 도구는 예외를 던지지 않는다 (C4, SDD 3.4) ──
 
 def test_missing_key_returns_bad_key_error(monkeypatch):
     """클라이언트 만들기에서 난 실패(키 없음)도 {error}로, 코드는 bad_key 그대로."""

@@ -1,4 +1,4 @@
-"""LLM-as-judge: 판정 LLM이 쓴 통관 해설을 다른 회사 모델로 채점한다 (SDD 5.12, 가이드 평가 4축 ④).
+"""LLM-as-judge: 판정 LLM이 쓴 통관 해설을 다른 회사 모델로 채점한다 (SDD 5.12).
 
 evals/run_eval.py가 문항을 푼 직후 grade(row, 판정 모델)를 부른다. 결과는 row["customs_grade"]에 담기고
 요약의 customs_explanation(채점한 문항의 평균)과 Langfuse 실험 점수로 남는다.
@@ -29,7 +29,7 @@ def grade(row: dict, generation_model: str | None) -> dict | None:
     customs = (row.get("got") or {}).get("customs")
     if not customs or not customs.get("plain_explanation"):
         return None
-    # 반출신고와 목록에 없는 단계는 코드가 고정 문장을 쓴다. LLM 해설 품질이 아니라 채점에서 뺀다 (10-01)
+    # 반출신고와 목록에 없는 단계는 코드가 고정 문장을 쓴다. LLM 해설 품질이 아니라 채점에서 뺀다
     from backend.app.routers.agent import code_written_explanation
 
     if code_written_explanation(customs.get("stage_name")):

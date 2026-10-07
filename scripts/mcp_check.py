@@ -1,10 +1,10 @@
-"""MCP 서버 연결 확인 스크립트 (B1 완료 기준, B10 제출 캡처용).
+"""MCP 서버 연결 확인 스크립트 (증빙 캡처용).
 
 서버에 붙어 initialize와 tool 목록 조회를 한다.
 
     python -m scripts.mcp_check http://localhost:8000/mcp --token <MCP_TOKEN>
 
-토큰을 생략하면 환경변수 MCP_TOKEN을 쓴다. 서버에 토큰이 걸려 있는데 안 주면 401이 난다 (A10).
+토큰을 생략하면 환경변수 MCP_TOKEN을 쓴다. 서버에 토큰이 걸려 있는데 안 주면 401이 난다.
 """
 import argparse
 import asyncio

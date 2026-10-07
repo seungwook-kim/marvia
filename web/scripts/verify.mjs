@@ -1,12 +1,12 @@
-/** End-to-end acceptance for the current AI-composer home (10-02 rewrite; the old #bl form flow no longer exists).
+/** End-to-end acceptance for the AI-composer home.
  * 1) Demo mode: `npm run dev -- --port 3100` must be running at MARVIA_TEST_URL (default :3100). Fixtures only, no API.
  * 2) Live mode (optional): a production build made with NEXT_PUBLIC_API_BASE=http://127.0.0.1:3199 running at MARVIA_LIVE_TEST_URL.
  *    This script starts a fake API on :3199 itself, so the browser receives real SSE over the network (docs/specs/chat-progress.md).
  *    Without MARVIA_LIVE_TEST_URL the live checks are reported as SKIP, never as PASS.
  * Uses installed Chrome by default; PLAYWRIGHT_CHANNEL can override the browser channel.
  * All other off-origin HTTP is blocked and recorded: the app must run on local assets only.
- * Kept meaning from the previous script: 7 cargo states, axe WCAG A/AA, zero page errors and external HTTP, candidate validation,
- * MOF evidence filter, history filter + replay + retry isolation. Added: composer keys/IME/limits, real-stage waiting, drawers, roles.
+ * Covers: 7 cargo states, axe WCAG A/AA, zero page errors and external HTTP, candidate validation, MOF evidence filter,
+ * history filter + replay + retry isolation, composer keys/IME/limits, real-stage waiting, drawers, roles.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,7 +35,7 @@ async function audit(page, name) {
 }
 async function newContext(width, allowed = [base]) {
   const context = await browser.newContext({viewport: {width, height: 1000}, deviceScaleFactor: 1, reducedMotion: 'reduce'});
-  // 지도 바탕(OpenFreeMap)이 쓰는 호스트 하나만 예외로 허용한다 (10-06 정운 승인). 스타일, 벡터 타일, 글꼴, 아이콘이 모두 이 호스트다.
+  // 지도 바탕(OpenFreeMap)이 쓰는 호스트 하나만 예외로 허용한다. 스타일, 벡터 타일, 글꼴, 아이콘이 모두 이 호스트다.
   // 못 불러와도 지도는 해안선으로 되돌아가야 하므로(lib/basemap.ts) 이 허용이 e2e를 네트워크에 묶지는 않는다. 다른 외부 주소는 그대로 실패시킨다.
   const origins = [...allowed.map(u => new URL(u).origin), 'https://tiles.openfreemap.org'];
   await context.route('**/*', route => {
@@ -106,7 +106,7 @@ try {
       await page.screenshot({path: `screenshots/${String(i + 8).padStart(2, '0')}-${route}-${width}.png`, fullPage: true}); check(`${route} ${width}px`);
     }
 
-    // 설정은 화면 안 탭 5개, 관리는 탭 2개: 탭마다 접근성 검사 (탭을 바꿔도 가로 넘침이 없어야 한다)
+    // 설정은 화면 안 탭 4개, 관리는 탭 2개: 탭마다 접근성 검사 (탭을 바꿔도 가로 넘침이 없어야 한다)
     await page.goto(`${base}/settings`); await ready(page);
     const settingsTabs = page.locator('.st-tabs .st-tab'); assert.equal(await settingsTabs.count(), 4, 'settings has 4 in-page tabs (조회 이력은 왼쪽 메뉴로 합침, 10-07)');
     for (let t = 0; t < 4; t++) { await settingsTabs.nth(t).click(); await ready(page); await overflow(page, width); if (!interactionsOnly) await audit(page, `settings-tab${t}-${width}`); }
@@ -167,7 +167,7 @@ try {
     await page.getByRole('button', {name: '전체 보기'}).click(); await page.locator('.evidence-item summary').first().click(); assert(await page.locator('.evidence-item .evidence-detail').first().isVisible());
     check(`MOF filter + raw evidence ${width}`);
 
-    // 지원 범위 밖: 질문 고치기는 입력창으로 보낸다 (예전 #bl 링크 대체)
+    // 지원 범위 밖: 질문 고치기는 입력창으로 보낸다
     await cargo(page, 'unsupported'); await page.getByRole('button', {name: '질문 고치기'}).click(); assert.equal(await activeId(page), 'chat-input');
     check(`unsupported returns to composer ${width}`);
 
@@ -194,7 +194,7 @@ try {
     assert(await page.locator('.vessel-results .leaflet-container').count() <= 1, 'only the selected vessel keeps a map');
     check(`vessel search + inline detail switch/cleanup ${width}`);
 
-    // 서류 사진 (10-08 사용자 결정): 입력창에 붙이면 칩만 보이고 확인 화면은 없다. 붙이기만 해서는 보내지 않고,
+    // 서류 사진: 입력창에 붙이면 칩만 보이고 확인 화면은 없다. 붙이기만 해서는 보내지 않고,
     // 보내면 사진에서 B/L을 읽어 바로 조회한다. 화면에는 가린 번호만 말한다 (데모 fixture: MRVDEMO1101, 가공값)
     const turnCount = await turns(page);
     // 휴대폰: 펼친 상세 시트가 입력창을 덮으므로 손잡이로 접는다 (넓은 화면에는 손잡이가 없다)
