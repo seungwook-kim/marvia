@@ -1,6 +1,7 @@
 'use client';
 /** 되묻기: 같은 이름의 배가 여러 척이거나 정보가 모자랄 때 후보를 고르고 부족한 값을 채운다 (Manus 2-3 시안으로 다시 짬).
- * E6 sends only C2 resolved_mmsi/voyage_no/forwarder_eta/bl_type as requested.
+ * E6 sends only C2 resolved_mmsi/voyage_no/forwarder_eta as requested.
+ * 10-08: B/L 구분은 되묻지 않는다. 서버가 하우스·마스터를 둘 다 조회하고, 둘 다 없으면 되묻기가 아니라 실패로 끝낸다.
  * 후보는 한 줄 카드(이름 · 국적/목적지/마지막 수신 · 후보 이유)와 오른쪽 "선택" 버튼이다. 눌러서 고르고 아래 "확인하고 판정 진행"으로 보낸다.
  * 라디오 입력은 화면 밖에 그대로 두어 키보드(방향키·스페이스)와 스크린리더 동작을 지킨다.
  */
@@ -13,9 +14,9 @@ import {isLive} from '@/lib/api';
 export function CandidatePicker({response:r,request,onResolve,busy}:{response:AgentResponse;request:AgentRequest;onResolve:(req:AgentRequest)=>void;busy:boolean}) {
  const {docHints}=useApp();
  // 서류 사진에서 확인한 항차·입항 예정일이 있으면 미리 채운다 (DocumentPanel). 사용자가 고칠 수 있다
- const [selected,setSelected]=useState<number|null>(null),[voyage,setVoyage]=useState(docHints?.voyage_no??''),[eta,setEta]=useState(docHints?.forwarder_eta??''),[type,setType]=useState(request.bl_type),[error,setError]=useState('');
- function submit(e:FormEvent){e.preventDefault();if(!selected&&!voyage.trim()&&!eta&&!r.missing_inputs.includes('bl_type')){setError('후보를 고르거나 필요한 추가 정보를 입력해 주세요.');return;}setError('');onResolve({...request,follow_up_question:null,resolved_mmsi:selected,voyage_no:voyage.trim()||null,forwarder_eta:eta||null,bl_type:type});}
- const known=['voyage_no','forwarder_eta','bl_type'];
+ const [selected,setSelected]=useState<number|null>(null),[voyage,setVoyage]=useState(docHints?.voyage_no??''),[eta,setEta]=useState(docHints?.forwarder_eta??''),[error,setError]=useState('');
+ function submit(e:FormEvent){e.preventDefault();if(!selected&&!voyage.trim()&&!eta){setError('후보를 고르거나 필요한 추가 정보를 입력해 주세요.');return;}setError('');onResolve({...request,follow_up_question:null,resolved_mmsi:selected,voyage_no:voyage.trim()||null,forwarder_eta:eta||null});}
+ const known=['voyage_no','forwarder_eta'];
  const many=r.vessel_candidates.length>1;
  const needsExtra=known.some(k=>r.missing_inputs.includes(k))||r.missing_inputs.some(x=>!known.includes(x));
  return <section className="candidate-section cand-card">
@@ -37,7 +38,6 @@ export function CandidatePicker({response:r,request,onResolve,busy}:{response:Ag
    {needsExtra&&<div className="cand-extra">
     {r.missing_inputs.includes('voyage_no')&&<div className="form-field"><label htmlFor="voyage">항차 번호</label><input id="voyage" value={voyage} onChange={e=>setVoyage(e.target.value)} disabled={busy} placeholder="도착 통지서의 항차 번호"/></div>}
     {r.missing_inputs.includes('forwarder_eta')&&<div className="form-field"><label htmlFor="forwarder">포워더가 알려 준 입항 예정일</label><input type="date" id="forwarder" value={eta} onChange={e=>setEta(e.target.value)} disabled={busy}/></div>}
-    {r.missing_inputs.includes('bl_type')&&<div className="form-field"><label htmlFor="resolve-type">B/L 구분 다시 확인</label><select id="resolve-type" value={type} onChange={e=>setType(e.target.value as AgentRequest['bl_type'])}><option value="MASTER">마스터 B/L (선사가 발행)</option><option value="HOUSE">하우스 B/L (포워더가 발행)</option></select><small className="help-text">B/L은 선하증권이에요. 포워더에게 받은 서류라면 보통 하우스 B/L이에요.</small></div>}
     {r.missing_inputs.filter(x=>!known.includes(x)).map(x=><p key={x} className="cand-more">추가 정보가 더 필요해요. 포워더에게 확인해 주세요.</p>)}
    </div>}
    {error&&<p role="alert" className="field-error">{error}</p>}

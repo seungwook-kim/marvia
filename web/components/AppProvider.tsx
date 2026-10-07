@@ -36,7 +36,7 @@ function changesText(changes: WatchChange[]): string {
 }
 const presentation = getPresentationData();
 // 실제 모드는 빈 폼으로 시작한다. 세션 ID는 lib/api.ts가 요청 때 브라우저 값으로 채운다
-const emptyRequest: AgentRequest = {bl_no: '', bl_type: 'HOUSE', sale_due_date: null, session_id: ''};
+const emptyRequest: AgentRequest = {bl_no: '', bl_type: null, sale_due_date: null, session_id: ''};  // 구분 모름이 기본 (10-08)
 
 /** 서버에 저장된 대화 한 줄을 말풍선으로. extra에는 그 턴이 처음 왔을 때의 화면용 값이 있어 지도·표·지켜보기 버튼이 같게 다시 그려진다 (10-06 결정) */
 function toTurn(m: ConversationMessage): ChatTurn {
@@ -306,7 +306,8 @@ export function AppProvider({children}:{children:ReactNode}) {
     if (inflight.current) return false;
     inflight.current = true; setLoading(true); setError(''); setReplaying(false); setStages([]); setPendingSince(Date.now());
     // 정해진 칸 조회(POST /api/agent: 되묻기 답·다시 조회)는 단계 소식이 없다. 화면은 기다림과 경과 시간만 보인다
-    try { const response = await getAgentResponse(req); setResult(response); setRequest(req); setView('cargo'); setCargoKey(response.trace_id); return true; }
+    // 서버가 찾은 B/L 구분(bl_type_used, 10-08)을 요청에 남긴다. 위 칸의 구분 선택이 찾은 쪽으로 바뀌어 사용자가 보고, 다시 조회도 그 구분으로 바로 간다
+    try { const response = await getAgentResponse(req); setResult(response); setRequest(response.bl_type_used ? {...req, bl_type: response.bl_type_used} : req); setView('cargo'); setCargoKey(response.trace_id); return true; }
     catch (e) { setError(e instanceof Error ? e.message : '조회하지 못했어요. 다시 시도해 주세요.'); return false; }
     finally {setLoading(false);setPendingSince(null);inflight.current=false;refreshUsage();}
   }

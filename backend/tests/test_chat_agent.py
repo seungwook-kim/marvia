@@ -95,13 +95,14 @@ def test_check_cargo_uses_real_bl_and_llm_sees_only_token(monkeypatch):
     _no_classic(monkeypatch)
     agent, run = _agent_calls()
     r = svc.handle("TESTBL01 괜찮아?", "s1", None, run)
-    assert len(agent) == 1 and agent[0].bl_no == "TESTBL01" and agent[0].bl_type == "HOUSE"
+    assert len(agent) == 1 and agent[0].bl_no == "TESTBL01" and agent[0].bl_type is None  # 구분 모름 (10-08)
     assert "TESTBL01" not in str(calls)  # 문장·토큰 목록·도구 인자·도구 결과 어디에도 원래 B/L이 없다
     assert calls[0]["masked"] == "[BL1] 괜찮아?" and calls[0]["refs"] == ["[BL1]"] and calls[0]["has_cargo"] is False
     assert calls[0]["tool_calls"][0]["result"]["answer"] == "괜찮습니다"  # LLM에는 요약만 돌아간다 (_cargo_summary)
     assert r.kind == "cargo" and r.request.bl_no == "TESTBL01" and r.agent.answer == "괜찮습니다"
-    # 답은 판정 흐름의 문장 + 구분 안내. 에이전트가 쓴 문장은 붙지 않는다 (읽기 전용 도구를 같이 쓰지 않았다)
-    assert r.reply.startswith("괜찮습니다\n(B/L 구분을 말하지 않아 하우스 B/L")
+    # 답은 판정 흐름의 문장 그대로. 찾은 구분(bl_type_used)이 응답에 없으니 구분 안내도 없다 (10-08).
+    # 에이전트가 쓴 문장은 붙지 않는다 (읽기 전용 도구를 같이 쓰지 않았다)
+    assert r.reply == "괜찮습니다"
     assert "에이전트가 덧붙인 말" not in r.reply
 
 
@@ -115,7 +116,7 @@ def test_check_cargo_stated_type_and_dates(monkeypatch):
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]", "bl_type": "house bill", "sale_due_date": "2026-10-20"})])
     agent.clear()
     svc.handle("TESTBL01 10월 20일까지", "s1", None, run)
-    assert agent[0].bl_type == "HOUSE" and str(agent[0].sale_due_date) == "2026-10-20"  # 정한 값 밖의 구분은 버리고 기본값
+    assert agent[0].bl_type is None and str(agent[0].sale_due_date) == "2026-10-20"  # 정한 값 밖의 구분은 버리고 모름 (10-08)
 
 
 def test_check_cargo_unknown_token_returns_error_and_does_not_look_up(monkeypatch):
@@ -135,7 +136,7 @@ def test_check_cargo_null_ref_falls_back_to_message_bl_then_screen_cargo(monkeyp
     assert agent[0].session_id == "s1"
     agent.clear()
     svc.handle("TESTBL02 조회해줘", "s1", ctx, run)  # 문장에 B/L이 있으면 그 B/L. 다른 화물이라 구분·판매일은 잇지 않는다
-    assert [a.bl_no for a in agent] == ["TESTBL02"] and agent[0].bl_type == "HOUSE" and agent[0].sale_due_date is None
+    assert [a.bl_no for a in agent] == ["TESTBL02"] and agent[0].bl_type is None and agent[0].sale_due_date is None
 
 
 def test_voyage_no_only_when_user_typed_it_and_forwarder_eta_must_be_a_date(monkeypatch):

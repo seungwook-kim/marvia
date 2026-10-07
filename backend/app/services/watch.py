@@ -244,7 +244,7 @@ def _due_rows(conn, limit: int, known_vessel_only: bool = False) -> list[tuple]:
     vessel = " AND vessel_mmsi IS NOT NULL" if known_vessel_only else ""
     return conn.execute(
         f"""SELECT user_id, cargo_key, bl_encrypted, bl_masked, label, bl_type, sale_due_date, forwarder_eta,
-                  voyage_no, vessel_mmsi, last_verdict, last_eta
+                  voyage_no, vessel_mmsi, last_verdict, last_eta, last_eta_at
            FROM user_cargo WHERE watch AND status = 'active'{vessel}
            ORDER BY last_checked_at ASC NULLS FIRST LIMIT %s""",
         [limit],
@@ -269,6 +269,9 @@ def eta_change_text(change) -> str | None:
     if change is None:
         return None
     way = "늦어졌습니다" if change.hours > 0 else "당겨졌습니다"
+    if change.from_eta == change.to_eta:
+        # 시각으로 센 변화(10-08, user_cargo.last_eta_at)는 같은 날 안에서도 잡힌다. "5일에서 5일로"라고 쓰지 않는다
+        return f"도착 예정({change.to_eta.month}월 {change.to_eta.day}일)이 약 {abs(change.hours)}시간 {way}."
     return (f"도착 예정이 {change.from_eta.month}월 {change.from_eta.day}일에서 {change.to_eta.month}월 {change.to_eta.day}일로 "
             f"약 {abs(change.hours)}시간 {way}.")
 
@@ -299,7 +302,8 @@ def _notify(conn, user_id: str, name: str, old: str | None, new: str | None, eta
 
 def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, bool]:
     """화물 한 건을 다시 판정한다. (판정이 나왔나, 바뀌었나, 알렸나)를 돌려준다. 실패는 예외로 올려 부르는 쪽이 센다."""
-    user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old, last_eta = row
+    user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old, last_eta, *rest = row
+    last_eta_at = rest[0] if rest else None  # 024(10-08) 칸. 시각이 있으면 시간 단위로 센다
     bl_no = crypto.decrypt(bl_encrypted) if bl_encrypted else None
     if bl_no is None:  # 잠근 값이 비었거나 열쇠가 바뀌어 못 연다. 원문 없이는 조회할 수 없다
         raise WatchError("no_bl")
@@ -317,7 +321,7 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, boo
     # 저장된 확정 배(vessel_mmsi)는 후보 확인 검색 없이 쓴다. 워커 예산은 화물당 ShipFinder 1회라서다 (routers/agent.py trusted_vessel)
     trust = trusted_vessel.set(mmsi)
     # 지난 확인 때 저장한 신뢰 ETA 날짜를 판정 흐름에 넘긴다. 판정 흐름이 바뀐 만큼을 eta_change로 센다 (10-08, routers/agent.previous_eta)
-    before = previous_eta.set(last_eta)
+    before = previous_eta.set(last_eta_at or last_eta)
     try:
         with session_scope(request.session_id, user_id):
             response = assess(request, None)

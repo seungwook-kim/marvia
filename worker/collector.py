@@ -93,6 +93,12 @@ class Budget:
         return True
 
 
+def _spend(sf: ShipFinderClient, budget: Budget, mmsi: int) -> bool:
+    """이 배 위치를 받아도 되나. 클라이언트가 받아 둔 위치를 다시 쓸 배(rules.md position_reuse_minutes)는 ShipFinder를
+    부르지 않으므로 예산을 쓰지 않고 True (10-08). 그 밖에는 예산에서 하나를 쓴다. 기준은 클라이언트와 같다(position_reusable)."""
+    return sf.position_reusable(mmsi) or budget.take()
+
+
 INSERT_POSITION = """
 INSERT INTO positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat, dest, destcode, ais_eta, raw)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
@@ -118,8 +124,8 @@ def collect_positions(conn, sf: ShipFinderClient, budget: Budget, now: datetime 
     mmsis = [row[0] for row in conn.execute(SELECT_TRACKED, (now - timedelta(days=TRACK_AFTER_ARRIVAL_DAYS),)).fetchall()]
     saved, failed = 0, []
     for mmsi in mmsis:
-        if not budget.take():
-            break
+        if not _spend(sf, budget, mmsi):
+            continue  # 예산이 없어도 뒤 배 중 받아 둔 위치가 있는 배는 저장할 수 있다
         try:
             p = sf.position(mmsi)
         except ShipFinderError as e:
@@ -166,8 +172,8 @@ def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget) -> dict:
     mmsis = [row[0] for row in conn.execute(SELECT_WATCHED).fetchall()]
     saved, failed = 0, []
     for mmsi in mmsis:
-        if not budget.take():
-            break
+        if not _spend(sf, budget, mmsi):
+            continue  # 예산이 없어도 뒤 배 중 받아 둔 위치가 있는 배는 저장할 수 있다
         try:
             p = sf.position(mmsi)
         except ShipFinderError as e:

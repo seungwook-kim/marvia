@@ -19,7 +19,8 @@ export interface ChatOnScreen {
 }
 export interface AgentRequest {
   bl_no: string;
-  bl_type: 'MASTER' | 'HOUSE';
+  /** null이면 구분 모름 (10-08). 서버가 하우스, 마스터 순서로 둘 다 조회하고 찾은 쪽을 응답 bl_type_used로 알려 준다 */
+  bl_type: 'MASTER' | 'HOUSE' | null;
   // 선택 입력 (09-29 계약 변경). 없으면 null로 보내고 백엔드는 배 상태만으로 판정한다
   sale_due_date: string | null;
   session_id: string;
@@ -94,6 +95,8 @@ export interface AgentResponse {
   anchorage?: AnchorageInfo | null;
   customs_timing?: CustomsTiming | null;
   eta_change?: EtaChange | null;
+  /** UNI-PASS에서 실제로 찾은 B/L 구분 (10-08). 못 찾았거나 옛 응답이면 없다 */
+  bl_type_used?: 'MASTER' | 'HOUSE' | null;
 }
 export interface HistoryItem {
   request_id: string | null; bl_masked: string | null; status: string | null;
@@ -140,7 +143,7 @@ export interface MemoryItem {
 }
 export interface PendingChange { field: 'sale_due_date' | 'forwarder_eta' | 'label'; value: string; noted_at: string | null }
 export interface CargoSummary {
-  bl_masked: string; bl_type: 'MASTER' | 'HOUSE'; label: string | null; status: 'active' | 'done';
+  bl_masked: string; bl_type: 'MASTER' | 'HOUSE' | null; label: string | null; status: 'active' | 'done';
   sale_due_date: string | null; forwarder_eta: string | null;
   original_bl: OriginalBl | null; to_order_bank: boolean | null; freight_term: FreightTerm | null; incoterm: Incoterm | null;
   last_verdict: Verdict | null; last_checked_at: string | null; last_days_margin: number | null;

@@ -71,7 +71,11 @@ logger = logging.getLogger(__name__)
 
 NOT_JUDGED = "조회한 값을 정리했습니다. 판정은 아직 붙지 않았습니다."
 # 화면에 그대로 나가는 문구라 약어(M/H, ETA)를 풀어 쓴다 (10-02 화면 용어 점검)
-NO_CARGO = "조회 결과가 없습니다. B/L 번호와 마스터·하우스 구분을 다시 확인해 주세요."
+# 10-08: 구분을 몰라도 하우스·마스터를 둘 다 조회한다 (_fetch_customs). 둘 다 없을 때만 이 문구로 끝내고, 구분을 되묻지 않는다
+NO_CARGO = "조회 결과가 없습니다. 마스터·하우스 B/L 둘 다 조회했지만 찾지 못했어요. B/L 번호를 다시 확인해 주세요."
+# 구분을 모를 때 먼저 조회하는 쪽. 소량 수입자가 포워더에게 받는 서류는 보통 하우스 B/L이다 (10-08 결정, 전 채팅 기본값과 같은 이유)
+FIRST_BL_TYPE = "HOUSE"
+OTHER_BL_TYPE = {"MASTER": "HOUSE", "HOUSE": "MASTER"}
 ASK_BACK = "같은 이름의 배가 여러 척입니다. 항차 번호나 포워더가 알려 준 입항 예정일을 알려주시면 어느 배인지 가릅니다."
 # 항차·입항 예정일을 이미 받았는데도 못 가른 경우 (10-05 버그 찾기). 같은 ASK_BACK을 되풀이하면 "항차를 알려 달라"는 말에
 # 항차를 알려 줬는데 또 항차를 달라는 꼴이 된다. 화면 후보 고르기(web/components/CandidatePicker.tsx)가 있어 그것을 안내한다
@@ -197,13 +201,34 @@ def run_agent(request: AgentRequest,
                 response = _logged(request, _follow_up(request, user_id, blocks), user_id)
             else:
                 # 지난 조회의 신뢰 ETA를 화물 표에서 읽어 둔다. 조회 뒤 화물 표를 덮기 전 값이라야 "바뀜"을 셀 수 있다 (10-08, eta_change)
-                token = previous_eta.set(_saved_last_eta(user_id, request.bl_no))
+                row = _saved_row(user_id, request.bl_no)
+                token = previous_eta.set(_last_eta_of(row))
+                # 구분을 말하지 않았으면 지난번에 찾은 구분(화물 표 bl_type)부터 조회한다. 하우스·마스터를 매번 둘 다 부르지 않게 (10-08)
+                saved_type = (row or {}).get("bl_type")
+                if request.bl_type is None and saved_type in OTHER_BL_TYPE:
+                    request = request.model_copy(update={"bl_type": saved_type})
                 try:
                     response = _logged(request, _assess(request, blocks), user_id)
                 finally:
                     previous_eta.reset(token)
-            memory_service.remember_later(user_id, request, response, released=is_released(response))
+            # 화물 표에는 실제로 찾은 구분을 적는다. 다음 조회가 그 구분으로 바로 간다 (10-08, services/cargo.upsert_assessment)
+            memory_service.remember_later(user_id, matched_request(request, response), response, released=is_released(response))
             return response
+
+
+def matched_request(request: AgentRequest, response: AgentResponse) -> AgentRequest:
+    """UNI-PASS에서 찾은 구분(bl_type_used)으로 바꾼 요청. 못 찾았거나 같으면 그대로 (10-08).
+    화물 표·채팅 문맥에 남기는 요청이라, 다음 조회와 후속 질문이 맞는 구분을 이어 쓴다."""
+    used = response.bl_type_used
+    if used is None or used == request.bl_type:
+        return request
+    return request.model_copy(update={"bl_type": used})
+
+
+def is_not_found(response: AgentResponse | None) -> bool:
+    """마스터·하우스 둘 다 UNI-PASS에 없어서 끝난 응답인가 (10-08). 채팅(services/chat.py)이 "결과 없음" 갈래를 가를 때 쓴다.
+    세관 장애(failed, 다른 문구)와는 문구로 가른다. 그 문구는 이 모듈의 NO_CARGO 하나다."""
+    return bool(response and response.status == "failed" and response.answer == NO_CARGO)
 
 
 def is_released(response: AgentResponse) -> bool:
@@ -217,11 +242,11 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
     memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md 읽기 흐름). 판정 LLM에만 넣는다.
     검증에서 근거로 치는 것은 사용자가 준 날짜·숫자뿐이다 (validate.user_supplied_text, 10-02 검증 F8, 결정 5)."""
     progress.step("customs")
-    customs, failure = _fetch_customs(request)
+    customs, failure, used_type = _fetch_customs(request)
     if failure is not None:
         # 세관에 아직 없는 B/L이고 MRN이 있으면 해수부 입항 신고로 배 상태까지는 보여 준다 (docs/specs/mrn-fallback.md).
-        # 세관 장애(failed)는 대체하지 않는다 (EC-04)
-        if failure.status == "insufficient" and request.mrn:
+        # 세관 장애(시간 초과·키 오류)는 대체하지 않는다 (EC-04). 둘은 문구로 가른다 (is_not_found, 10-08)
+        if is_not_found(failure) and request.mrn:
             from backend.app.services import mrn_fallback  # 이 경우에만 불러온다
             alternative = mrn_fallback.assess(request)
             if alternative is not None:
@@ -231,7 +256,7 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
     response = _after_customs(request, customs, memory)
     # UNI-PASS 처리 이력 원문은 화면 전용이다 (docs/specs/customs-detail.md, 10-02). 판정이 끝난 뒤에 붙여서
     # 판정·검증 단계에는 아예 없다. 이력 저장(_logged)과 후속 질문 LLM 입력에서는 다시 뺀다
-    update: dict = {"customs_detail": customs.display_rows}
+    update: dict = {"customs_detail": customs.display_rows, "bl_type_used": used_type}
     # 통관 이력의 지난 소요 시간 (10-08, services/port_facts.customs_timing). 판정이 끝난 뒤 붙이는 사실이라 등급·검증과 상관없다.
     # 근거 카드도 같이 붙인다: 후속 질문 LLM이 "반입까지 몇 시간 걸렸어?"에 이 숫자로 답해도 V7이 확인할 수 있게. 부산 밖 화물은 붙이지 않는다
     timing = port_facts.customs_timing(customs) if response.status != "unsupported" else None
@@ -435,12 +460,14 @@ def _judge_facts(anchored, eta_moved) -> dict | None:
 
 # 지난 조회 때 화물 표에 저장한 신뢰 ETA 날짜 (user_cargo.last_eta, 10-08). run_agent와 지켜보기 재판정(services/watch.py)이 판정 전에 넣는다.
 # _assess의 인자를 늘리지 않으려고 문맥 변수로 둔다 (trusted_vessel과 같은 방식). 평가 실행기·데모·비로그인은 늘 None이라 eta_change가 없다
-previous_eta: ContextVar[date | None] = ContextVar("previous_eta", default=None)
+# 10-08: 시각(user_cargo.last_eta_at)이 저장된 줄이면 datetime이 들어와 시간 단위로 센다. 옛 줄은 date다
+previous_eta: ContextVar[date | datetime | None] = ContextVar("previous_eta", default=None)
 
 
-def _saved_last_eta(user_id: str | None, bl_no: str) -> date | None:
-    """로그인 사용자의 이 화물 줄에 저장된 지난 신뢰 ETA 날짜. 사용자·DB·열쇠가 없거나 읽기가 실패하면 None (판정은 그대로 돈다).
-    화물 표 쓰기(services/memory.remember_later)는 응답 뒤라, 여기서 읽는 값은 덮어쓰기 전 지난 값이다."""
+def _saved_row(user_id: str | None, bl_no: str) -> dict | None:
+    """로그인 사용자의 이 화물 줄 (화물 표 user_cargo). 사용자·DB·열쇠가 없거나 읽기가 실패하면 None (판정은 그대로 돈다).
+    화물 표 쓰기(services/memory.remember_later)는 응답 뒤라, 여기서 읽는 값은 덮어쓰기 전 지난 값이다.
+    run_agent가 지난 신뢰 ETA(_last_eta_of)와 지난번에 찾은 B/L 구분(10-08)을 이 한 번의 읽기로 얻는다."""
     if not user_id or not os.environ.get("DATABASE_URL"):
         return None
     key = cargo_service.cargo_key(bl_no)
@@ -448,12 +475,25 @@ def _saved_last_eta(user_id: str | None, bl_no: str) -> date | None:
         return None
     try:
         with connect() as conn:
-            row = cargo_service.get_row(conn, user_id, key)
+            return cargo_service.get_row(conn, user_id, key)
     except Exception as e:  # noqa: BLE001 - 부가 정보다. 종류만 남긴다
         log_failure("cargo_read", type(e).__name__)
         return None
+
+
+def _last_eta_of(row: dict | None) -> date | datetime | None:
+    """화물 줄의 지난 신뢰 ETA. 시각(last_eta_at, 024)이 있으면 시각, 없으면 날짜(last_eta) (10-08).
+    시각이 있어야 eta_change가 시간 단위로 센다. 옛 줄은 날짜뿐이라 날짜로 센다 (services/port_facts.eta_change)."""
+    at = (row or {}).get("last_eta_at")
+    if isinstance(at, datetime):
+        return at
     value = (row or {}).get("last_eta")
     return value if isinstance(value, date) else None
+
+
+def _saved_last_eta(user_id: str | None, bl_no: str) -> date | datetime | None:
+    """로그인 사용자의 이 화물 줄에 저장된 지난 신뢰 ETA (시각이 있으면 시각). 없으면 None."""
+    return _last_eta_of(_saved_row(user_id, bl_no))
 
 
 def _judged(out, signal_set, request: AgentRequest, customs: CustomsRecord, collected: dict, table: str,
@@ -856,17 +896,31 @@ def _cargo_rows(rows: list[tuple[dict, str | None]], bl_no: str) -> list[dict]:
     return matched if checked else unknown
 
 
-def _fetch_customs(request: AgentRequest) -> tuple[CustomsRecord | None, AgentResponse | None]:
-    """UNI-PASS 조회. 없는 B/L은 실패가 아니라 insufficient다 (SDD 4.1, 8절)."""
+def bl_type_order(bl_type: str | None) -> list[str]:
+    """UNI-PASS를 조회할 B/L 구분 순서 (10-08 결정). 정했으면 그 구분 먼저, 모르면(None) 하우스 먼저. 다음은 반대쪽."""
+    first = bl_type if bl_type in OTHER_BL_TYPE else FIRST_BL_TYPE
+    return [first, OTHER_BL_TYPE[first]]
+
+
+def _fetch_customs(request: AgentRequest) -> tuple[CustomsRecord | None, AgentResponse | None, str | None]:
+    """UNI-PASS 조회. (통관 정보, 끝낼 응답, 찾은 구분)을 돌려준다 (SDD 4.1, 8절).
+
+    사용자는 자기 B/L이 마스터인지 하우스인지 모르는 경우가 많다 (10-08 결정). 그래서 bl_type_order 순서로 조회하고
+    처음 찾은 쪽을 쓴다. 구분을 되묻지 않는다. 둘 다 없으면 failed + NO_CARGO (구분 문제가 아니라 번호 문제다).
+    어느 시도에서든 시간 초과·키 오류(CustomsError)가 나면 그 자리에서 failed로 끝낸다. 남은 구분을 더 부르지 않는다:
+    장애를 "없음"으로 덮으면 사용자가 멀쩡한 번호를 의심하게 된다.
+    대가는 없는 번호나 반대쪽 구분일 때 UNI-PASS 호출 1번 더다 (클라이언트 안 재시도와 별개)."""
     try:
-        record = UnipassClient().fetch(request.bl_no, request.bl_type)
+        client = UnipassClient()
+        for kind in bl_type_order(request.bl_type):
+            record = client.fetch(request.bl_no, kind)
+            if record is not None:
+                return record, None, kind
     except CustomsError as e:
         log_failure("customs", e.code)
         # 오류 코드(timeout, bad_key)는 로그에만 남기고 화면 문장에는 넣지 않는다 (10-02 화면 용어 점검)
-        return None, _response(status="failed", answer="통관 정보를 가져오지 못했습니다. 잠시 뒤 다시 조회해 주세요.")
-    if record is None:
-        return None, _response(status="insufficient", missing_inputs=["bl_type"], answer=NO_CARGO)
-    return record, None
+        return None, _response(status="failed", answer="통관 정보를 가져오지 못했습니다. 잠시 뒤 다시 조회해 주세요."), None
+    return None, _response(status="failed", answer=NO_CARGO), None
 
 
 def _identify(customs: CustomsRecord, request: AgentRequest) -> tuple[list[VesselCandidate], str, int | None, str | None]:

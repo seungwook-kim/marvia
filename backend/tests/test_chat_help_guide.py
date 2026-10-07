@@ -138,7 +138,7 @@ def test_glued_bls_split_and_looked_up_as_multi(monkeypatch):
     def run(req):
         seen.append(req.bl_no)
         if req.bl_no == "TESTBL01TESTBL26":
-            return _response(status="insufficient", answer=NO_CARGO)
+            return _response(status="failed", answer=NO_CARGO)
         return _response(status="ok", answer=f"{req.bl_no[-2:]}번 답")
     r = svc.handle("TESTBL01TESTBL26 둘 중 뭐가 먼저 와?", "s1", None, run)
     assert sorted(seen) == ["TESTBL01", "TESTBL01TESTBL26", "TESTBL26"]
@@ -151,5 +151,5 @@ def test_glued_bls_split_and_looked_up_as_multi(monkeypatch):
 def test_glued_not_found_without_split_keeps_normal_answer(monkeypatch):
     _exists(monkeypatch, set())
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]"})])
-    r = svc.handle("TESTBL01TESTBL26 조회", "s1", None, lambda req: _response(status="insufficient", answer=NO_CARGO))
+    r = svc.handle("TESTBL01TESTBL26 조회", "s1", None, lambda req: _response(status="failed", answer=NO_CARGO))
     assert svc.NO_RESULT_REPLY in r.reply and not r.cargos  # 판정 흐름 문구(~습니다)는 채팅에서 ~요로 나간다 (10-07)

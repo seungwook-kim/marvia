@@ -93,7 +93,7 @@ def test_34_arrival_search_names_the_ships(monkeypatch):
 # ── 54: 조회 결과 없음 반복 ──
 
 def _no_result_run(req):
-    return _response(status="insufficient", answer=NO_CARGO)
+    return _response(status="failed", answer=NO_CARGO)
 
 
 def test_54_second_no_result_is_not_the_same_sentence(monkeypatch):
@@ -103,7 +103,8 @@ def test_54_second_no_result_is_not_the_same_sentence(monkeypatch):
     history = [{"role": "user", "text": "TESTBL01 조회해줘"}, {"role": "assistant", "text": first.reply}]
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]", "bl_type": "HOUSE"})])
     second = svc.handle("TESTBL01 다시 해줄래", "s1", None, _no_result_run, history=history)
-    assert svc.NO_RESULT_REPLY not in second.reply and "마스터로 다시" in second.reply  # 하우스로 했으니 마스터를 권한다
+    # 10-08부터 둘 다 조회한 뒤라 구분을 바꿔 보라고 권하지 않는다. 번호를 한 글자씩 확인하라고 한다
+    assert svc.NO_RESULT_REPLY not in second.reply and svc.NO_RESULT_AGAIN in second.reply and "마스터로 다시" not in second.reply
     history += [{"role": "user", "text": "다시 해줄래"}, {"role": "assistant", "text": second.reply}]
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]", "bl_type": "HOUSE"})])
     third = svc.handle("TESTBL01 또 해줘", "s1", None, _no_result_run, history=history)

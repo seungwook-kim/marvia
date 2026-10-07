@@ -68,7 +68,8 @@ export function TopBar() {
       </div>
       <div className="form-field">
         <label htmlFor="bl-type">구분</label>
-        <select id="bl-type" value={type} onChange={e => setType(e.target.value as AgentRequest['bl_type'])} disabled={loading}><option value="MASTER">Master B/L</option><option value="HOUSE">House B/L</option></select>
+        {/* 기본은 "모름" (10-08). 빈 값을 null로 보내면 서버가 하우스, 마스터 순서로 둘 다 조회한다 */}
+        <select id="bl-type" value={type ?? ''} onChange={e => setType((e.target.value || null) as AgentRequest['bl_type'])} disabled={loading}><option value="">모름 (자동으로 찾기)</option><option value="MASTER">Master B/L</option><option value="HOUSE">House B/L</option></select>
       </div>
       <div className="form-field">
         <label htmlFor="sale-date">판매 예정일 <small>(선택)</small></label>

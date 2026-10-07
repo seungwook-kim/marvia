@@ -45,7 +45,7 @@ class CargoSummary(BaseModel):
     """화물 표 한 줄 요약. 원본 B/L·지문·배 MMSI는 넣지 않는다."""
 
     bl_masked: str
-    bl_type: Literal["MASTER", "HOUSE"]
+    bl_type: Literal["MASTER", "HOUSE"] | None  # 서류만 넣고 아직 조회 전인 줄은 구분을 모른다 (024, 10-08)
     label: str | None
     status: Literal["active", "done"]
     sale_due_date: date | None

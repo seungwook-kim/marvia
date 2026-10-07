@@ -7,13 +7,15 @@
 판정은 하지 않는다. 도구 하나가 실패해도 나머지는 보여 주고, 실패는 errors에 출처별로 남긴다 (SDD 8절 partial 원칙).
 위치가 오래됐는지는 rules.md position_stale_hours로 코드가 정한다 (화면이 정하지 않는다).
 ShipFinder는 하루 호출 한도가 있어 같은 배는 10분 동안 다시 부르지 않는다.
-캐시 밖 새 조회는 사용자당 하루 rules.md vessel_detail_daily_limit번까지다 (10-08 결정, take_daily_slot). 한 번에 ShipFinder를
+캐시 밖 새 조회는 사용자당 하루 rules.md vessel_detail_daily_limit번까지다 (10-08 결정, take_daily_slot).
+DB가 있으면 그 횟수를 vessel_detail_usage 표(024)에 센다. 서버를 다시 띄워도 0부터 시작하지 않게 (10-08). 없거나 실패하면 메모리로 센다. 한 번에 ShipFinder를
 2~3회 쓰고, 하루 50회를 다 쓰면 판정까지 그 프로세스 전체가 ShipFinder를 못 쓴다 (clients/shipfinder.quota_blocked).
 배 고르기 (10-08 결정): 호출부호가 있으면 services/vessel_pick.py 규칙대로 MMSI가 하나로 정해질 때만 보여 준다.
 선명만 있으면 전처럼 가장 비슷한 후보를 보여 주되 vessel.match = "name_similar"로 "이름이 비슷한 배"임을 알린다.
 """
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -21,6 +23,8 @@ from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from backend.app.db import connect
+from backend.app.observability.logging import log_failure
 from backend.app.services.rules import rule
 # MCP 도구 4종은 /mcp를 거쳐 부른다 (10-02, services/mcp_client.py).
 # route_points는 지도에 그릴 항로 좌표를 만드는 도우미라 MCP 도구가 아니다. 그래서 직접 부른다
@@ -73,8 +77,9 @@ def cached(call_sign: str | None, ship_name: str | None) -> bool:
     return _cache_get(_key(call_sign, ship_name)) is not None
 
 
-# 하루 횟수 상한 (10-08 결정). 프로세스 메모리라 서버를 다시 띄우면 0부터다. 하루 한도를 지키는 마지막 문은 ShipFinder의
-# 38 응답(quota_blocked)이고, 이 상한은 한 사용자가 그 한도를 혼자 다 쓰지 못하게 하는 몫이다
+# 하루 횟수 상한 (10-08 결정). 하루 한도를 지키는 마지막 문은 ShipFinder의 38 응답(quota_blocked)이고,
+# 이 상한은 한 사용자가 그 한도를 혼자 다 쓰지 못하게 하는 몫이다.
+# DB가 있으면 vessel_detail_usage(024)에 세고, 없거나 DB가 실패하면 아래 프로세스 메모리로 센다 (서버를 다시 띄우면 0부터)
 _KST = ZoneInfo("Asia/Seoul")
 ANON = "anonymous"  # 로그인 없이 쓰는 경우(인증 꺼짐)는 모두 한 칸을 같이 쓴다
 _daily: dict[str, int] = {}
@@ -82,20 +87,48 @@ _daily_on: date | None = None
 _daily_lock = threading.Lock()
 
 
+# 오늘 몫이 남았을 때만 1을 더하고 새 값을 돌려준다. 다 썼으면 WHERE가 막아 줄이 안 나온다.
+# 읽고 더해 쓰지 않고 한 문장이라 두 요청이 같이 와도 상한을 넘지 않는다 (024, 10-08)
+USAGE_SQL = """INSERT INTO vessel_detail_usage (user_key, day, count) VALUES (%s, %s, 1)
+               ON CONFLICT (user_key, day) DO UPDATE SET count = vessel_detail_usage.count + 1
+               WHERE vessel_detail_usage.count < %s
+               RETURNING count"""
+
+
+def _take_in_db(owner: str, today: date, limit: int) -> bool | None:
+    """DB 표로 한 번을 쓴다. 남았으면 True, 다 썼으면 False, DB가 없거나 실패하면 None (부르는 쪽이 메모리로 센다).
+    실패를 막다른 길로 두지 않는 이유: 이 상한은 부가 장치이고, 진짜 한도는 ShipFinder가 지킨다 (위 설명)."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    try:
+        with connect() as conn:
+            return conn.execute(USAGE_SQL, [owner, today, limit]).fetchone() is not None
+    except Exception as e:  # noqa: BLE001 - 종류만 남기고 메모리로 센다
+        log_failure("vessel_detail_usage", type(e).__name__)
+        return None
+
+
 def take_daily_slot(user_id: str | None) -> bool:
     """캐시 밖 새 조회 한 번을 이 사용자 몫에서 쓴다. 오늘(한국 날짜) 몫이 남았으면 True, 다 썼으면 False.
 
     라우터가 cached()가 False일 때만 부른다: 캐시에서 답하면 ShipFinder를 부르지 않으므로 세지 않는다.
     날짜가 바뀌면 모두 0부터다. 상한은 rules.md vessel_detail_daily_limit.
+    DB가 있으면 표(vessel_detail_usage, 024)에 세서 서버를 다시 띄워도 이어 센다 (10-08). 없거나 실패하면 메모리로 센다.
     """
     global _daily_on
     today = datetime.now(_KST).date()
     owner = user_id or ANON
+    limit = rule("vessel_detail_daily_limit")
+    if limit <= 0:
+        return False
+    stored = _take_in_db(owner, today, limit)
+    if stored is not None:
+        return stored
     with _daily_lock:
         if _daily_on != today:
             _daily.clear()
             _daily_on = today
-        if _daily.get(owner, 0) >= rule("vessel_detail_daily_limit"):
+        if _daily.get(owner, 0) >= limit:
             return False
         _daily[owner] = _daily.get(owner, 0) + 1
         return True

@@ -22,7 +22,6 @@ from backend.app.schemas.memory import (
     CargoSummary, DocumentFactsRequest, DocumentFactsResponse, MemoryDeleteResponse, MemoryItem, MemoryResponse,
 )
 from backend.app.services import cargo, memory
-from backend.app.services.chat import DEFAULT_BL_TYPE
 from backend.app.services.evidence import KST
 
 router = APIRouter(prefix="/api", tags=["memory"])
@@ -115,7 +114,7 @@ def save_document_facts(body: DocumentFactsRequest,
 
     - B/L 조건(원본 B/L·은행 지시식·운임·인코텀즈)은 화물 표 줄에. 줄이 없으면 만든다. 모르는 칸(null)은 덮지 않는다
     - 거래처는 메모장 거래처 항목으로, 출처는 B/L 또는 A/N. 서류 종류(source)를 모르면 저장하지 않는다
-    - B/L 구분을 모르면 채팅 창구 기본값(하우스)으로 새 줄을 만든다. 나중 조회가 실제 구분으로 고친다
+    - B/L 구분을 모르면 빈 칸(NULL, 024)으로 새 줄을 만든다. 나중 조회가 UNI-PASS에서 찾은 구분으로 채운다 (10-08)
     """
     user_id = _login_required(user_id)
     _db_required("memory_document")
@@ -125,7 +124,7 @@ def save_document_facts(body: DocumentFactsRequest,
         with connect() as conn:
             key, saved = None, False
             if any(v is not None for v in facts.values()):
-                key = cargo.apply_document_facts(conn, user_id, body.bl_no, body.bl_type or DEFAULT_BL_TYPE, facts)
+                key = cargo.apply_document_facts(conn, user_id, body.bl_no, body.bl_type, facts)
                 saved = key is not None
             contact = "skipped"
             if body.contact and body.source:

@@ -112,6 +112,34 @@ def test_eta_change_over_threshold():
     assert earlier.hours == -24
 
 
+def test_eta_change_counts_hours_when_previous_is_a_time():
+    """10-08: 지난 값이 시각(user_cargo.last_eta_at)이면 날짜가 아니라 실제 시간 차이로 센다 (기준 eta_change_alert_hours)."""
+    before = datetime(2026, 10, 5, 0, tzinfo=timezone.utc)  # 한국 10-05 09:00
+    moved = port_facts.eta_change(before, datetime(2026, 10, 5, 14, tzinfo=timezone.utc))  # 같은 한국 날짜, 14시간 늦어짐
+    assert (moved.from_eta, moved.to_eta, moved.hours) == (date(2026, 10, 5), date(2026, 10, 5), 14)
+    pulled = port_facts.eta_change(before, datetime(2026, 10, 4, 10, tzinfo=timezone.utc))
+    assert pulled.hours == -14
+    # 자정을 넘겨도 2시간 차이는 기준 아래라 알리지 않는다 (날짜 기준이었으면 24시간으로 셌다)
+    late = datetime(2026, 10, 5, 14, tzinfo=timezone.utc)  # 한국 10-05 23:00
+    assert port_facts.eta_change(late, late + timedelta(hours=2)) is None
+    assert port_facts.eta_change(date(2026, 10, 5), late + timedelta(hours=2)).hours == 24  # 옛 줄(날짜)은 전처럼
+
+
+def test_last_eta_of_prefers_time_over_date():
+    at = datetime(2026, 10, 5, 3, tzinfo=timezone.utc)
+    assert agent_router._last_eta_of({"last_eta": date(2026, 10, 5), "last_eta_at": at}) == at
+    assert agent_router._last_eta_of({"last_eta": date(2026, 10, 5), "last_eta_at": None}) == date(2026, 10, 5)
+    assert agent_router._last_eta_of(None) is None
+
+
+def test_eta_change_text_same_day():
+    from backend.app.schemas.agent import EtaChange
+    from backend.app.services.watch import eta_change_text
+    same = eta_change_text(EtaChange(from_eta=date(2026, 10, 5), to_eta=date(2026, 10, 5), hours=14))
+    assert same == "도착 예정(10월 5일)이 약 14시간 늦어졌습니다."
+    assert "5일에서" in eta_change_text(EtaChange(from_eta=date(2026, 10, 5), to_eta=date(2026, 10, 6), hours=24))
+
+
 def test_eta_change_none_when_same_day_or_missing():
     assert port_facts.eta_change(date(2026, 10, 5), datetime(2026, 10, 4, 20, tzinfo=timezone.utc)) is None  # 한국 10-05
     assert port_facts.eta_change(None, datetime(2026, 10, 7, tzinfo=timezone.utc)) is None
@@ -204,7 +232,7 @@ def test_router_adds_facts_without_changing_table_verdict(fake, monkeypatch):
                 "previous_port": "SHANGHAI", "source": "mof", "fetched_at": NOW.isoformat()}
     fake(customs=record, candidates=[_candidate(440999001)], position=POSITION, schedule=schedule, judge=JUDGED)
     _signals(monkeypatch, {"eta_conflict": "triggered"})  # 판정 표: watch
-    monkeypatch.setattr(agent_router, "_saved_last_eta", lambda user_id, bl_no: date(2026, 9, 25))
+    monkeypatch.setattr(agent_router, "_saved_row", lambda user_id, bl_no: {"last_eta": date(2026, 9, 25)})  # 옛 줄: 날짜뿐
     seen = {}
     real = agent_router.llm.judge
     monkeypatch.setattr(agent_router.llm, "judge", lambda *a, **k: (seen.update(k), real(*a, **k))[1])

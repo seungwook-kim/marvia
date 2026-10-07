@@ -259,7 +259,8 @@ async function demoAgentResponse(req: AgentRequest): Promise<AgentResponse> {
   if ((req.follow_up_question?.length ?? 0) > 300) throw new Error('질문은 300자 이내로 입력해 주세요.');
   const key = `${req.session_id}:${normalized}`;
   const choice = demo.choices.find(c => c.request.bl_no === normalized);
-  if (choice && ((req.sale_due_date ?? null) !== choice.request.sale_due_date || req.bl_type !== choice.request.bl_type)) {
+  // 구분 "모름"(null, 10-08)은 서버처럼 어느 구분이든 찾으므로 예시의 구분과 달라도 된다
+  if (choice && ((req.sale_due_date ?? null) !== choice.request.sale_due_date || (req.bl_type != null && req.bl_type !== choice.request.bl_type))) {
     throw new Error('저장된 예시와 조회 조건이 달라요. 예시 화물을 다시 선택하면 저장된 판매 예정일·B/L 구분으로 돌아가요.');
   }
   const id = selectedFixture ?? choice?.id;

@@ -733,15 +733,15 @@ def test_follow_up_cannot_change_verdict(fake, monkeypatch):
     assert body["verdict"] == "act" and body["status"] == "ok"
 
 
-def test_unknown_bl_is_insufficient_not_failed(fake):
-    """없는 B/L은 실패가 아니라 정보 부족이다 (SDD 4.1)."""
+def test_unknown_bl_fails_after_both_types(fake):
+    """없는 B/L은 마스터·하우스를 둘 다 조회한 뒤 failed로 끝낸다. 구분을 되묻지 않는다 (10-08 결정)."""
     fake(customs=None)
 
     with TestClient(app) as client:
         body = client.post("/api/agent", json=_request()).json()
 
-    assert body["status"] == "insufficient" and body["missing_inputs"] == ["bl_type"]
-    assert "B/L 번호와 마스터·하우스 구분" in body["answer"]
+    assert body["status"] == "failed" and body["missing_inputs"] == [] and body["bl_type_used"] is None
+    assert body["answer"] == agent_router.NO_CARGO and "둘 다 조회" in body["answer"]
 
 
 def test_resolved_mmsi_among_candidates_is_confirmed(fake):
