@@ -22,3 +22,26 @@ def _no_real_db(monkeypatch):
     # 앞 테스트의 연결 실패 기억(db.connect의 짧은 차단, 10-08 QA A1)이 다음 테스트로 넘어가지 않게 지운다
     from backend.app.db import reset_connection_state
     reset_connection_state()
+
+
+@pytest.fixture(autouse=True)
+def _fixed_sale_due_today(monkeypatch):
+    """판매 예정일 범위 검사(routers/agent.sale_due_out_of_range)의 "오늘"을 고정한다 (10-08 QA B2).
+    많은 테스트가 "2026-10-05" 같은 고정 판매 예정일을 쓴다. 실제 오늘을 쓰면 몇 주 뒤에 범위 밖이 되어
+    관계없는 테스트가 깨진다. 범위 검사 자체를 보는 테스트는 today_kst를 다시 바꿔 끼우거나 today 인자를 준다."""
+    from datetime import date
+
+    from backend.app.routers import agent
+
+    monkeypatch.setattr(agent, "today_kst", lambda: date(2026, 9, 23))
+
+
+@pytest.fixture(autouse=True)
+def _forget_tool_rejections():
+    """후속 질문 도구 거절 기억(services/llm.tools_rejected)은 프로세스 메모리다. 한 테스트가 남긴 기억이
+    다음 테스트의 후속 질문을 도구 없이 묻게 하지 않도록 테스트마다 비운다 (10-08 QA B8)."""
+    from backend.app.services import llm
+
+    llm._tools_rejected_at.clear()
+    yield
+    llm._tools_rejected_at.clear()

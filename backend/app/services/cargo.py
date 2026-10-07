@@ -2,7 +2,7 @@
 
   cargo_key()            화물 지문 (BL_ENCRYPTION_KEY에서 파생한 열쇠로 만든 HMAC)
   upsert_assessment()    조회가 끝난 뒤 이번 입력·확정된 배·판정 요약을 적는다. 반출이면 done
-  active_rows()          진행 중 화물. 판정·후속 LLM의 <user_cargo> 블록 재료
+  active_rows()          진행 중 화물. 판정·후속 LLM의 <user_cargo> 블록 재료 (판정 LLM 블록에는 품명을 빼고 넣는다)
   previous_line()        "지난 조회에서는 '주의'였고..." 한 줄을 코드가 쓴다
   add_pending()          대화에서 나온 값 변경(set_cargo)은 바로 적용하지 않고 확인 대기로 둔다
   apply_document_facts() 서류 사진에서 읽고 검사를 통과한 B/L 조건을 적는다
@@ -128,17 +128,32 @@ def _vessel(request: AgentRequest, response: AgentResponse) -> tuple[int | None,
     - 사용자가 되묻기에서 고른 배, 또는 사용자가 준 항차·포워더 입항일로 고른 배: user
     - MRN 입항 신고의 호출부호로 코드가 확정한 배: mrn (routers/agent._identify 후보 이유 문구)
     이름만으로 1척 찾은 경우는 두 방법 어느 것도 아니라 적지 않는다. 덜 적는 쪽이 틀린 배를 기억하는 것보다 낫다.
+
+    적는 배는 응답이 실제로 확정한 배(response.vessel)뿐이다 (10-08 QA B1). 예전에는 요청의 resolved_mmsi를 그대로 적어,
+    후보가 아니라 거절된 번호도 화물 표에 "사용자가 고른 배"로 남고 지켜보기 재판정(routers/agent.trusted_vessel)이 그 배를 믿었다.
+    항차·입항일로 LLM이 고른 배도 후보 목록 맨 앞이 아니라 확정된 배의 번호를 적는다 (후보가 여럿이면 맨 앞이 고른 배가 아니다).
     """
-    if request.resolved_mmsi:
-        return request.resolved_mmsi, "user"
-    if response.vessel_match != "confirmed" or not response.vessel_candidates:
+    vessel = response.vessel
+    if response.vessel_match != "confirmed" or vessel is None:
         return None, None
-    first = response.vessel_candidates[0]
-    if any("MRN" in reason for reason in first.match_reasons):
-        return first.mmsi, "mrn"
+    if request.resolved_mmsi:
+        # 라우터는 고른 번호가 후보로 확인됐을 때만 확정한다(_after_customs rejected). 그래도 번호가 다르면 적지 않는다
+        return (vessel.mmsi, "user") if vessel.mmsi == request.resolved_mmsi else (None, None)
+    chosen = next((c for c in response.vessel_candidates if c.mmsi == vessel.mmsi), None)
+    if chosen is not None and any("MRN" in reason for reason in chosen.match_reasons):
+        return vessel.mmsi, "mrn"
     if request.voyage_no or request.forwarder_eta:
-        return first.mmsi, "user"
+        return vessel.mmsi, "user"
     return None, None
+
+
+def _rejected_mmsi(request: AgentRequest, response: AgentResponse) -> int | None:
+    """사용자가 고른 번호가 이번 응답에서 확정되지 않았으면 그 번호. 화물 표에 같은 번호가 저장돼 있으면 지운다 (upsert_assessment).
+    예전 코드가 거절된 번호를 저장해 둔 줄을 사용자가 다시 고를 때 바로잡는 길이다 (10-08 QA B1)."""
+    if not request.resolved_mmsi:
+        return None
+    confirmed = response.vessel.mmsi if (response.vessel_match == "confirmed" and response.vessel) else None
+    return None if confirmed == request.resolved_mmsi else request.resolved_mmsi
 
 
 # 내 화물 현황 표의 입항·입고 날짜를 뽑는 UNI-PASS 이력 단계 (migrations/019).
@@ -200,6 +215,7 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(KST).date()
     mmsi, source = _vessel(request, response)
+    rejected = _rejected_mmsi(request, response)
     customs = response.customs
     confirmed = response.vessel if response.vessel_match == "confirmed" else None
     entered =[f for f in ("sale_due_date", "forwarder_eta") if getattr(request, f)]
@@ -246,9 +262,11 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
               sale_due_date = COALESCE(EXCLUDED.sale_due_date, user_cargo.sale_due_date),
               forwarder_eta = COALESCE(EXCLUDED.forwarder_eta, user_cargo.forwarder_eta),
               forwarder_eta_noted_at = COALESCE(EXCLUDED.forwarder_eta_noted_at, user_cargo.forwarder_eta_noted_at),
-              vessel_mmsi = COALESCE(EXCLUDED.vessel_mmsi, user_cargo.vessel_mmsi),
+              vessel_mmsi = CASE WHEN EXCLUDED.vessel_mmsi IS NULL AND user_cargo.vessel_mmsi = %s THEN NULL
+                                 ELSE COALESCE(EXCLUDED.vessel_mmsi, user_cargo.vessel_mmsi) END,
               voyage_no = COALESCE(EXCLUDED.voyage_no, user_cargo.voyage_no),
-              vessel_source = COALESCE(EXCLUDED.vessel_source, user_cargo.vessel_source),
+              vessel_source = CASE WHEN EXCLUDED.vessel_mmsi IS NULL AND user_cargo.vessel_mmsi = %s THEN NULL
+                                   ELSE COALESCE(EXCLUDED.vessel_source, user_cargo.vessel_source) END,
               last_verdict = EXCLUDED.last_verdict,
               last_checked_at = EXCLUDED.last_checked_at,
               last_days_margin = EXCLUDED.last_days_margin,
@@ -268,7 +286,8 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
               pending = COALESCE((SELECT jsonb_agg(p) FROM jsonb_array_elements(user_cargo.pending) p
                                   WHERE NOT (p->>'field' = ANY(%s::text[]))), '[]'::jsonb),
               updated_at = now()""",
-        [*values.values(), entered],
+        # 거절된 번호(_rejected_mmsi)는 vessel_mmsi·vessel_source 두 줄의 CASE에 하나씩 들어간다. None이면 "= NULL"이라 늘 ELSE다
+        [*values.values(), rejected, rejected, entered],
     )
     _keep_position(conn, mmsi, response)
     return True
@@ -406,13 +425,14 @@ def conditions_text(row: dict) -> list[str]:
     return out
 
 
-def cargo_line(row: dict) -> str:
-    """<user_cargo> 블록의 한 줄. 가린 번호만 쓰고 내부 번호(id)는 넣지 않는다."""
+def cargo_line(row: dict, *, goods: bool = True) -> str:
+    """<user_cargo> 블록의 한 줄. 가린 번호만 쓰고 내부 번호(id)는 넣지 않는다.
+    goods=False면 품명을 넣지 않는다. 판정 LLM용 블록이다: 품명은 판정 LLM에 주지 않는다 (CLAUDE.md, 10-08 QA B3)."""
     name = f"{row['label']} ({row['bl_masked']})" if row.get("label") else row["bl_masked"]
     # 구분을 아직 모르는 줄(서류만 넣고 조회 전)은 구분을 적지 않는다. 틀린 구분을 LLM에 주지 않으려고
     kind = {"HOUSE": "하우스 B/L", "MASTER": "마스터 B/L"}.get(row.get("bl_type") or "")
     parts = [name, *([kind] if kind else [])]
-    if row.get("goods_name"):
+    if goods and row.get("goods_name"):
         # 세관 품명. "고추 화물 어디야?"처럼 품명으로 물을 때 어느 줄인지 LLM이 알게. 주입 모양은 저장할 때 걸렀다
         parts.append(f"품명 {row['goods_name']}")
     if row.get("sale_due_date"):
@@ -433,9 +453,9 @@ def cargo_line(row: dict) -> str:
     return "- " + " · ".join(parts)
 
 
-def render_block(rows: list[dict]) -> str:
-    """판정·후속 LLM에 넣는 화물 표 블록 본문. 비었으면 빈 글자."""
-    return "\n".join(cargo_line(r) for r in rows)
+def render_block(rows: list[dict], *, goods: bool = True) -> str:
+    """판정·후속 LLM에 넣는 화물 표 블록 본문. 비었으면 빈 글자. goods=False면 품명 없이 (판정 LLM용, cargo_line)."""
+    return "\n".join(cargo_line(r, goods=goods) for r in rows)
 
 
 def done_summary(row: dict) -> str:

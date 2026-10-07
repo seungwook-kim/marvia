@@ -105,7 +105,7 @@ docker compose exec api python -m scripts.make_demo
 NEXT_PUBLIC_API_BASE=http://localhost:8000 npm run dev
 ```
 
-- 예시 화물 메뉴는 백엔드 데모 B/L(라이브 시연 10건 DEMOQD2610001~DEMOQD2610010, 평가셋 3건 TESTBL01 정상·TESTBL04 되묻기·TESTBL26 판정 보류)을 채웁니다. 판매 예정일은 선택 입력이며, 예시마다 "오늘 + N일"로 채웁니다(`lib/api.ts liveExamples`).
+- 예시 화물 메뉴는 백엔드 데모 B/L(라이브 시연 10건 DEMOQD2610001, DEMOSH2610002, DEMONB2610003, DEMOHC2610004, DEMOTJ2610005, DEMODL2610006, DEMOKH2610007, DEMOHP2610008, DEMOSH2610009, DEMOQD2610010, 평가셋 3건 TESTBL01 정상·TESTBL04 되묻기·TESTBL26 판정 보류)을 채웁니다. 판매 예정일은 선택 입력이며, 예시마다 "오늘 + N일"로 채웁니다(`lib/api.ts liveExamples`).
 - 백엔드 CORS `ALLOWED_ORIGINS`에 화면 주소(기본 http://localhost:3000)가 있어야 합니다.
 - 세션 ID는 브라우저마다 만들어 localStorage에 둡니다. 로그인하지 않았을 때 이력이 이 값으로 묶입니다.
 - 로그인은 아래 "로그인" 절을 봅니다.

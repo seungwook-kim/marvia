@@ -29,7 +29,8 @@ F04만 배를 바꾼다:
   녹화 답은 이 데모 입력(판매 예정일을 안내한 날짜로 넣거나 비움)에만 맞다.
 
 라이브 데모 10건 (발표 서버용):
-  DEMOQD2610001 ~ DEMOQD2610010. 순항·주의·긴급 세 등급과 되묻기, 반출 완료를 실제 API 응답처럼 필드를 다 채운 모의 화물로 보여 준다.
+  B/L 10개: DEMOQD2610001, DEMOSH2610002, DEMONB2610003, DEMOHC2610004, DEMOTJ2610005, DEMODL2610006, DEMOKH2610007, DEMOHP2610008, DEMOSH2610009, DEMOQD2610010.
+  DEMO 뒤 두 글자가 적재항이라 이어진 번호가 아니다. 순항·주의·긴급 세 등급과 되묻기, 반출 완료를 실제 API 응답처럼 필드를 다 채운 모의 화물로 보여 준다.
   시나리오 목록은 scripts/demo_live.py의 SPECS이고, 그것을 펼친 문항이 evals/fixtures/demo_live.jsonl이다 (평가셋이 아니다).
   평가셋 3건(TESTBL01·04·26)은 그대로 같이 쓴다. 10건과 3건은 한 폴더에 같이 써서 해수부 _ALL.xml이 모두의 배를 담는다
   (evals/replay_fixtures._write_all).

@@ -16,6 +16,11 @@ plan_compare_words: [예정보다 빠, 예정보다 늦, 예정보다 일찍, �
 # 판매 예정일이 없을 때 sale_date_words와 한 문장에 있으면 판매 예정일과 비교한 것으로 보는 낱말.
 # "판매 예정일을 알려 주시면 ..." 같은 안내 문장은 걸리지 않게 비교 표현만 둔다
 sale_compare_words: [보다, 앞서]
+# 받아 주는 판매 예정일 범위 (10-08 QA B2, routers/agent.sale_due_out_of_range). 오늘 기준 이보다 과거거나 먼 미래면
+# 입력 실수(1900-01-01 등)로 보고 판정하지 않고 다시 묻는다(insufficient, missing_inputs [sale_due_date]). 저장된 값도 덮지 않는다.
+# 조금 지난 날짜는 받는다: 판매 예정일보다 늦게 도착하는 화물(sales_date_exceeded)을 알리는 것이 이 서비스의 일이다
+sale_due_past_days: 30
+sale_due_future_days: 730
 ---
 
 # 2층 등급 판정 표

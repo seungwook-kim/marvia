@@ -909,6 +909,39 @@ def restore_containers(text: str, tokens: dict[str, str]) -> str:
     return CONTAINER_TOKEN.sub(lambda m: tokens.get(m.group(0), m.group(0)), text)
 
 
+# 후속 질문 도구 거절 기억 (10-08 QA B8). 도구를 붙인 요청을 모델·제공사가 bad_request로 거절하면(OpenRouter 데이터 정책 404 등)
+# routers/agent._follow_up이 도구 없이 다시 묻는다. 거절은 질문마다 되풀이되므로 모델별로 기억해 다음 질문부터 처음부터 도구 없이 묻는다.
+# 프로세스 메모리라 서버를 다시 켜면 잊는다. 제공사 설정이 바뀌면 다시 붙도록 TOOLS_REJECT_TTL_SEC 뒤에는 한 번 더 시도한다.
+# 판정 규칙이 아니라 호출 비용 장치라 rules.md가 아니라 여기 둔다
+TOOLS_REJECT_TTL_SEC = 3600.0
+_tools_rejected_at: dict[str, float] = {}
+_tools_rejected_lock = threading.Lock()
+
+
+def _tools_key(model: str | None) -> str:
+    """거절 기억의 열쇠: 실제로 부를 모델 이름 (생략하면 LLM_MODEL, chat()과 같은 규칙)."""
+    return model or os.environ.get("LLM_MODEL") or ""
+
+
+def tools_rejected(model: str | None = None, now: float | None = None) -> bool:
+    """이 모델이 최근 TOOLS_REJECT_TTL_SEC 안에 도구 붙은 요청을 거절했나. 지난 기억은 지운다."""
+    key, now = _tools_key(model), time.monotonic() if now is None else now
+    with _tools_rejected_lock:
+        at = _tools_rejected_at.get(key)
+        if at is None:
+            return False
+        if now - at > TOOLS_REJECT_TTL_SEC:
+            del _tools_rejected_at[key]
+            return False
+        return True
+
+
+def remember_tools_rejected(model: str | None = None, now: float | None = None) -> None:
+    """이 모델이 도구 붙은 요청을 거절했다고 적는다. routers/agent._follow_up이 bad_request를 받았을 때 부른다."""
+    with _tools_rejected_lock:
+        _tools_rejected_at[_tools_key(model)] = time.monotonic() if now is None else now
+
+
 def answer_follow_up(question: str, response: AgentResponse, *, model: str | None = None,
                      feedback: str | None = None, tools: list[dict] | None = None,
                      run_tool: Callable[[str, dict], dict] | None = None, memory: str | None = None) -> LLMAnswer:

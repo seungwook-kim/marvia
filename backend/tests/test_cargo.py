@@ -108,11 +108,18 @@ def test_vessel_source_only_for_mrn_or_user():
     def cand(reason):
         return VesselCandidate(mmsi=1, imo=None, name="X", flag=None, dest=None, last_time=NOW, ship_type=None,
                                match_reasons=[reason])
-    resp = lambda reason: _response(vessel_match="confirmed", vessel_candidates=[cand(reason)])  # noqa: E731
+    from backend.app.schemas.agent import VesselInfo
+
+    def vessel(mmsi):
+        return VesselInfo(mmsi=mmsi, imo=None, name="X", call_sign=None, flag=None, ship_type=None, voyage_no=None)
+
+    resp = lambda reason: _response(vessel_match="confirmed", vessel_candidates=[cand(reason)], vessel=vessel(1))  # noqa: E731
     assert cargo._vessel(_request(), resp("MRN 입항 신고의 호출부호 일치")) == (1, "mrn")
     assert cargo._vessel(_request(), resp("선명 유사도 1.0")) == (None, None)
     assert cargo._vessel(_request(voyage_no="0042E"), resp("선명 유사도 1.0")) == (1, "user")
-    assert cargo._vessel(_request(resolved_mmsi=7), _response()) == (7, "user")
+    # 사용자가 고른 배는 응답이 그 배로 확정했을 때만 적는다 (10-08 QA B1). 거절된 번호(확정 안 됨)는 적지 않는다
+    assert cargo._vessel(_request(resolved_mmsi=7), _response(vessel_match="confirmed", vessel=vessel(7))) == (7, "user")
+    assert cargo._vessel(_request(resolved_mmsi=7), _response()) == (None, None)
 
 
 def test_previous_line_is_code_written():
