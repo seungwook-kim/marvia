@@ -29,6 +29,7 @@ const colorOf = (i: number) => PALETTE[i % PALETTE.length];
 const VESSEL_COLOR = '#9ca3af';
 // 화면에서 이 거리(px) 안에 있는 배끼리 한 클러스터로 묶는다. 핀 폭(34px)보다 조금 넓게
 const CLUSTER_PX = 44;
+const TIP_NAMES = 5;  // 클러스터 말풍선에 이름을 보일 최대 척 수
 /** 지도·목록 한 줄. B/L 화물(WatchItem)이거나, 같은 모양으로 바꾼 배만 지켜보는 줄(vesselOnly, mmsi)이다 */
 type MapItem = WatchItem & {vesselOnly?: boolean; mmsi?: number; dest?: string | null; eta_text?: string | null};
 /** 위치가 있어 지도에 올릴 수 있는 줄 */
@@ -245,7 +246,8 @@ export function WatchMap() {
           L.marker(center, {icon: L.divIcon({className: 'watch-cluster', iconSize: [46, 46], iconAnchor: [23, 23],
             html: `<span class="cluster-body ${urgent}"><b>${g.length}</b><i>${dots}</i></span>`}), title: `배 ${g.length}척: ${names}`, alt: `배 ${g.length}척`, riseOnHover: true, zIndexOffset: 1000})
             .on('click', e => { L.DomEvent.stopPropagation(e); closeOpened(); setCluster(g); })
-            .bindTooltip(`<div class="watch-tip"><strong>배 ${g.length}척</strong><span>${esc(names)}</span><span>눌러서 자세히 보기</span></div>`, {direction: 'top', offset: [0, -22], className: 'watch-tooltip', opacity: 1})
+            // 이름은 한 줄에 한 척, 많으면 앞의 TIP_NAMES척만 보이고 나머지는 "외 N척"으로 줄인다 (전체는 눌러서 여는 상세 창에)
+            .bindTooltip(`<div class="watch-tip"><strong>배 ${g.length}척</strong><ul class="tip-names">${g.slice(0, TIP_NAMES).map(k => `<li>${esc(`${markerLetter(k)} ${active[k].ship_name}`)}</li>`).join('')}${g.length > TIP_NAMES ? `<li class="tip-more">외 ${g.length - TIP_NAMES}척</li>` : ''}</ul><span>눌러서 자세히 보기</span></div>`, {direction: 'top', offset: [0, -22], className: 'watch-tooltip', opacity: 1})
             .addTo(layer);
         });
         paint();  // 다시 올린 핀에도 강조를 입힌다
@@ -286,7 +288,10 @@ export function WatchMap() {
 
       const ro = new ResizeObserver(() => map.invalidateSize());
       ro.observe(host.current);
-      cleanup = () => { const c = map.getCenter(); view.current = {center: [c.lat, c.lng], zoom: map.getZoom()}; hover.current = () => {}; setHovered(null); ro.disconnect(); base.dispose(); map.remove(); };
+      cleanup = () => { const c = map.getCenter(); view.current = {center: [c.lat, c.lng], zoom: map.getZoom()}; hover.current = () => {}; setHovered(null); ro.disconnect(); base.dispose();
+        // 확대 애니메이션 중에 지우면 Leaflet 1.9가 250ms 뒤 남은 타이머(_onZoomTransitionEnd)로 지운 지도를 건드려 "_zoom of null" 오류가 난다.
+        // 데모는 10초마다 다시 그려 자주 겹친다. 애니메이션을 멈추고 그 타이머가 아무것도 하지 않게 표시를 내린 뒤 지운다
+        map.stop(); (map as unknown as {_animatingZoom?: boolean})._animatingZoom = false; map.remove(); };
     });
     return () => { disposed = true; cleanup?.(); };
   }, [list, vessels, showTrack]);  // eslint-disable-line react-hooks/exhaustive-deps

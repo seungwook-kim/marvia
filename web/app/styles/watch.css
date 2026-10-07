@@ -65,6 +65,11 @@
 .watch-tip dl div{grid-template-columns:72px 1fr}
 .watch-tip dd{overflow-wrap:anywhere}
 .watch-tooltip{box-shadow:0 4px 16px #191f2824}
+/* Leaflet 말풍선은 기본이 한 줄(nowrap)이라 긴 글이 상자 밖으로 나간다. 말풍선 안 글은 상자 폭에서 줄을 바꾼다 */
+.watch-tip,.watch-tip *{white-space:normal}
+.watch-tip .tip-names{list-style:none;margin:4px 0 6px;padding:0;display:grid;gap:2px;font-size:var(--text-sm);color:var(--text)}
+.watch-tip .tip-names li{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.watch-tip .tip-more{color:var(--text-2)}
 
 /* 클러스터 상세 창: 지도 오른쪽 일부만 쓴다 */
 .cluster-panel{width:300px;top:12px;bottom:auto;max-height:calc(100% - 24px);border:0;box-shadow:0 4px 16px #191f2824}
