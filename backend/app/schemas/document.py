@@ -16,6 +16,9 @@ from pydantic import BaseModel, Field
 
 # 검사 이름은 services/doc_ocr.check_fields와 같다. 빈 목록이면 통과
 Check = Literal["missing", "not_in_text", "format", "ambiguous"]  # ambiguous: 같은 칸 이름표가 두 번 이상
+# 확인이 필요한 칸으로 알릴 수 있는 칸 이름 (bl_no 뺀 DocumentFields 칸, routers/document.FLAGGABLE_FIELDS와 같다)
+FlaggedField = Literal["vessel", "voyage", "eta", "etd", "pol", "pod", "item", "original_bl", "to_order_bank",
+                       "freight_term", "incoterm", "contact_company", "contact_role", "contact_phone"]
 
 
 class FieldResult(BaseModel):
@@ -49,6 +52,7 @@ class DocumentFields(BaseModel):
     contact_company: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]))
     contact_role: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]),
                                       description="포워더 / 관세사 / 수출자 / 판매처")
+    # 전화는 LLM이 아니라 코드가 OCR 줄에서 뽑는다 (doc_ocr.take_contact_phone, 10-08 QA). LLM 입력에서는 [PHONE]으로 가린다
     contact_phone: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]),
                                        description="회사·부서 전화, 숫자와 하이픈. 개인 휴대폰이면 비우고 format")
 
@@ -69,7 +73,8 @@ class DocumentResponse(BaseModel):
     trace_id: str
     # 적하목록 관리번호. "MRN" 이름표 옆 값을 코드가 뽑는다(LLM 아님). 세관에 아직 없는 화물의 대체 조회용 (docs/specs/mrn-fallback.md)
     mrn: str | None = None
-    # 서류 종류 (LLM이 고름). 거래처를 메모장에 저장할 때 출처(B/L·A/N)로 쓴다. 모르면 null이고 거래처는 저장하지 않는다
+    # 서류 종류 (LLM이 고르고 코드가 서류 글자와 대조, doc_ocr.doc_kind_matches). 거래처를 메모장에 저장할 때 출처(B/L·A/N)로 쓴다.
+    # 모르거나 서류 글자와 맞지 않으면 null이고 거래처는 저장하지 않는다
     doc_kind: Literal["B/L", "A/N"] | None = None
     # 선택: LLM 단계가 실패했을 때 실패 종류(LLMError.kind: bad_format, timeout, overloaded 등). 성공이면 null.
     # status는 그대로 partial이고 코드가 뽑은 B/L도 그대로 준다. 화면이 "AI가 서류 글자를 정리하지 못했어요"를 보여 주고,
@@ -88,3 +93,9 @@ class DocumentResponse(BaseModel):
     # 선택: 이번 사진에서 저장한 B/L 조건·거래처의 칸 이름만 (값 없음). 확인 화면 없이 저장했으므로
     # 화면이 "운임 조건·인코텀즈를 저장해 두었어요"라고 알린다 (web/lib/docAttach.ts). 로그인 안 함·DB 없음·B/L 검사 걸림이면 빈 목록
     facts_saved: list[Literal["original_bl", "to_order_bank", "freight_term", "incoterm", "contact"]] = Field(default_factory=list)
+    # 선택: 값을 읽었지만 검사에 걸린 칸의 이름만 (값 없음, routers/document.flagged_of). bl_status가 ok여도 다른 칸이
+    # 걸렸으면 화면이 "확인이 필요한 칸: 입항 예정일"처럼 알린다 (10-08 QA). 값이 없는 칸(missing)은 넣지 않는다
+    flagged: list[FlaggedField] = Field(default_factory=list)
+    # 선택: 서류에 서로 다른 B/L 번호가 둘 이상 있을 때(정정본, MASTER+HOUSE) 그 번호들의 가린 값 (SDD 3.5, 예 QA****02).
+    # 이때 bl_no 칸에는 ambiguous가 걸리고 bl_status는 uncertain이다. 화면은 자동 조회하지 않고 직접 입력을 부탁한다 (10-08 QA)
+    bl_candidates: list[str] = Field(default_factory=list)

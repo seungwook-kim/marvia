@@ -106,4 +106,6 @@ for(const href of ['http://localhost:3000/settings#','http://localhost:3000/?fix
  assert(!back.includes('#'),`return address keeps #: ${back}`);
  assert.equal(parseParametersFromURL(`${back}#access_token=T&refresh_token=R`).access_token,'T','supabase-js must read the token');
 }
+// 채팅 첨부 사진의 다음 동작 (lib/docAttach.ts, 10-08 QA D4·D6·D7·D8). 따로 둔 검사 파일을 여기서 함께 돌린다
+await import('./verify-docattach.mjs');
 console.log('PASS: 7 AgentResponse fixtures, history envelope, document and memory fixtures, null/enums/evidence, replay isolation, date/type mismatch, candidate resolution, session isolation, SSE parsing, stage names, chat cargo table fields, conversation list types and login return address.');

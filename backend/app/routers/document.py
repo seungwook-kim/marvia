@@ -3,10 +3,13 @@
 
 처리 순서 (Spec "흐름"):
   1~2. 전처리 + OCR               services/doc_ocr.read_lines (로컬, 외부 호출 없음). PDF는 read_pdf: 글자층 먼저, 없으면 그림으로 OCR
-  3.   B/L 번호를 코드로 뽑고 가림   doc_ocr.take_bl, mask_bl. 가려지지 않으면 LLM을 부르지 않는다
-  4.   나머지 6칸                   services/llm.extract_doc_fields (소형 모델, LLM_MODEL)
-  5.   칸 검사                      doc_ocr.check_fields, B/L 조건·연락처는 doc_ocr.check_conditions
-  6.   바로 조회해도 되나            bl_status_of, important_of (코드가 정한다)
+  3.   B/L 번호를 코드로 뽑고 가림   doc_ocr.take_bl_candidates, mask_bl. 가려지지 않으면 LLM을 부르지 않는다.
+                                   B/L 모양·컨테이너 번호·전화·이메일은 B/L을 못 찾았어도 늘 가린다 (10-08 QA)
+  4.   나머지 6칸                   services/llm.extract_doc_fields (소형 모델, LLM_MODEL).
+                                   연락처 전화는 코드가 OCR 줄에서 뽑고(take_contact_phone), 서류 종류는 서류 글자와 대조한다(doc_kind_matches)
+  5.   칸 검사                      doc_ocr.check_fields, B/L 조건·연락처는 doc_ocr.check_conditions.
+                                   서로 다른 B/L 번호가 둘 이상이면 bl_no에 ambiguous
+  6.   바로 조회해도 되나            bl_status_of, important_of, flagged_of (코드가 정한다)
   7.   B/L 조건·거래처 자동 저장      services/doc_facts.save_from_document (로그인 + bl_status ok일 때 검사를 통과한 칸만).
                                    저장한 칸 이름만 facts_saved로 돌려준다
 여기서 판정하지 않고 LLM SDK를 import하지 않는다 (CLAUDE.md). 뽑은 값으로 /api/agent·/api/chat을 부르지도 않는다.
@@ -24,6 +27,7 @@ from backend.app.auth import current_user_id
 from backend.app.observability.langfuse import request_span, session_scope
 from backend.app.observability.logging import current_request_id, log_failure
 from backend.app.routers.agent import quota_guard
+from backend.app.schemas.customs import mask_bl  # 가린 B/L 표기 (SDD 3.5, 가운데 절반을 *로)
 from backend.app.schemas.document import DocumentFields, DocumentResponse, FieldResult, OcrInfo
 from backend.app.services import doc_facts, doc_ocr, llm
 
@@ -37,6 +41,9 @@ LLM_FIELDS = ("vessel", "voyage", "eta", "pol", "pod", "item", "etd")  # etd는 
 _BL_OK = re.compile(r"^(?=[A-Z0-9]*\d)[A-Z0-9]{8,20}$")
 # "중요한 칸": 내 배를 확인하는 데 쓰는 값. 이름만 화면에 알린다
 IMPORTANT_FIELDS = ("vessel", "voyage", "eta", "etd")
+# 확인이 필요한 칸으로 알릴 수 있는 칸 (bl_no 뺀 전부, schemas/document.FlaggedField와 같은 순서)
+FLAGGABLE_FIELDS = ("vessel", "voyage", "eta", "etd", "pol", "pod", "item", "original_bl", "to_order_bank",
+                    "freight_term", "incoterm", "contact_company", "contact_role", "contact_phone")
 # 서류 종류 → 거래처 출처 이름 (메모장 거래처 출처 목록, docs/specs/memory.md)
 DOC_KIND = {"bl": "B/L", "arrival_notice": "A/N"}
 
@@ -66,10 +73,15 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
     else:
         try:
             ocr = doc_ocr.read_lines(data)
+        except doc_ocr.ImageTooLarge:
+            # 10-08 QA D3: 픽셀이 너무 많은 그림(압축 폭탄)은 500이 아니라 400. 파일 크기 상한과 같은 이름으로 알린다
+            raise HTTPException(status_code=400, detail="too_large")
         except (UnidentifiedImageError, OSError):
             raise HTTPException(status_code=400, detail="invalid_image")
 
-    bl = doc_ocr.take_bl(ocr.lines)
+    # 이름표마다 찾은 서로 다른 B/L. 첫 번째를 B/L 칸 값으로 쓰고, 둘 이상이면 아래에서 ambiguous를 건다 (10-08 QA D4)
+    candidates = doc_ocr.take_bl_candidates(ocr.lines)
+    bl = candidates[0] if candidates else None
     values: dict[str, str | None] = {"bl_no": bl, **{k: None for k in LLM_FIELDS}}
     conditions: dict[str, str | None] = {}
     evidence: dict[str, str | None] = {}
@@ -94,7 +106,10 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
                 if out.to_order_bank is not None:  # 응답 칸은 글자다 (FieldResult.value)
                     conditions["to_order_bank"] = "true" if out.to_order_bank else "false"
                 evidence = {k: getattr(out, k) for k in doc_ocr.EVIDENCE_OF.values()}
-                doc_kind = DOC_KIND.get(out.doc_kind or "")
+                # 10-08 QA D9: 전화는 LLM 입력에서 가렸다([PHONE]). LLM이 낸 전화 칸은 버리고, 회사 이름 줄 근처에서 코드가 뽑는다
+                conditions["contact_phone"] = doc_ocr.take_contact_phone(ocr.lines, conditions.get("contact_company"))
+                # 10-08 QA D5: 서류 종류를 LLM만 정하지 않는다. 서류 글자와 맞지 않으면 모르는 것(null)으로 두어 거래처를 저장하지 않는다
+                doc_kind = DOC_KIND.get(out.doc_kind or "") if doc_ocr.doc_kind_matches(out.doc_kind, ocr.lines) else None
             except llm.LLMError as e:  # 키 없음·과부하·형식 깨짐 모두 (Spec EC-05)
                 log_failure("doc_extract", f"{e.kind} {e.code}" if e.code else e.kind)
                 status = "partial"
@@ -102,6 +117,10 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
                 llm_error = e.kind
 
     checks = doc_ocr.check_fields(values, ocr.lines)
+    if len(candidates) > 1:
+        # 10-08 QA D4: B/L 이름표가 둘 이상이고 번호가 다르다(정정본, MASTER+HOUSE). 어느 번호가 사용자 화물인지 서류만으로 모르므로
+        # ambiguous를 걸어 bl_status를 uncertain으로 만든다. 그러면 화면이 자동 조회하지 않고 조건·거래처도 저장하지 않는다
+        checks["bl_no"].append("ambiguous")
     shown, extra_checks = doc_ocr.check_conditions(conditions, evidence, ocr.lines)
     fields = DocumentFields(**{k: FieldResult(value=values[k], checks=checks[k]) for k in doc_ocr.FIELDS},
                             **{k: FieldResult(value=shown[k], checks=extra_checks[k]) for k in doc_ocr.CONDITION_FIELDS})
@@ -121,6 +140,9 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
         bl_status=bl_status,
         important=important_of(fields),
         facts_saved=saved,
+        flagged=flagged_of(fields),
+        # 가린 값만 (SDD 3.5). 원본 번호는 bl_no 칸 하나에만 있다. 화면이 "번호가 여러 개예요(가린 값 …)"라고 알린다
+        bl_candidates=[mask_bl(c) for c in candidates] if len(candidates) > 1 else [],
     )
 
 
@@ -140,4 +162,14 @@ def bl_status_of(fields: DocumentFields) -> str:
 def important_of(fields: DocumentFields) -> list[str]:
     """검사를 통과한 중요한 칸(IMPORTANT_FIELDS)의 이름만 돌려준다. 읽은 값은 다시 보여 주지 않는다."""
     return [k for k in IMPORTANT_FIELDS if getattr(fields, k).value and not getattr(fields, k).checks]
+
+
+def flagged_of(fields: DocumentFields) -> list[str]:
+    """값을 읽었지만 검사(not_in_text, format, ambiguous)에 걸린 칸의 이름만 돌려준다. B/L 칸은 bl_status가 따로 알린다.
+
+    10-08 QA D6: bl_status가 ok면 화면이 바로 조회해서, 입항 예정일 같은 다른 칸이 검사에 걸린 것을 사용자가 몰랐다.
+    화면이 "확인이 필요한 칸: 입항 예정일"처럼 이름만 말한다. 값이 없는 칸(missing, 휴대폰이라 비운 전화)은 넣지 않는다:
+    서류에 원래 없는 칸까지 확인하라고 하면 매번 확인 줄이 붙는다.
+    """
+    return [k for k in FLAGGABLE_FIELDS if getattr(fields, k).value and getattr(fields, k).checks]
 

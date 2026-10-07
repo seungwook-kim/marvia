@@ -79,7 +79,16 @@
   "mrn": "26MRVD0001I",
   "doc_kind": "B/L",
   "llm_error": null,
-  "bl_status": "none",
-  "important": [],
-  "facts_saved": []
+  "bl_status": "ok",
+  "important": [
+    "vessel",
+    "voyage",
+    "etd"
+  ],
+  "facts_saved": [],
+  "flagged": [
+    "eta",
+    "contact_phone"
+  ],
+  "bl_candidates": []
 }
