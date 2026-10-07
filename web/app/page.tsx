@@ -24,7 +24,7 @@ import {dateTime,maskBl,ruleLabels} from '@/lib/format';
 import type {AgentRequest} from '@/lib/types';
 
 export default function CargoPage(){
- const {data,lookup,request,result:r,loading,error,replaying,view,vessels,thread,backToCargo,cargoKey,usage,authEnabled,user,conversationsOn}=useApp();const started=useRef(false);const [mofOnly,setMofOnly]=useState(false);const [moreOpen,setMoreOpen]=useState(false);
+ const {data,lookup,request,result:r,loading,error,replaying,view,vessels,backToCargo,cargoKey,usage,authEnabled,user,conversationsOn}=useApp();const started=useRef(false);const [mofOnly,setMofOnly]=useState(false);const [moreOpen,setMoreOpen]=useState(false);
  // 데모 모드만 첫 화면에 저장된 예시를 연다. ?fixture=는 개발 서버에서 상태별 화면을 확인하는 용도다 (scripts/verify.mjs)
  useEffect(()=>{if(started.current)return;started.current=true;if(r||isLive)return;const id=process.env.NODE_ENV==='development'?new URLSearchParams(window.location.search).get('fixture'):null;const choice=data.demo.choices.find(c=>c.id===id)??data.demo.choices[0];selectFixture(id);void lookup(choice.request as AgentRequest);},[data,lookup,r]);
  // 새 화물일 때만 해수부 근거 거르기를 푼다. 후속 질문 답이 와도 보던 상태를 유지한다
@@ -60,8 +60,9 @@ export default function CargoPage(){
     <h1>대화 내용</h1>
    </header>
    {/* 지켜보던 화물의 판정 변동 알림은 대화의 첫 말풍선으로 온다 (AppProvider) */}
-   {/* 데모 첫 조회처럼 대화 없이 실패한 경우만 여기 알린다. 문장 질문의 실패는 대화 칸에 이미 있다 */}
-   {error&&!thread.length&&!showing&&<p role="alert" className="request-error page-error">{error}</p>}
+   {/* 화물 카드가 안 보일 때의 실패(대화 열기 실패 등)를 여기 알린다. 카드가 보이면 카드 안 안내가 맡고,
+       문장 질문·새 조회의 실패는 대화 칸 말풍선에 있다(AppProvider lookup·failTurn). 대화가 있어도 숨기지 않는다 (10-08 QA G2) */}
+   {error&&showing!=='cargo'&&<p role="alert" className="request-error page-error">{error}</p>}
    <ChatBar idle={idle} onShowDetail={()=>setSheetOpen(true)}/>
   </section>
   {split&&<section className="detail-pane" aria-label="화물 상세">

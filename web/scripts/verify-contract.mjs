@@ -106,4 +106,31 @@ for(const href of ['http://localhost:3000/settings#','http://localhost:3000/?fix
  assert(!back.includes('#'),`return address keeps #: ${back}`);
  assert.equal(parseParametersFromURL(`${back}#access_token=T&refresh_token=R`).access_token,'T','supabase-js must read the token');
 }
-console.log('PASS: 7 AgentResponse fixtures, history envelope, document and memory fixtures, null/enums/evidence, replay isolation, date/type mismatch, candidate resolution, session isolation, SSE parsing, stage names, chat cargo table fields, conversation list types and login return address.');
+// 화면 글자 변환 (10-08 QA G4·G5). 날짜만 온 값에 없는 시각(09:00)을 붙이지 않고, 날짜 모양이 아니면 원문 그대로, 좌표는 부호대로 N/S·E/W
+const {dateTime,day,coordText}=fm.exports;
+assert.equal(dateTime('2026-10-20'),'2026년 10월 20일');
+assert.equal(dateTime('2026-10-20',true),'10월 20일');
+assert.equal(dateTime('2026-10-20T00:40:00Z'),'2026년 10월 20일 09:40');
+assert.equal(dateTime('not-a-date'),'확인 안 됨');
+assert.equal(day('2026-10-05'),'2026년 10월 5일');
+assert.equal(day('2026-10-05T12:00:00+09:00'),'2026년 10월 5일');
+assert.equal(day('2026-10'),'2026-10');
+assert.equal(day(null),'확인 안 됨');
+assert.equal(coordText(35.1,129.04),'35.10°N · 129.04°E');
+assert.equal(coordText(-33.865,-70.5),'33.87°S · 70.50°W');
+// 체험 모드는 운영자가 아니다 (10-08 QA G10). 운영자 메뉴(평가 지표·관리)는 서버가 운영자라고 할 때만 보인다
+assert.equal((await api.getMe()).is_operator,false,'demo mode must not be an operator');
+// 화면 예시 서류 응답의 계산 칸이 서버 규칙과 같아야 한다 (10-08 QA G14, D8과 함께 통과).
+// bl_status·important는 서버 코드가 칸 값과 검사로 정한다(routers/document.py bl_status_of·important_of). 예시 값이 규칙과 어긋나면
+// 체험 모드의 사진 첨부가 서버와 다르게 움직인다(예: "none"이면 조회를 안 한다). 여기서 같은 규칙으로 다시 계산해 대조한다
+{
+ const docSrc=readText(path.join(root,'../backend/app/routers/document.py'));
+ const blOk=new RegExp(docSrc.match(/_BL_OK = re\.compile\(r"([^"]+)"\)/)[1]);
+ const importantFields=[...docSrc.match(/IMPORTANT_FIELDS = \(([^)]*)\)/)[1].matchAll(/"([a-z_]+)"/g)].map(m=>m[1]);
+ const f=documentFixture.fields;
+ const status=!f.bl_no.value?'none':f.bl_no.checks.length||!blOk.test(f.bl_no.value)?'uncertain':'ok';
+ const important=importantFields.filter(k=>f[k]?.value&&!f[k].checks.length);
+ assert.equal(documentFixture.bl_status,status,`document fixture bl_status must follow routers/document.bl_status_of (expected ${status})`);
+ assert.deepEqual(documentFixture.important,important,'document fixture important must follow routers/document.important_of');
+}
+console.log('PASS: 7 AgentResponse fixtures, history envelope, document and memory fixtures, null/enums/evidence, replay isolation, date/type mismatch, candidate resolution, session isolation, SSE parsing, stage names, chat cargo table fields, conversation list types, login return address, date/coordinate text, demo non-operator and document fixture bl_status/important.');

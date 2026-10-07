@@ -79,7 +79,13 @@ export function TodayBoard() {
   const count = (v: Verdict) => active.filter(c => c.last_verdict === v).length;
   const needs = active.filter(c => c.last_verdict === 'act' || c.last_verdict === 'watch')
     .sort((a, b) => ORDER[a.last_verdict!] - ORDER[b.last_verdict!] || (a.last_days_margin ?? 99) - (b.last_days_margin ?? 99));
-  const shipOf = (c: CargoSummary) => watch.find(w => w.bl_masked === c.bl_masked)?.ship_name ?? null;
+  // 화물 요약(GET /api/memory)에는 지문(cargo_key)이 없어 가린 B/L로만 짝을 지을 수 있다. 가린 값은 서로 다른 B/L이 같을 수 있으므로
+  // 양쪽에서 그 가린 값이 딱 하나일 때만 선명을 붙이고, 겹치면 남의 배를 붙이지 않게 비워 둔다 (10-08 QA G11)
+  const shipOf = (c: CargoSummary) => {
+    const ships = watch.filter(w => w.bl_masked === c.bl_masked);
+    const same = (cargo ?? []).filter(x => x.bl_masked === c.bl_masked);
+    return ships.length === 1 && same.length === 1 ? ships[0].ship_name : null;
+  };
 
   async function quick(e: FormEvent) {
     e.preventDefault();
@@ -140,7 +146,7 @@ export function TodayBoard() {
             : needs.length === 0 ? <p className="td-empty">긴급·주의 화물이 없어요. 진행 중인 화물은 {active.length}건이에요.</p>
             : <div className="table-scroll"><table>
                 <thead><tr><th style={{width: 84}}>판정</th><th>화물 · B/L</th><th>선박</th><th style={{width: 84}}>도착 예정</th><th style={{width: 96}}>판매 예정일</th><th className="td-r" style={{width: 72}}>여유(일)</th><th>통관 단계</th><th style={{width: 120}}>마지막 확인</th></tr></thead>
-                <tbody>{needs.map(c => <tr key={c.bl_masked}>
+                <tbody>{needs.map((c, i) => <tr key={`${c.bl_masked}-${i}`}>
                   <td><VerdictBadge verdict={c.last_verdict}/></td>
                   <td>{c.label ?? '이름 없는 화물'}<span className="td-sub">{c.bl_masked}</span></td>
                   <td>{shipOf(c) ?? <span className="td-muted">-</span>}</td>
@@ -167,8 +173,9 @@ export function TodayBoard() {
           </form>
         </section>
 
+        {/* 카카오 알림 연결은 설정 화면의 "설정" 탭(키 rules)에 있다. 없는 탭 키를 쓰면 기본 탭으로 열린다 (SettingsPage TABS, 10-08 QA G9) */}
         <section className="td-panel" aria-labelledby="td-alert">
-          <div className="td-ptitle"><h2 id="td-alert">알림 연결</h2><Link className="td-link" href="/settings?tab=kakao">설정</Link></div>
+          <div className="td-ptitle"><h2 id="td-alert">알림 연결</h2><Link className="td-link" href="/settings?tab=rules">설정</Link></div>
           <dl className="td-kv">
             <div><dt>카카오 알림톡</dt><dd>{!isLive ? '체험 모드' : kakao === null ? '확인 안 됨' : !kakao.configured ? '서버 미설정' : kakao.linked ? '연결됨' : '미연결'}</dd></div>
             {kakao?.last_sent_at && <div><dt>마지막 발송</dt><dd>{dateTime(kakao.last_sent_at, true)}</dd></div>}
@@ -178,8 +185,8 @@ export function TodayBoard() {
         <section className="td-panel" aria-labelledby="td-done">
           <div className="td-ptitle"><h2 id="td-done">순항 화물</h2><span className="td-c">{count('fine')}건</span></div>
           {count('fine') === 0 ? <p className="td-empty">순항 화물이 없어요.</p>
-            : <dl className="td-kv">{active.filter(c => c.last_verdict === 'fine').slice(0, 6).map(c =>
-                <div key={c.bl_masked}><dt>{c.label ?? c.bl_masked}</dt><dd>{c.last_days_margin === null ? '-' : `여유 ${c.last_days_margin}일`}</dd></div>)}</dl>}
+            : <dl className="td-kv">{active.filter(c => c.last_verdict === 'fine').slice(0, 6).map((c, i) =>
+                <div key={`${c.bl_masked}-${i}`}><dt>{c.label ?? c.bl_masked}</dt><dd>{c.last_days_margin === null ? '-' : `여유 ${c.last_days_margin}일`}</dd></div>)}</dl>}
         </section>
       </aside>
     </div>

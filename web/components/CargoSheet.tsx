@@ -99,10 +99,11 @@ export function CargoSheet() {
         <h1>내 화물 현황</h1>
         <p>신용장별 출항·입항·입고를 한눈에 확인해 보세요.</p>
       </div>
-      <div className="cs-actions">
+      {/* 표를 못 읽었으면(로그인 풀림 401 등) 받을 표도 없다. 누를 수 없는 버튼을 남기지 않는다 (10-08 QA G8) */}
+      {!loadError && <div className="cs-actions">
         <button type="button" className="cs-btn cs-btn-outline cs-export" onClick={() => void exportXlsx()} disabled={exporting || !sheet || empty}>
           {exporting ? <LoaderCircle size={20} className="spin"/> : <Download size={20}/>}엑셀 받기</button>
-      </div>
+      </div>}
     </header>
     {sheet && !empty && <dl className="cs-summary" aria-label="화물 현황 요약">
       <div><dt>전체</dt><dd>{counts.total}</dd></div>

@@ -6,7 +6,8 @@
  *   Claude 앱처럼 입력창에 사진·PDF를 붙인다(클립 버튼, 붙여넣기, 끌어 놓기). 한 번에 하나, 새로 붙이면 바뀐다. 읽은 값을 다시 보여 주지 않는다.
  *   보내면 사용자 말풍선에 미리보기와 쓴 글이 보이고, 사진을 읽어 B/L이 확실할 때만 바로 조회한다(AppProvider.askWithAttachment,
  *   판단은 lib/docAttach.ts 코드). 사진은 /api/document에만 가고 저장하지 않는다. 글 없이 사진만 보내도 된다.
- * 화면을 내려 입력창이 안 보이면 "AI에게 이어서 물어보기" 버튼이 나타나 입력창으로 돌려보낸다.
+ * 입력창은 대화 칸 아래에 고정이라 보통은 늘 보인다. 휴대폰에서 상세 시트가 입력창을 화면 밖으로 밀어낸 경우에만
+ *   "AI에게 이어서 물어보기" 버튼이 떠서 입력창으로 돌려보낸다.
  */
 import {useEffect, useId, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
@@ -63,7 +64,8 @@ function linkifyLine(line: string, key: number) {
     i % 2 === 1 ? <a key={`${key}-${i}`} href={part} target="_blank" rel="noopener noreferrer" className="chat-link">{part}</a> : part);
 }
 /** 서버가 답에 붙이는 근거 표시 [E1] / [E1, E2] / [E1][E2] (services/citations.py MARK_GROUP).
- * 이 화면에는 근거 칩을 그리는 부품이 없어 글자로 보이지 않게 앞 공백과 함께 걷어 낸다 */
+ * 근거 칩은 EvidencePopover가 표시 자리에 그리고, 이 함수는 그 사이의 글 조각만 받는다(renderText).
+ * 칩으로 바뀌지 않고 남은 표시(근거가 안 온 옛 대화, 쉼표로 묶인 표시 등)는 글자로 보이지 않게 앞 공백과 함께 걷어 낸다 */
 const EVIDENCE_MARK = /\s*\[\s*E\d+(?:\s*[,，]\s*E\d+)*\s*\]/gi;
 function linkify(text: string): ReactNode[] {
   // 줄마다 따로 본다. 줄바꿈 글자는 그대로 둔다(말풍선은 white-space로 줄을 보인다)
@@ -158,7 +160,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
 
   /** 파일 하나를 입력창에 붙인다. 이미 붙은 것이 있으면 바꾼다(한 번에 하나). 크기·종류는 보내기 전에 여기서 먼저 본다 */
   function attach(file: File | undefined) {
-    if (!file || blocked) return;
+    if (!file || blocked || tour) return;  // 데모 둘러보기는 서버를 부르지 않아 사진을 받지 않는다 (10-08 QA G7)
     if (!isAcceptable(file)) { setAttachError('사진(JPG·PNG)이나 PDF만 올릴 수 있어요.'); return; }
     if (file.size > DOCUMENT_MAX_BYTES) { setAttachError('사진이 너무 커요. 10MB 이하로 올려 주세요.'); return; }
     const pdf = file.type === 'application/pdf';
@@ -189,7 +191,8 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   }
   // 입력창 위로 파일을 끌어 놓기. 파일을 끌 때만 반응한다(글자 끌기는 그대로)
   const draggingFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
-  function onDragOver(e: DragEvent) { if (!draggingFiles(e) || blocked) return; e.preventDefault(); setDragging(true); }
+  // 막힌 상태(한도 소진·데모 둘러보기)에서도 기본 동작은 막는다. 안 막으면 브라우저가 놓은 파일을 열어 화면을 떠난다. 첨부는 attach()가 거른다
+  function onDragOver(e: DragEvent) { if (!draggingFiles(e)) return; e.preventDefault(); if (!blocked && !tour) setDragging(true); }
   function onDrop(e: DragEvent) { if (!draggingFiles(e)) return; e.preventDefault(); setDragging(false); attach(e.dataTransfer.files[0]); }
 
   async function send(message: string) {
@@ -201,7 +204,18 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
       attachRef.current = null;  // 이제 AppProvider 몫이라 화면을 떠날 때 해제하지 않는다
       setAttachment(null); setText(''); setAttachError('');
       stick.current = true;
-      await askWithAttachment(m, a.file, {url: a.url, name: a.file.name, pdf: a.pdf});
+      const outcome = await askWithAttachment(m, a.file, {url: a.url, name: a.file.name, pdf: a.pdf});
+      // 실패하면 쓴 글과 사진을 입력창에 되돌려 다시 보낼 수 있게 한다. 그 사이 새로 붙이거나 쓴 것이 있으면 덮지 않는다 (10-08 QA G6)
+      //   busy: 시작도 안 했다. URL은 아직 이쪽 것이라 그대로 되돌린다
+      //   unread: 사진을 못 읽었다. 말풍선 쪽 URL은 AppProvider가 풀었으니 파일로 새 URL을 만든다
+      //   failed: 사진은 읽었고 답만 실패했다. 사진을 다시 읽지 않게 글만 되돌린다
+      if (outcome === 'busy' || outcome === 'unread') {
+        if (!attachRef.current) {
+          const back = outcome === 'busy' ? a : {...a, url: a.pdf ? '' : URL.createObjectURL(a.file)};
+          attachRef.current = back; setAttachment(back);
+        } else if (outcome === 'busy' && a.url) URL.revokeObjectURL(a.url);  // 새 첨부가 이미 있으면 되돌리지 않는 쪽 URL은 푼다
+      }
+      if (outcome !== 'sent') setText(t => t || m);
       return;
     }
     if (!m) return;
@@ -238,7 +252,8 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
         <div className="feature-tiles">
           <button type="button" onClick={() => isLive ? goToComposer() : fill(examples()[0])} disabled={blocked}><PackageSearch size={20}/>B/L 번호로 조회하기</button>
           <button type="button" onClick={() => fill(isLive ? examples()[0] : examples()[2])} disabled={blocked}><Ship size={20}/>입항 예정 선박 찾기</button>
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={blocked}><FileText size={20}/>서류 사진 올리기</button>
+          {/* 데모 둘러보기에서는 사진을 받지 않는다. 클립 버튼과 같은 조건으로 막는다 (10-08 QA G7) */}
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={blocked || tour}><FileText size={20}/>서류 사진 올리기</button>
         </div>
       </div> : <ol className="chat-thread" aria-live="polite">
         {thread.map((t, i) => <li key={i} className={`chat-turn ${t.role}`}>

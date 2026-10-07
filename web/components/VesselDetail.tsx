@@ -8,7 +8,7 @@
  * 불러오는 동안은 큰 상자 대신 작은 뼈대 줄 세 개만 보인다.
  */
 import {Anchor, Navigation, TriangleAlert} from 'lucide-react';
-import {countryLabel, dateTime, portLabel, shipTypeLabel, shown} from '@/lib/format';
+import {coordText, countryLabel, dateTime, portLabel, shipTypeLabel, shown} from '@/lib/format';
 import type {VesselDetailResponse, VesselItem} from '@/lib/types';
 
 /** 한 배의 자세히 받기 상태. 받은 시각(at)은 서버 10분 캐시와 같은 기준으로 다시 받을지 정할 때 쓴다 */
@@ -18,7 +18,9 @@ const SOURCE_LABEL: Record<string, string> = {mof: '해수부 입항 일정', sh
 // 출처별 실패 안내. 서버 message에는 엔드포인트·키 이름·예외명이 섞여 있어 화면에 내지 않고 고정 문구만 쓴다
 const SOURCE_FAIL: Record<string, string> = {mof: '지금 받지 못했어요', shipfinder: '지금 받지 못했어요', searoute: '계산하지 못했어요'};
 // 출처보다 구체적인 실패 이유가 있을 때의 문장 (서버 errors[].code). ambiguous: 같은 호출부호를 쓴 최근 배가 여럿이라 고르지 않았다 (services/vessel_pick.py)
-const ERROR_TEXT: Record<string, string> = {ambiguous: '같은 호출부호를 쓰는 배가 여러 척이라 어느 배인지 정하지 못했어요', not_found: 'AIS에서 이 배를 찾지 못했어요'};
+// stale_only: 후보는 있지만 최근 7일 안에 받은 신호가 없다 (10-08 QA E2-5. 서버가 이 코드를 주기 전에는 쓰이지 않는다)
+const ERROR_TEXT: Record<string, string> = {ambiguous: '같은 호출부호를 쓰는 배가 여러 척이라 어느 배인지 정하지 못했어요', not_found: 'AIS에서 이 배를 찾지 못했어요',
+  stale_only: '최근 7일 신호가 없어요'};
 
 // 펼쳐 보기의 출처 표기. 모르는 이름은 서버가 준 글자 그대로 보인다
 const SOURCE_NAME: Record<string, string> = {mof: '해수부', shipfinder: 'ShipFinder', searoute: '바닷길 계산'};
@@ -77,7 +79,7 @@ export function VesselDetail({vessel, entry}: {vessel: VesselItem; entry: Detail
         <section><h4><Navigation size={16} strokeWidth={1.75}/>선박 위치 (실시간)</h4>
           <dl>
             <Row k="선박 식별 번호와 국적" v={v ? `${v.mmsi} · ${countryLabel(v.flag)}` : null}/>
-            <Row k="좌표" v={p ? `${p.lat.toFixed(2)}°N · ${p.lng.toFixed(2)}°E` : null}/>
+            <Row k="좌표" v={p ? coordText(p.lat, p.lng) : null}/>
             <Row k="속력과 진행 방향" v={p ? `${shown(p.sog)}노트 · ${shown(p.cog)}°` : null}/>
             <Row k="선박이 밝힌 목적지" v={p?.dest ? portLabel(p.dest) : null}/>
             <Row k="선박이 보낸 도착 예정" v={p?.ais_eta ? dateTime(p.ais_eta) : null}/>
@@ -88,6 +90,8 @@ export function VesselDetail({vessel, entry}: {vessel: VesselItem; entry: Detail
       {v?.match === 'name_similar' && <div className="info-note"><TriangleAlert size={16} strokeWidth={1.75}/><span>호출부호가 없어 이름이 가장 비슷한 배를 보여 줘요. 같은 배인지는 확인하지 못했어요.</span></div>}
       {data!.errors.length > 0 && <div className="info-note"><TriangleAlert size={16} strokeWidth={1.75}/><span>{data!.errors.map(e => `${SOURCE_LABEL[e.source] ?? '일부 정보'}: ${ERROR_TEXT[e.code ?? ''] ?? SOURCE_FAIL[e.source] ?? '지금 받지 못했어요'}`).join(', ')}</span></div>}
       <p className="vd-caveat">예상 도착은 지금 속력을 끝까지 유지한다는 가정이에요. 화물 판정은 아니고, 내 화물은 B/L 번호로 조회해 주세요.</p>
+      {/* 오늘 남은 자세히 보기 횟수. 서버가 숫자를 줄 때만 보인다. 없으면 지어내지 않는다 (10-08 QA G15) */}
+      {typeof data!.remaining === 'number' && <p className="vd-caveat" role="status">오늘 자세히 보기를 {Math.max(0, data!.remaining)}번 더 할 수 있어요.</p>}
       <details className="vd-more"><summary><span className="vd-more-label">자세한 정보 펼쳐 보기<small>호출부호, 선박 종류, 출처, 조회 시각</small></span></summary>
         {more.length > 0 && <dl>{more.map(([k, val]) => <Row key={k} k={k} v={val}/>)}</dl>}
         <p className="vd-caveat">출처: 해양수산부 선박운항정보(입항 신고). 직전에 들른 항구 기준이고, 처음 출발한 항구와 시각은 신고에 없어요.</p>

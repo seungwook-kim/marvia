@@ -5,8 +5,8 @@
  */
 import {createContext, useContext, useEffect, useRef, useState, type ReactNode} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
-import {deleteConversation, errorStatus, getAgentResponse, getConversation, getMe, getPresentationData, getReplaySnapshot, getUsage, getWatchChanges, isLive, listConversations, newSessionId, readDocument, saveAttachmentTurn, sendChatStream, setActiveSession, currentSessionId, watchKey, type ChatShown, type UsageInfo} from '@/lib/api';
-import {verdictLabels} from '@/lib/format';
+import {AUTH_EXPIRED_EVENT, deleteConversation, errorStatus, getAgentResponse, getConversation, getMe, getPresentationData, getReplaySnapshot, getUsage, getWatchChanges, isLive, listConversations, newSessionId, readDocument, saveAttachmentTurn, sendChatStream, setActiveSession, currentSessionId, watchKey, type ChatShown, type UsageInfo} from '@/lib/api';
+import {maskBl, verdictLabels} from '@/lib/format';
 import type {ProgressStage} from '@/lib/progress';
 import {authEnabled, currentUser, onAuthChange, type AuthUser} from '@/lib/auth';
 import {readMe, saveMe} from '@/lib/meCache';
@@ -38,6 +38,13 @@ export interface ChatTurn { role: 'user' | 'assistant'; text: string; kind?: Cha
 
 /** 말풍선 미리보기용 첨부 정보. url이 비어 있으면(새로고침 뒤) 파일 이름만 보인다 */
 export interface ChatImage { url: string; name: string; pdf: boolean }
+
+/** 사진 첨부 보내기의 결과. 입력창(ChatBar)이 무엇을 되돌릴지 이 값으로 정한다 (10-08 QA G6)
+ * - sent: 끝까지 처리했다
+ * - busy: 다른 요청을 기다리는 중이라 시작하지 않았다. 사진 URL은 아직 입력창 것이라 글·첨부를 그대로 되돌린다
+ * - unread: 사진을 읽지 못했다. 말풍선의 미리보기 URL은 여기서 풀었으니 입력창은 파일로 새 URL을 만들어 글·첨부를 되돌린다
+ * - failed: 사진은 읽었고 채팅이 실패했다. 사진을 다시 읽지 않게 쓴 글만 되돌린다 */
+export type AttachOutcome = 'sent' | 'busy' | 'unread' | 'failed';
 
 /** 접속하자마자 보이는 첫 말풍선 글. 코드가 쓴 문장이고 서버가 준 값만 쓴다. 서버가 reason을 주면 덧붙이고, 없으면 지어내지 않는다 */
 function changesText(changes: WatchChange[]): string {
@@ -112,7 +119,7 @@ interface AppState {
   /** 문장 하나 보내기 (POST /api/chat). 화물 답이면 result를, 선박 검색이면 vessels를 바꾼다 */
   ask: (message: string) => Promise<boolean>;
   /** 입력창에 붙인 서류 사진과 쓴 글을 보낸다. 사진을 읽어 B/L이 확실할 때만 바로 조회한다. image.url의 주인은 이제 이쪽이다(대화를 비울 때 해제) */
-  askWithAttachment: (text: string, file: File, image: ChatImage) => Promise<boolean>;
+  askWithAttachment: (text: string, file: File, image: ChatImage) => Promise<AttachOutcome>;
   /** 첨부 사진을 POST /api/document로 읽는 중이면 true. 기다림 카드가 "서류 사진 읽기"를 보인다 */
   readingDoc: boolean;
   /** 채팅 표에서 고른 화물로 아래 결과 칸을 바꾼다. 단일 화물 답을 받았을 때와 같은 상태 바꿈이다 (다음 질문의 문맥도 이 화물) */
@@ -148,6 +155,8 @@ interface AppState {
   newConversation: () => void; openConversation: (id: string) => Promise<boolean>; removeConversation: (id: string) => Promise<void>;
   /** 오늘 LLM 토큰 사용량 (GET /api/usage). exhausted면 입력을 막는다 (docs/specs/token-quota.md) */
   usage: UsageInfo | null; refreshUsage: () => void;
+  /** 출입증을 붙인 요청이 401을 받았다(로그인 만료). 화면 위 공통 "다시 로그인" 배너를 띄운다 (Shell, 10-08 QA G8) */
+  authExpired: boolean;
 }
 const Context = createContext<AppState | null>(null);
 
@@ -170,6 +179,7 @@ export function AppProvider({children}:{children:ReactNode}) {
   const [watching,setWatchingMap] = useState<Record<string,boolean>>({});
   const [usage,setUsage] = useState<UsageInfo|null>(null);
   const [cargoKey,setCargoKey] = useState('');
+  const [authExpired,setAuthExpired] = useState(false);
   // 요청을 마칠 때마다 다시 읽는다. 한도를 넘긴 요청은 끝까지 답하고, 그 뒤에 안내와 입력 막기가 걸린다
   function refreshUsage() { void getUsage().then(setUsage); }
   const inflight = useRef(false);
@@ -213,6 +223,16 @@ export function AppProvider({children}:{children:ReactNode}) {
     refreshUsage();
     return () => { alive = false; };
   }, [authReady, user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 로그인 만료 알림 (lib/api.ts AUTH_EXPIRED_EVENT). 화면마다 401을 따로 안내하지 않고 여기서 한 번 모은다.
+  // 다시 로그인하면(사용자가 바뀌면) 지운다 (10-08 QA G8)
+  useEffect(() => {
+    setAuthExpired(false);
+    if (!authEnabled || !user) return;
+    const on = () => setAuthExpired(true);
+    window.addEventListener(AUTH_EXPIRED_EVENT, on);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, on);
+  }, [user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 다음 접속 때 먼저 말 걸기: 지난 접속 뒤 판정이 바뀐 지켜보는 화물이 있으면 대화의 첫 말풍선으로 알린다.
   // 확인 처리는 여기서 하지 않는다: 판정 변동은 놓치면 안 되는 알림이라 "오늘의 화물"에서 사용자가 "모두 확인"을 누를 때까지 남는다.
@@ -296,7 +316,8 @@ export function AppProvider({children}:{children:ReactNode}) {
       if (mine !== epoch.current) return false;
       startSession(id);
       clearScreen();
-      setThread(c.messages.slice(-50).flatMap(toTurns));  // 화면에는 최근 50줄만 (ask와 같다)
+      // 화면에는 최근 50말풍선만 (ask와 같다). 사진 첨부 줄은 말풍선 둘이 될 수 있어 펼친 뒤에 자른다 (10-08 QA G12)
+      setThread(c.messages.flatMap(toTurns).slice(-50));
       if (c.context && c.result) { setRequest({...c.context, session_id: id}); setResult(c.result); setCargoKey(c.result.trace_id); }
       // 마지막 답의 종류가 결과 칸을 정한다. ask()가 답마다 하는 것과 같다
       const last = [...c.messages].reverse().find(m => m.role === 'assistant');
@@ -338,8 +359,17 @@ export function AppProvider({children}:{children:ReactNode}) {
     inflight.current = true; setLoading(true); setError(''); setReplaying(false); setStages([]); setPendingSince(Date.now());
     // 정해진 칸 조회(POST /api/agent: 되묻기 답·다시 조회)는 단계 소식이 없다. 화면은 기다림과 경과 시간만 보인다
     // 서버가 찾은 B/L 구분(bl_type_used)을 요청에 남긴다. 위 칸의 구분 선택이 찾은 쪽으로 바뀌어 사용자가 보고, 다시 조회도 그 구분으로 바로 간다
+    // 지금 보이는 화물 카드를 다시 조회·확정하는 경우인지. 그때는 카드 안 안내(error)가 실패를 보인다
+    const onCard = view === 'cargo' && !!result && watchKey(request.bl_no) === watchKey(req.bl_no);
     try { const response = await getAgentResponse(req); setResult(response); setRequest(response.bl_type_used ? {...req, bl_type: response.bl_type_used} : req); setView('cargo'); setCargoKey(response.trace_id); return true; }
-    catch (e) { setError(e instanceof Error ? e.message : '조회하지 못했어요. 다시 시도해 주세요.'); return false; }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : '조회하지 못했어요. 다시 시도해 주세요.';
+      // 다른 화면(오늘의 화물 빠른 조회 등)에서 온 새 조회의 실패는 카드 안내가 안 보일 수 있다(대화가 있으면 화면 위 안내도 숨는다).
+      // 그래서 대화 칸에 말풍선으로 남겨 늘 보이게 한다. B/L은 가린 값만 쓴다 (10-08 QA G2)
+      if (onCard) setError(msg);
+      else setThread(t => [...t.slice(-49), {role: 'assistant', text: req.bl_no ? `B/L ${maskBl(req.bl_no.replace(/\s/g, '').toUpperCase())} 조회에 실패했어요. ${msg}` : msg, kind: 'message'}]);
+      return false;
+    }
     finally {setLoading(false);setPendingSince(null);inflight.current=false;refreshUsage();}
   }
   /** 요청 하나를 시작한다. 이미 기다리는 중이거나 대화를 여는 중이면 false (중복 전송 막기) */
@@ -378,8 +408,8 @@ export function AppProvider({children}:{children:ReactNode}) {
    *    코드 문장(가린 B/L, 읽은 칸 이름)을 먼저 넣고, 보낼 문장이 있으면 채팅으로 보낸다. B/L은 서버가 가린 뒤 조회한다
    * B/L 조건·연락처는 /api/document가 로그인 + B/L 검사 통과일 때 서버에서 바로 저장한다. 화면은 저장한 칸 이름만 말한다.
    * 사진 읽기·채팅 실패는 대화 칸에 문장으로 알리고 화면을 깨지 않는다. */
-  async function askWithAttachment(text: string, file: File, image: ChatImage) {
-    if (!begin()) return false;
+  async function askWithAttachment(text: string, file: File, image: ChatImage): Promise<AttachOutcome> {
+    if (!begin()) return 'busy';
     const history = historyNow();
     imageUrls.current.push(image.url);
     setThread(t => [...t.slice(-49), {role: 'user', text: text.trim(), image}]);
@@ -387,7 +417,15 @@ export function AppProvider({children}:{children:ReactNode}) {
     try {
       let doc: DocumentResponse;
       try { doc = await readDocument(file); }
-      catch (e) { failTurn(e, '사진을 읽지 못했어요. 다시 시도해 주세요.'); return false; }
+      catch (e) {
+        // 사진을 못 읽었다. 입력창이 글·첨부를 되돌려 다시 보낼 수 있게 하고, 말풍선 미리보기 URL은 여기서 풀어 이름만 남긴다 (10-08 QA G6)
+        if (image.url) {
+          URL.revokeObjectURL(image.url);
+          imageUrls.current = imageUrls.current.filter(u => u !== image.url);
+          setThread(t => t.map(x => x.image?.url === image.url ? {...x, image: {...x.image, url: ''}} : x));
+        }
+        failTurn(e, '사진을 읽지 못했어요. 다시 시도해 주세요.'); return 'unread';
+      }
       finally { setReadingDoc(false); }
       const plan = decideAttachment(doc, text, CHAT_MAX);
       // 검사를 통과한 항차·입항일·출항일만 남긴다. 나머지 경우는 지난 서류 값이 이번 화물에 섞이지 않게 비운다
@@ -400,10 +438,11 @@ export function AppProvider({children}:{children:ReactNode}) {
         if (conversationsOn && plan.note && await saveAttachmentTurn(shown.text, file.name, plan.note)) {
           syncUrl(currentSessionId()); void refreshConversations();
         }
-        return true;
+        return 'sent';
       }
-      return await chatTurn(plan.message, history, plan.document, shown);
-    } catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); return false; }
+      await chatTurn(plan.message, history, plan.document, shown);
+      return 'sent';
+    } catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); return 'failed'; }
     finally { finish(); }
   }
 
@@ -457,7 +496,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     try { window.sessionStorage.removeItem(CHAT_STATE_KEY); } catch { /* 괜찮다 */ }
   }
 
-  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,ask,askWithAttachment,readingDoc,showCargo,backToCargo,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation}}>{children}</Context.Provider>;
+  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,ask,askWithAttachment,readingDoc,showCargo,backToCargo,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation,authExpired}}>{children}</Context.Provider>;
 }
 /** 화물 답이 후속 질문의 답인지 고른다. 응답 계약(C1, ChatResponse)에 표시 칸이 없어 화면이 확인할 수 있는 사실로만 본다.
  * - 같은 B/L이 아니면 새 조회다

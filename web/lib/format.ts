@@ -39,6 +39,9 @@ export function fieldLabel(field: string) {
 // 숫자 값에 붙일 단위. 근거 값은 서버가 글자로 준다 (Evidence.value). 이름에 단위가 이미 있어도 값만 보는 칸이 있어 값에도 붙인다
 const fieldUnits: Record<string, string> = {distance_nm:'해리', sog:'노트', calc_hours_at_sog:'시간', days_margin:'일', cog:'도'};
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+// 날짜만 있는 값과, 날짜로 시작하는 값 (dateTime, day)
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/;
 /** 근거 카드의 값을 사람이 읽는 모양으로. ISO 시각은 한국 시간으로, 아는 숫자 칸에는 단위를 붙인다. 값 자체는 바꾸지 않는다 */
 export function evidenceValue(field: string, value: string) {
   const v = (value ?? '').trim();
@@ -106,15 +109,30 @@ export function maskBl(value: string) {
   const start = Math.floor((v.length - hidden) / 2);
   return v.slice(0, start) + '*'.repeat(hidden) + v.slice(start + hidden);
 }
+/** 시각 하나를 "2026년 10월 20일 09:40"(short면 연도 없이)으로. 한국 시간 기준이다.
+ * 날짜만 온 값("2026-10-20")은 시각이 없으므로 날짜만 쓴다. new Date('2026-10-20')은 UTC 자정이라
+ * 한국 시간 09:00으로 보이는데, 그 시각은 서버가 준 값이 아니다 (10-08 QA G5) */
 export function dateTime(value: string | null | undefined, short = false) {
   if (!value) return '확인 안 됨';
+  const only = DATE_ONLY.exec(value.trim());
+  if (only) return `${short ? '' : `${only[1]}년 `}${Number(only[2])}월 ${Number(only[3])}일`;
   const d = new Date(value);
   if (Number.isNaN(d.valueOf())) return '확인 안 됨';
   // "10월 20일 09:40", 연도까지 필요하면 "2026년 10월 20일 09:40"
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {timeZone:'Asia/Seoul', year:'numeric', month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).formatToParts(d).map(x => [x.type, x.value]));
   return `${short ? '' : `${p.year}년 `}${p.month}월 ${p.day}일 ${p.hour}:${p.minute}`;
 }
-export function day(value: string | null | undefined) { return value ? `${value.slice(0,4)}년 ${Number(value.slice(5,7))}월 ${Number(value.slice(8,10))}일` : '확인 안 됨'; }
+/** "YYYY-MM-DD"(뒤에 시각이 붙어도 된다)를 "2026년 10월 20일"로. 날짜 모양이 아니면("2026-10" 등) 지어내지 않고 원문 그대로 둔다 (10-08 QA G5) */
+export function day(value: string | null | undefined) {
+  if (!value) return '확인 안 됨';
+  const m = DATE_PREFIX.exec(value.trim());
+  return m ? `${m[1]}년 ${Number(m[2])}월 ${Number(m[3])}일` : value;
+}
+/** 위도·경도를 "35.10°N · 129.04°E"처럼. 부호에 따라 N/S, E/W를 고르고 숫자는 절댓값이다 (남반구·서경을 °N/°E로 잘못 쓰지 않게, 10-08 QA G4) */
+export function coordText(lat: number, lng: number, digits = 2) {
+  const part = (v: number, pos: string, neg: string) => `${Math.abs(v).toFixed(digits)}°${v < 0 ? neg : pos}`;
+  return `${part(lat, 'N', 'S')} · ${part(lng, 'E', 'W')}`;
+}
 /** 서버가 센 정수 시간을 사람 말로. 48시간 이상이면 "2일 3시간"처럼, 1시간 미만은 "1시간 미만" */
 export function hoursText(hours: number | null | undefined) {
   if (hours === null || hours === undefined) return '확인 안 됨';
