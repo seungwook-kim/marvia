@@ -1,7 +1,7 @@
 'use client';
 /** 오늘의 화물 (/today, 10-07). 로그인한 사람 자신의 화물만 보이는 첫 화면이다.
  * 데이터는 모두 그 사람 것을 서버가 골라 준다(로그인 토큰 기준): 기억한 화물(GET /api/memory의 cargo), 지켜보는 화물(GET /api/watch),
- * 이번 접속의 판정 변동(AppProvider.recentChanges, GET /api/watch/changes), 카카오 연결 상태(GET /api/kakao/status).
+ * 아직 확인하지 않은 판정 변동(GET /api/watch/changes, "모두 확인"을 누르면 POST /api/watch/changes/seen), 카카오 연결 상태(GET /api/kakao/status).
  * 체험 모드는 각 API가 돌려주는 가공 예시를 그대로 쓴다. 판정 등급은 서버가 저장한 last_verdict 그대로이고 화면이 다시 계산하지 않는다.
  * 모양은 docs/mockups/v2/A-enterprise-navy.html (styles/today.css) */
 import {useEffect, useState, type FormEvent} from 'react';
@@ -10,9 +10,9 @@ import {useRouter} from 'next/navigation';
 import {RefreshCw} from 'lucide-react';
 import {useApp} from './AppProvider';
 import {VerdictBadge} from './Shared';
-import {getKakaoStatus, getMemory, getWatchList, isLive} from '@/lib/api';
+import {getKakaoStatus, getMemory, getWatchChanges, getWatchList, isLive, markWatchChangesSeen} from '@/lib/api';
 import {dateTime, verdictLabels} from '@/lib/format';
-import type {CargoSummary, KakaoStatus, Verdict} from '@/lib/types';
+import type {CargoSummary, KakaoStatus, Verdict, WatchChange} from '@/lib/types';
 import type {WatchItem} from '@/lib/api';
 
 const ORDER: Record<Verdict, number> = {act: 0, watch: 1, fine: 2};
@@ -31,11 +31,15 @@ function marginCell(c: CargoSummary) {
 }
 
 export function TodayBoard() {
-  const {user, recentChanges, lookup, loading} = useApp();
+  const {user, lookup, loading} = useApp();
   const router = useRouter();
   const [cargo, setCargo] = useState<CargoSummary[] | null>(null);
   const [watch, setWatch] = useState<WatchItem[]>([]);
   const [kakao, setKakao] = useState<KakaoStatus | null>(null);
+  // 아직 확인하지 않은 판정 변동. 사용자가 "모두 확인"을 누를 때까지 남는다 (10-07)
+  const [changes, setChanges] = useState<WatchChange[]>([]);
+  const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
@@ -46,9 +50,10 @@ export function TodayBoard() {
   async function load() {
     setBusy(true); setError('');
     try {
-      const [mem, list] = await Promise.all([getMemory(), getWatchList().catch(() => null)]);
+      const [mem, list, ch] = await Promise.all([getMemory(), getWatchList().catch(() => null), getWatchChanges().catch(() => [] as WatchChange[])]);
       setCargo(mem.cargo ?? []);
       setWatch(list?.items ?? []);
+      setChanges(ch);
       setLoadedAt(new Date());
     } catch (e) {
       setError(e instanceof Error ? e.message : '화물 정보를 불러오지 못했어요.');
@@ -57,8 +62,15 @@ export function TodayBoard() {
     } finally { setBusy(false); }
     if (isLive) getKakaoStatus().then(setKakao).catch(() => setKakao(null));
   }
+  /** 판정 변동을 모두 확인 처리한다. 서버가 지켜보는 화물 전체의 변동 표시를 지운다 */
+  async function ack() {
+    setAcking(true); setAckError('');
+    try { await markWatchChangesSeen(); setChanges([]); }
+    catch (e) { setAckError(e instanceof Error ? e.message : '확인 처리를 하지 못했어요. 잠시 뒤 다시 눌러 주세요.'); }
+    finally { setAcking(false); }
+  }
   // 로그인한 사람이 바뀌면 다시 읽는다 (앞 사람의 화물이 남지 않게 먼저 비운다)
-  useEffect(() => { setCargo(null); setWatch([]); void load(); }, [user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setCargo(null); setWatch([]); setChanges([]); void load(); }, [user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = (cargo ?? []).filter(c => c.status === 'active');
   const count = (v: Verdict) => active.filter(c => c.last_verdict === v).length;
@@ -101,12 +113,14 @@ export function TodayBoard() {
     <div className="td-grid">
       <div className="td-main">
         <section className="td-panel" aria-labelledby="td-changes">
-          <div className="td-ptitle"><h2 id="td-changes">판정 변동</h2><span className="td-c">이번 접속 · {recentChanges.length}건</span></div>
-          {recentChanges.length === 0
-            ? <p className="td-empty">지난 접속 이후 바뀐 판정이 없어요.</p>
+          <div className="td-ptitle"><h2 id="td-changes">판정 변동</h2><span className="td-c">확인 전 {changes.length}건</span>
+            {changes.length > 0 && <button type="button" className="button secondary td-ack" onClick={() => void ack()} disabled={acking}>{acking ? '처리 중' : '모두 확인'}</button>}</div>
+          {ackError && <p role="alert" className="td-error td-pad">{ackError}</p>}
+          {changes.length === 0
+            ? <p className="td-empty">확인하지 않은 판정 변동이 없어요.</p>
             : <div className="table-scroll"><table>
                 <thead><tr><th style={{width: 120}}>시각</th><th>화물</th><th style={{width: 170}}>판정 변경</th><th>사유</th></tr></thead>
-                <tbody>{recentChanges.map((c, i) => <tr key={`${c.bl_masked}-${i}`}>
+                <tbody>{changes.map((c, i) => <tr key={`${c.bl_masked}-${i}`}>
                   <td className="td-num">{dateTime(c.changed_at, true)}</td>
                   <td>{c.label ?? c.bl_masked}<span className="td-sub">{c.bl_masked}</span></td>
                   <td><span className="td-change"><VerdictBadge verdict={c.from_verdict}/><span aria-hidden="true">→</span><VerdictBadge verdict={c.to_verdict}/></span>
