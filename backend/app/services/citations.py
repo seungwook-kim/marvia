@@ -1,4 +1,4 @@
-"""채팅 답 문장 속 근거 표시([E1]) 만들기와 검증 (10-08 정운 실사용 58번, 순수 함수만).
+"""채팅 답 문장 속 근거 표시([E1]) 만들기와 검증 (순수 함수만).
 
 책임: (a) 이번 대화에서 모은 근거 카드를 LLM에게 줄 짧은 id 목록(E1, E2...)으로 만든다,
 (b) LLM이 답에 붙인 [E1] 표시를 코드가 검사해 틀린 것은 지운다, (c) 표시를 모두 걷어 낸 글을 돌려준다.
@@ -7,7 +7,7 @@
 CLAUDE.md "LLM이 값을 정하게 두지 않는다". 틀린 표시는 근거 없는 말에 근거가 있는 척 보이게 하므로 지운다.
 숫자 대조는 validate.py V7("근거에 없는 숫자")과 같은 방식이다: 같은 NUMBER 정규식과 정규화(_normal)를 그대로 쓴다.
 
-이 파일은 LLM도 DB도 부르지 않는다. services/chat.py가 호출한다 (연결 방법은 작업 보고).
+이 파일은 LLM도 DB도 부르지 않는다. services/chat.py가 호출한다.
 B/L·컨테이너 번호: 근거 값에 섞여 있으면 가린 표시로 바꾼다 (CLAUDE.md "B/L 번호를 LLM에 넘기지 않는다").
 """
 from __future__ import annotations
@@ -119,7 +119,7 @@ def _sentence_bounds(text: str) -> list[tuple[int, int]]:
 def parse_and_validate(answer_text: str, evidence_list: list[dict]) -> tuple[str, list[dict]]:
     """답 글의 [E#] 표시를 검사한다. 반환: (표시를 [E1] 모양으로 고른 글, citations).
 
-    규칙 (정운 결정 2, 10-08 실사용 58번):
+    규칙:
     1. 근거 목록에 없는 id는 지운다.
     2. 한 문장에 있는 숫자·날짜는 그 문장에 표시된 근거들의 값 안에 모두 있어야 한다 (V7과 같은 기준).
        하나라도 없으면 그 문장의 표시를 모두 지운다. 숫자 없는 문장은 id가 맞기만 하면 통과.

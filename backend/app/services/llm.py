@@ -1,35 +1,35 @@
-"""LLM 호출은 이 파일 하나로 모읍니다 (작업 C-6, SDD 1.1).
+"""LLM 호출은 이 파일 하나로 모은다 (SDD 1.1).
 
-라우터나 UI 코드가 openai를 직접 import하지 않게 하세요.
-3차에서 이 파일 내부만 갈아끼우면 나머지는 그대로 돌아갑니다.
+라우터·MCP 도구·워커·화면은 openai를 직접 import하지 않는다. 모델이나 제공사를 바꿀 때 이 파일 안만 고치면 된다.
 
 여기서 책임지는 것:
-  - 출력 형식 검사 (Pydantic)          ← judge()가 JSON 모양만 본다. 내용 7규칙은 C-7 validate.py
-  - 실패 시 재시도와 폴백, 라우팅       ← 재시도 1회만 있음. 폴백·라우팅·요청당 시간 예산은 TODO (09-23 결정)
+  - 출력 형식 검사 (Pydantic)          ← JSON 모양만 본다. 내용 규칙은 validate.py
+  - 실패 시 재시도                      ← 과부하·한도면 한 번 더 묻는다, 끊긴 답은 한 번 더 받는다
   - Langfuse 트레이스 남기기            ← _ask_json()이 호출마다 generation 하나 (observability/langfuse.py, SDD 5.11)
 
-지금 있는 것:
+주요 함수:
   chat()   OpenRouter(또는 Vertex AI)에 한 번 묻는다. 과부하·한도(503·429)면 한 번 더 묻는다
   judge()            2층 판정. 프롬프트(Langfuse) + skills/ 문서 + 코드가 모은 자료를 주고 판정 JSON을 받는다 (SDD 4.1 7단계, 5.6)
-  pick_vessel()      이름 같은 후보가 여럿일 때 어느 배인지 고른다 (SDD 5.5, C-5)
-  answer_follow_up() 판정 뒤 후속 질문에 근거 안에서만 답한다 (C-9)
+  pick_vessel()      이름 같은 후보가 여럿일 때 어느 배인지 고른다 (SDD 5.5)
+  answer_follow_up() 판정 뒤 후속 질문에 근거 안에서만 답한다
   extract_doc_fields() 서류 사진 OCR 글자에서 선명·항차·ETA 등 6칸과 B/L 조건·연락처를 옮겨 적는다 (docs/specs/document-extract.md)
   write_memory()     조회·대화 뒤 메모장에 줄 단위 명령만 낸다. 적용은 services/memory.py가 한다 (docs/specs/memory.md)
+  chat_agent()       채팅 에이전트. 도구를 골라 부르고 답 한 칸을 낸다 (services/chat.py)
+  web_search()       채팅 에이전트의 좁은 웹 검색 도구
 
 모델 자리 (.env, 계약 C8):
-  LLM_MODEL           서비스가 쓰는 모델. 위 네 함수 전부 (09-30 이름 바꿈, 전 MODEL_A)
-  MEMORY_MODEL        기억 뽑기(write_memory)만. 비어 있으면 기억 뽑기를 건너뛴다 (10-02 결정 10, 계획 gpt-4o-mini)
-  EVAL_COMPARE_MODEL  평가에서 비교할 두 번째 모델. run_eval --config c에서만 LLM_MODEL 자리에 들어간다 (전 MODEL_B)
-  EVAL_GRADER_MODEL   평가 채점자. 통관 해설 채점(grade_customs)만. 채점받는 모델과 달라야 한다 (전 JUDGE_MODEL.
-                      판정 함수 judge()와 헷갈려서 바꿈)
+  LLM_MODEL           서비스가 쓰는 기본 모델
+  MEMORY_MODEL        기억 뽑기(write_memory)·대화 제목. 비어 있으면 기억 뽑기를 건너뛴다
+  EVAL_COMPARE_MODEL  평가에서 비교할 두 번째 모델. run_eval --config c에서만 LLM_MODEL 자리에 들어간다
+  EVAL_GRADER_MODEL   평가 채점자. 통관 해설 채점(grade_customs)만. 채점받는 모델과 달라야 한다
 
-어디로 보내나 (모델 이름 앞머리로 가른다, 09-28):
+어디로 보내나 (모델 이름 앞머리로 가른다):
   "vertex/"로 시작   Vertex AI (GCP 크레딧). 예: LLM_MODEL=vertex/google/gemini-2.5-flash
                      키 대신 `gcloud auth application-default login` 로그인 정보(ADC)를 쓴다.
                      Cloud Run에서는 서비스 계정에 Vertex AI 사용자 권한이 있어야 한다
                      VERTEX_THINKING_BUDGET=0이면 Gemini가 생각 없이 바로 답한다. 비우면 모델 기본값 (_vertex_thinking)
   그 밖             OpenRouter. 예: LLM_MODEL=openai/gpt-4o-mini
-  개발 중엔 크레딧(vertex/)으로 돌리고, 최종 테스트 때 .env 한 줄만 되돌리려고 두 길을 같이 둔다.
+  .env 한 줄로 두 길을 오갈 수 있게 같이 둔다.
 """
 from __future__ import annotations
 
@@ -55,34 +55,31 @@ from backend.app.observability.langfuse import end_generation, end_web_search, g
 from backend.app.schemas.agent import AgentResponse, Conflict, Evidence, Reason, VesselCandidate, Verdict
 from backend.app.schemas.customs import CustomsRecord
 from backend.app.schemas.signals import SignalSet
-from backend.app.services.evidence import KST  # 판정 입력의 날짜를 근거 카드와 같은 한국 시각으로 (09-29 D8)
-from backend.app.services import guard  # 통관 단계명 주입 거르기 (_clean_customs, 10-01)
-from backend.app.services.signals import needs_broker  # 관세사 필요 여부는 코드가 정해 입력으로 준다 (10-01)
+from backend.app.services.evidence import KST  # 판정 입력의 날짜를 근거 카드와 같은 한국 시각으로
+from backend.app.services import guard  # 통관 단계명 주입 거르기 (_clean_customs)
+from backend.app.services.signals import needs_broker  # 관세사 필요 여부는 코드가 정해 입력으로 준다
 
 # OpenRouter는 OpenAI와 같은 요청 형식을 받는다. 그래서 openai SDK에 주소만 바꿔 쓴다 (requirements.txt 주석).
 BASE_URL = "https://openrouter.ai/api/v1"
-# Vertex AI도 OpenAI 형식 주소를 따로 연다. strict json_schema까지 같은 요청으로 통과했다 (09-28 curl 확인).
-# global 위치를 쓴다: 지역을 고르지 않아도 되고, 09-28 gemini-2.5-flash 호출이 여기서 됐다
+# Vertex AI도 OpenAI 형식 주소를 따로 연다. strict json_schema까지 같은 요청으로 통과한다.
+# global 위치를 쓴다: 지역을 고르지 않아도 된다
 VERTEX_PREFIX = "vertex/"
 VERTEX_URL = "https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/endpoints/openapi"
 VERTEX_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
-TIMEOUT_SEC = 60.0  # 호출 하나가 요청 전체 시간을 다 먹지 않게 하는 상한. p95 실측 뒤 조정
+TIMEOUT_SEC = 60.0  # 호출 하나가 요청 전체 시간을 다 먹지 않게 하는 상한
 
-# 재시도는 횟수가 아니라 요청당 시간 예산으로 정하기로 했다 (09-23 결정). 예산 숫자가 정해지기 전까지는
 # 최초 1회 + 재시도 1회만 한다. 3회씩 돌리면 사용자가 너무 오래 기다린다.
 MAX_ATTEMPTS = 2
-# 후속 질문 한 번에 LLM이 도구를 부를 수 있는 횟수(라운드) 상한 (10-02). 질문 하나에 필요한 도구는 많아야 2~3개다
+# 후속 질문 한 번에 LLM이 도구를 부를 수 있는 횟수(라운드) 상한. 질문 하나에 필요한 도구는 많아야 2~3개다
 # (위치 → 거리, 입항 일정). 넘으면 도구 없이 답하게 한다 (_ask_json)
 MAX_TOOL_ROUNDS = 3
-RETRY_WAIT_SEC = 2.0  # 과부하는 잠깐 뒤 풀리는 경우가 많다. 실측 전 임시값
+RETRY_WAIT_SEC = 2.0  # 과부하는 잠깐 뒤 풀리는 경우가 많다
 # 다시 불러 볼 만한 것: 한도 초과(429), 제공사 과부하·게이트웨이(500·502·503).
-# 09-23 스모크 테스트에서 nemotron 무료가 503 provider_overloaded를 5번 중 3번 냈다.
-# 500은 09-29에 넣었다. Vertex가 과부하를 500으로 줬고(평가 3.8 Flash B09), _status_kind도 500을 overloaded로
-# 분류하는데 재시도만 안 해서 분류와 동작이 어긋나 있었다.
+# 무료 모델은 503 provider_overloaded를 자주 내고, Vertex는 과부하를 500으로 준다 (_status_kind도 500을 overloaded로 본다).
 # 타임아웃은 넣지 않는다. 60초를 한 번 더 기다리면 시간 예산을 넘는다.
 RETRYABLE_CODES = {429, 500, 502, 503}
 # 끝까지 못 쓰고 끊긴 답의 finish_reason. JSON이 깨졌고 이 값이면 _ask_json이 같은 대화로 한 번 더 묻는다.
-# None: 끝 신호 없이 스트림이 끊김 (10-06 서류 판독). "error": 제공사가 생성 중 오류로 멈춤 (10-06 판정 평가 3회, 74번 중 4번)
+# None: 끝 신호 없이 스트림이 끊김. "error": 제공사가 생성 중 오류로 멈춤
 # length(토큰 한도)와 stop(정상 종료)은 넣지 않는다. 다시 물어도 같은 한도에 닿거나, 형식 문제라 프롬프트로 고쳐야 한다
 CUT_FINISH_REASONS = {None, "error"}
 
@@ -91,7 +88,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LLMResult:
-    """chat() 결과. 로그 4필드(요청 ID·모델·토큰·지연, 작업 A5)를 같이 들고 다닌다."""
+    """chat() 결과. 로그 4필드(요청 ID·모델·토큰·지연)를 같이 들고 다닌다."""
 
     content: str | None                 # 모델이 쓴 본문. tool을 부르면 비어 있을 수 있다
     tool_calls: list[dict] = field(default_factory=list)  # [{"id": ..., "name": ..., "arguments": "<JSON 문자열>"}]
@@ -102,8 +99,8 @@ class LLMResult:
     completion_tokens: int | None = None
     latency_ms: int = 0                 # 마지막 시도 하나의 지연. 재시도 대기는 빠진다
     attempts: int = 1                   # 몇 번 만에 답을 받았나. Langfuse retry_count 자리 (SDD 5.11)
-    # 입력 중 제공사 캐시에서 읽은 토큰. 프롬프트 + Skill처럼 매번 같은 앞부분이 자동 캐시된다 (09-30 확인: Vertex
-    # Gemini 2.5 Flash 판정 입력 4,348 중 두 번째 호출부터 3,514). 요청 옵션 없이 응답 usage.prompt_tokens_details에 온다
+    # 입력 중 제공사 캐시에서 읽은 토큰. 프롬프트 + Skill처럼 매번 같은 앞부분이 자동 캐시된다.
+    # 요청 옵션 없이 응답 usage.prompt_tokens_details에 온다
     cached_tokens: int | None = None
     cost: float | None = None           # OpenRouter가 응답 usage.cost에 준 실제 금액 (크레딧 = USD). 무료 모델은 0. Vertex는 안 줘서 None
     finish_reason: str | None = None    # "length"면 토큰 한도에서 잘린 답. 형식 오류와 구분한다 (truncated)
@@ -112,8 +109,7 @@ class LLMResult:
 class LLMError(Exception):
     """OpenRouter·Vertex AI가 답 대신 에러를 준 경우. code가 RETRYABLE_CODES면 chat()이 한 번 더 부른다.
 
-    kind는 실패 종류다. 로그(log_failure)에 코드 대신 이 이름을 남긴다. 해결책이 종류마다 달라서 나눈다
-    (09-29 평가 c에서 qwen 무료가 21건 실패했는데 429 말고는 왜 실패했는지 알 수 없었다).
+    kind는 실패 종류다. 로그(log_failure)에 코드 대신 이 이름을 남긴다. 해결책이 종류마다 달라서 나눈다.
       rate_limited  429 요청이 너무 잦음        overloaded  5xx 제공사 과부하
       auth          401·403·Vertex 로그인 문제   bad_request 그 밖의 4xx (요청 모양·지원 안 하는 옵션)
       connection    연결 실패                   no_choices  200인데 답 없이 error만 옴
@@ -137,8 +133,8 @@ class LLMFormatError(LLMError):
     """LLM이 답은 했는데 JSON이 아니거나 필수 칸이 빠지는 등 모양이 스키마와 다른 경우.
 
     호출 실패(네트워크·키·과부하)와 구분한다. 라우터는 이것을 규칙 위반처럼 보고 무엇이 틀렸는지 붙여 다시 묻는다.
-    세 번 다 깨지면 failed다 (09-28 결정, SDD 5.7 "3단계 재시도 뒤 failed", 평가셋 F08).
-    LLMError를 물려받으므로 이것을 따로 잡지 않는 곳(pick_vessel·후속 질문)은 지금처럼 LLM 실패로 처리한다.
+    세 번 다 깨지면 failed다 (SDD 5.7 "3단계 재시도 뒤 failed").
+    LLMError를 물려받으므로 이것을 따로 잡지 않는 곳(pick_vessel·후속 질문)은 LLM 실패로 처리한다.
     """
 
     def __init__(self, message: str, detail: str, kind: str = "bad_format"):
@@ -149,7 +145,7 @@ class LLMFormatError(LLMError):
 def _client() -> OpenAI:
     # 키는 호출할 때 읽는다. import 시점에 .env가 아직 안 읽혔을 수 있어서 (clients/*.py와 같은 방식).
     # max_retries=0: openai SDK는 기본으로 몰래 2번 재시도한다. 재시도는 아래 chat()이 한 곳에서만 한다.
-    # 키가 없으면 KeyError로 서버가 500을 내는 대신 LLMError로 올린다. 라우터가 판정 없이 partial로 돌려준다 (09-23 결정)
+    # 키가 없으면 KeyError로 서버가 500을 내는 대신 LLMError로 올린다. 라우터가 판정 없이 partial로 돌려준다
     key = os.environ.get("OPENROUTER_API_KEY")
     if not key:
         raise LLMError("OPENROUTER_API_KEY가 없습니다")
@@ -165,7 +161,7 @@ def _vertex_client() -> OpenAI:
     """Vertex AI의 OpenAI 형식 주소로 가는 클라이언트. API 키 자리에 Google 액세스 토큰을 넣는다.
 
     google.auth는 여기서만 import한다. OpenRouter만 쓰는 사람은 google-auth가 없어도 서버가 뜬다.
-    로그인 정보가 없거나 토큰을 못 받으면 _client()와 같이 LLMError로 올린다 (09-23 결정, partial 경로).
+    로그인 정보가 없거나 토큰을 못 받으면 _client()와 같이 LLMError로 올린다 (partial 경로).
     """
     global _vertex_creds, _vertex_project
     import google.auth
@@ -191,11 +187,10 @@ def _vertex_client() -> OpenAI:
 def _vertex_thinking() -> dict | None:
     """VERTEX_THINKING_BUDGET이 있으면 Gemini의 생각(thinking) 토큰 상한을 요청에 붙인다. 없으면 None(모델 기본값).
 
-    09-29 평가: Gemini 2.5 Flash는 답 전에 호출당 평균 1,863토큰을 생각에 써서 정상 질문 평균 10.1초였다
-    (gpt-4o-mini 3.3초). 0이면 생각을 끈다. 실측 1회: 생각 597 → 0토큰, 5.3초 → 1.1초.
+    Gemini 2.5 Flash는 답 전에 생각 토큰을 많이 써서 느리다. 0이면 생각을 끈다.
     OpenAI 형식의 reasoning_effort="none"은 Vertex가 400으로 거부해서(high·low·max·medium·minimal만 받음)
     Google 전용 칸 thinking_config를 쓴다. 이 SDK 호출에서는 extra_body 안에 한 겹 더 extra_body로 넣어야
-    Vertex에 전달된다 (Vertex AI "OpenAI 라이브러리 사용" 문서 형식, 09-29 실측으로 확인).
+    Vertex에 전달된다 (Vertex AI "OpenAI 라이브러리 사용" 문서 형식).
     """
     budget = os.environ.get("VERTEX_THINKING_BUDGET")
     if budget is None or budget == "":
@@ -208,11 +203,11 @@ class _DeadlineExceeded(Exception):
 
 
 def _create_with_deadline(client: OpenAI, kwargs: dict, extra_body: dict | None):
-    """요청 하나를 별도 스레드에서 보내고, 최대 TIMEOUT_SEC초만 기다린다 (10-05).
+    """요청 하나를 별도 스레드에서 보내고, 최대 TIMEOUT_SEC초만 기다린다.
 
     왜 SDK timeout만으로 안 되나: httpx timeout은 연결·읽기 구간별 상한이라 "한 번에 이만큼 조용하면" 끊는다.
     OpenRouter는 비스트리밍 요청에서 모델이 생각하는 동안 연결을 살려 두는 신호를 계속 보내서 읽기 상한이 안 걸린다
-    (실측: 60초 설정인데 78초, 한 대화 턴 152초). 그래서 전체 시간(wall-clock)을 우리가 직접 잰다.
+    (60초 설정에서도 1분을 훌쩍 넘길 수 있다). 그래서 전체 시간(wall-clock)을 우리가 직접 잰다.
     스레드는 죽일 수 없어서 시간이 지나면 버려 두고(daemon) 기다리기만 멈춘다. 버린 요청은 SDK timeout이나
     제공사 쪽에서 끝나는 대로 사라진다. 예외는 그대로 다시 올려 _call_once의 기존 처리를 탄다.
     """
@@ -246,7 +241,7 @@ def _call_once(kwargs: dict) -> LLMResult:
     else:
         client = _client()
         # require_parameters: 요청에 쓴 기능(구조화 출력, tool)을 지원하는 제공사로만 보낸다.
-        # OpenRouter의 모델 단위 "지원" 표시는 제공사 합계라, 이게 없으면 미지원 제공사로 조용히 넘어갈 수 있다 (09-23 조사).
+        # OpenRouter의 모델 단위 "지원" 표시는 제공사 합계라, 이게 없으면 미지원 제공사로 조용히 넘어갈 수 있다.
         extra_body = {"provider": {"require_parameters": True}}
 
     start = time.monotonic()
@@ -264,23 +259,23 @@ def _call_once(kwargs: dict) -> LLMResult:
                        latency_ms=int((time.monotonic() - start) * 1000), kind="connection") from e
     latency_ms = int((time.monotonic() - start) * 1000)
 
-    # OpenRouter는 제공사가 실패하면 HTTP 200 안에 choices 없이 error만 담아 보낼 때가 있다 (09-23 스모크 테스트).
+    # OpenRouter는 제공사가 실패하면 HTTP 200 안에 choices 없이 error만 담아 보낼 때가 있다.
     # 그대로 두면 choices[0]에서 TypeError가 나서 원인이 가려지므로, 에러 내용과 코드를 그대로 올린다.
     if not resp.choices:
         error = (resp.model_extra or {}).get("error") or {}
         raise LLMError(f"{model}: 응답에 choices 없음, error={error}", code=error.get("code"), latency_ms=latency_ms,
                        kind="no_choices")
 
-    # Gemini(Vertex)는 생각(reasoning) 토큰으로 한도를 다 쓰면 message 없이 finish_reason=length만 준다
-    # (09-29 실패 훈련 judge_truncated). 그대로 읽으면 AttributeError로 죽고, 라우터는 LLMError만 받으니 500이 났다.
+    # Gemini(Vertex)는 생각(reasoning) 토큰으로 한도를 다 쓰면 message 없이 finish_reason=length만 준다.
+    # 그대로 읽으면 AttributeError로 죽고, 라우터는 LLMError만 받으니 500이 난다.
     # 빈 답으로 받으면 _ask_json이 finish_reason을 보고 truncated로 올리고, 라우터가 재시도·failed로 처리한다
     msg = resp.choices[0].message or SimpleNamespace(content=None, tool_calls=None)
-    # id: 도구 결과를 돌려줄 때 어느 호출의 결과인지 짝짓는 값 (role=tool 메시지의 tool_call_id, 10-02 후속 질문 도구)
+    # id: 도구 결과를 돌려줄 때 어느 호출의 결과인지 짝짓는 값 (role=tool 메시지의 tool_call_id)
     calls = [{"id": c.id, "name": c.function.name, "arguments": c.function.arguments} for c in (msg.tool_calls or [])]
     usage = resp.usage
     completion_tokens = usage.completion_tokens if usage else None
     # Vertex는 생각(reasoning) 토큰을 completion_tokens에 넣지 않고 completion_tokens_details에 따로 준다
-    # (09-28 curl: prompt 11 + completion 1 + reasoning 33 = total 45). 요금은 생각 토큰도 출력으로 받으므로
+    # (prompt + completion + reasoning = total). 요금은 생각 토큰도 출력으로 받으므로
     # 더해 둔다. 안 더하면 Langfuse가 모델 가격표로 계산한 비용이 실제보다 낮게 나온다.
     # OpenRouter는 OpenAI 방식대로 이미 포함해서 주므로 더하지 않는다
     if is_vertex and completion_tokens is not None:
@@ -295,7 +290,7 @@ def _call_once(kwargs: dict) -> LLMResult:
         prompt_tokens=usage.prompt_tokens if usage else None,
         completion_tokens=completion_tokens,  # 생각 토큰 포함 (위 주석)
         cached_tokens=getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", None) if usage else None,
-        # OpenRouter 전용 필드라 SDK 타입에는 없다. 요청 옵션 없이 매 응답에 들어온다 (OpenRouter Usage Accounting 문서, 09-28 확인)
+        # OpenRouter 전용 필드라 SDK 타입에는 없다. 요청 옵션 없이 매 응답에 들어온다 (OpenRouter Usage Accounting 문서)
         cost=getattr(usage, "cost", None) if usage else None,
         latency_ms=latency_ms,
         finish_reason=getattr(resp.choices[0], "finish_reason", None),
@@ -322,7 +317,7 @@ def chat(
     tool_choice: str | None = None,
     max_tokens: int | None = None,
 ) -> LLMResult:
-    """OpenRouter에 묻고 답을 돌려준다. 429·502·503이면 잠깐 쉬고 한 번 더 묻는다. 출력 검증은 아직 안 한다.
+    """OpenRouter에 묻고 답을 돌려준다. RETRYABLE_CODES면 잠깐 쉬고 한 번 더 묻는다. 출력 검증은 하지 않는다.
 
     Args:
         messages: [{"role": "system"|"user"|..., "content": ...}]
@@ -366,13 +361,13 @@ def chat(
 
 # ── 2층 판정 judge() ─────────────────────────────────────────────
 # SDD 4.1 7단계: 신호·통관·여유 일수를 받아 verdict·reasons·conflicts·actions·answer를 받는다.
-# 자료는 코드가 미리 다 모아서 준다. LLM이 도구를 부르지 않는다 (09-27 결정, SDD 4.1 방식).
+# 자료는 코드가 미리 다 모아서 준다. LLM이 도구를 부르지 않는다 (SDD 4.1).
 
 JUDGE_PROMPT = "marvia-judge"  # Langfuse 프롬프트 이름 (SDD 5.6 표)
 SKILL_DIR = Path(__file__).resolve().parents[3] / "skills"  # 레포 루트의 skills/. Dockerfile도 같은 자리에 복사한다
 
 # 구조화 출력 스키마. Pydantic에서 자동으로 뽑지 않고 손으로 적은 이유: strict 모드는 minItems 같은
-# 키워드를 받지 않는 제공사가 있어서, 09-23 스모크 테스트에서 통과한 모양(scripts/smoke_llm.py)을 그대로 따른다.
+# 키워드를 받지 않는 제공사가 있어서, 여러 제공사에서 통과한 모양(scripts/smoke_llm.py)을 그대로 따른다.
 # 모양은 아래 JudgeOutput과 같아야 한다. 받은 뒤 JudgeOutput으로 한 번 더 검사한다.
 JUDGE_SCHEMA = {
     "type": "object",
@@ -402,8 +397,8 @@ JUDGE_SCHEMA = {
                 "required": ["signals", "chosen", "why"],
                 "properties": {
                     "signals": {"type": "array", "items": {"type": "string"}},
-                    # 믿은 출처는 근거 카드의 출처 이름 중 하나여야 한다 (V6). 목록을 주지 않았더니 Gemini가
-                    # "해수부 입항 예정" 같은 설명을 써서 act가 맞는데도 V6로 3번 탈락했다 (09-29 평가 B04·B09, Langfuse 확인).
+                    # 믿은 출처는 근거 카드의 출처 이름 중 하나여야 한다 (V6). 목록을 주지 않으면 모델이
+                    # "해수부 입항 예정" 같은 설명을 써서 V6에 걸린다.
                     # 목록은 계약 C1 Evidence.source에서 가져온다. 여기에 따로 적으면 둘이 어긋날 수 있다
                     "chosen": {"type": "string", "enum": list(get_args(Evidence.model_fields["source"].annotation)),
                                "description": "믿은 출처"},
@@ -419,7 +414,7 @@ JUDGE_SCHEMA = {
                 {
                     "type": "object",
                     "additionalProperties": False,
-                    # needs_broker는 코드가 정해 입력으로 준다 (10-01, signals.needs_broker). LLM은 쓰지 않는다
+                    # needs_broker는 코드가 정해 입력으로 준다 (signals.needs_broker). LLM은 쓰지 않는다
                     "required": ["plain_explanation", "next_stage"],
                     "properties": {
                         "plain_explanation": {"type": "string"},
@@ -429,7 +424,7 @@ JUDGE_SCHEMA = {
                 {"type": "null"},
             ]
         },
-        # 표 등급이 이 경우에 틀렸다고 볼 때 그 이유 (09-30 D7). 응답에 쓰지 않고 기록만 한다. 동의하면 null
+        # 표 등급이 이 경우에 틀렸다고 볼 때 그 이유 (services/verdict.py). 응답에 쓰지 않고 기록만 한다. 동의하면 null
         "table_disagree": {"type": ["string", "null"]},
     },
 }
@@ -463,17 +458,17 @@ class LLMAnswer:
     output: BaseModel  # 함수마다 JudgeOutput·PickOutput·FollowUpOutput
     llm: LLMResult
     prompt_version: str
-    # LLM이 부른 도구와 결과 [{"name", "arguments", "result"}]. 후속 질문만 쓴다 (10-02). 라우터가 근거 카드로 붙인다
+    # LLM이 부른 도구와 결과 [{"name", "arguments", "result"}]. 후속 질문·채팅 에이전트가 쓴다. 라우터가 근거 카드로 붙인다
     tool_calls: list[dict] = field(default_factory=list)
 
 
-# 호출마다 넣을 Skill 폴더 (09-30 결정). 전에는 모든 호출에 Skill 전부(약 6,600자, 판정 입력의 약 70%)를 넣었다.
-# 각 호출이 받는 자료를 기준으로, 그 자료를 읽는 데 필요한 Skill만 넣는다. 넣는 Skill은 여전히 통째로다 (RAG 아님)
-# 폴더 안의 *.md를 모두 넣는다: SKILL.md(도메인 지식·설명법)와 rules.md(코드가 읽는 재료와 그 뜻) (10-01 Skill 구조)
+# 호출마다 넣을 Skill 폴더. Skill 전부는 판정 입력의 대부분을 차지해서, 각 호출이 받는 자료를 읽는 데
+# 필요한 Skill만 넣는다. 넣는 Skill은 통째로다 (RAG 아님)
+# 폴더 안의 *.md를 모두 넣는다: SKILL.md(도메인 지식·설명법)와 rules.md(코드가 읽는 재료와 그 뜻)
 #   ais-reliability  AIS 값 읽는 법(오류 사례, 출처 우선순위), 신호 7종 기준
 #   customs-stages   통관 단계 목록(rules.md)과 해설법
 #   port-busan       부두 이름 뜻, 하역 장소 문장, 부산 기준값
-#   cargo-verdict    등급 판정 표(rules.md), 등급 뜻·결과 설명법·되묻기와 실패 결과 설명법 (10-01 신설)
+#   cargo-verdict    등급 판정 표(rules.md), 등급 뜻·결과 설명법·되묻기와 실패 결과 설명법
 AIS, CUSTOMS, PORT, VERDICT = "ais-reliability", "customs-stages", "port-busan", "cargo-verdict"
 ALL_SKILLS = (AIS, CUSTOMS, PORT, VERDICT)
 JUDGE_SKILLS = (AIS, CUSTOMS, VERDICT)  # 신호 읽기 · 통관 해설 · 등급 설명. 판정 입력에 부두 · 하역 장소가 없어 부두 Skill은 안 넣는다
@@ -483,9 +478,9 @@ GRADE_SKILLS = (CUSTOMS,)               # 통관 해설 채점은 통관 단계 
 
 
 def skills_reference(folders: tuple[str, ...] = ALL_SKILLS, prompt_name: str | None = None) -> str:
-    """검증 V9·V10(validate.py)이 "답에 써도 되는 낱말"의 출처로 쓰는 원문: LLM이 받은 Skill 문서와 지시문 (10-01).
-    지시문 낱말을 넣는 이유: gpt-4o-mini가 판정 지시문 첫 줄의 "cargo"를 한국어 답에 섞어 판정 출력 228개 중 19개가
-    V9에 걸렸다. 지시문에 있는 낱말은 주입이 끼워 넣은 표식이 아니다."""
+    """검증 V9·V10(validate.py)이 "답에 써도 되는 낱말"의 출처로 쓰는 원문: LLM이 받은 Skill 문서와 지시문.
+    지시문 낱말을 넣는 이유: 모델이 지시문의 영어 낱말(예: "cargo")을 한국어 답에 섞으면 V9에 걸린다.
+    지시문에 있는 낱말은 주입이 끼워 넣은 표식이 아니다."""
     return _skills_text(folders) + ("\n\n" + get_prompt(prompt_name).text if prompt_name else "")
 
 
@@ -493,17 +488,15 @@ def _skills_text(folders: tuple[str, ...] = ALL_SKILLS) -> str:
     """고른 Skill 폴더의 .md를 파일 이름과 함께 이어 붙인다. RAG 없이 통째로 넣는다 (CLAUDE.md)."""
     parts = []
     for path in sorted(p for folder in folders for p in (SKILL_DIR / folder).rglob("*.md")):
-        # Windows 문제: relative_to()를 그대로 문자열로 쓰면 Windows에서 "ais-reliability\SKILL.md"처럼 역슬래시가 된다.
-        # 그러면 LLM이 보는 파일 이름이 OS마다 달라지고 test_judge.py::test_system_has_prompt_and_all_skills가 Windows에서만 깨진다.
-        # as_posix()로 어느 OS에서든 "/"로 맞춘다 (Docker·Mac은 원래 "/"라 동작 변화 없음)
+        # relative_to()를 그대로 쓰면 Windows에서 역슬래시가 되어 LLM이 보는 파일 이름이 OS마다 달라진다.
+        # as_posix()로 어느 OS에서든 "/"로 맞춘다
         parts.append(f"# 파일: skills/{path.relative_to(SKILL_DIR).as_posix()}\n\n{path.read_text(encoding='utf-8')}")
     return "\n\n".join(parts)
 
 
-# 판정 LLM 입력에서 뺄 통관 칸. B/L(bl_masked)·MRN·조회 시각 외에, 10-06에 붙은 포워더·선사·컨테이너 번호도 뺀다:
-# 판정에 쓰이지 않고(프롬프트·평가 결과를 그대로 두려고), 컨테이너 번호는 B/L처럼 화물을 특정하는 번호라 LLM에 줄 수 없다.
-# 포워더·선사 이름은 채팅 에이전트가 받는다 (services/chat.py _cargo_summary).
-# 품명(goods_name, 10-06 오후)도 판정에 쓰이지 않아 뺀다. 채팅 에이전트만 받는다
+# 판정 LLM 입력에서 뺄 통관 칸. B/L(bl_masked)·MRN·조회 시각과 포워더·선사·컨테이너 번호·품명:
+# 판정에 쓰이지 않고, 컨테이너 번호는 B/L처럼 화물을 특정하는 번호라 LLM에 줄 수 없다.
+# 포워더·선사 이름과 품명은 채팅 에이전트만 받는다 (services/chat.py _cargo_summary).
 JUDGE_CUSTOMS_EXCLUDE = {"bl_masked", "mrn", "fetched_at", "forwarder_name", "carrier_name", "container_no", "goods_name"}
 
 
@@ -512,14 +505,14 @@ def _judge_input(signals: SignalSet, customs: CustomsRecord | None, days_margin:
                  table_verdict: str | None = None, verdict_mode: str | None = None, facts: dict | None = None) -> str:
     """LLM에 넘길 자료를 JSON 문자열로 만든다. B/L 번호(bl_masked)와 MRN은 판정에 필요 없어 뺀다 (CLAUDE.md, SDD 3.5).
 
-    날짜는 한국 시각으로 준다 (09-29 D8). 전에는 여유 일수 숫자만 줘서 "언제 와요?"에 날짜로 답하지 못했고,
-    사용자가 말한 판매일을 근거에 없는 숫자로 보고 검증(V7)이 막기도 했다 (평가 F06 "9월 23일"). 판매일이 없으면 null이다 (선택 입력, 09-29 결정).
+    날짜는 한국 시각으로 준다. 여유 일수 숫자만 주면 "언제 와요?"에 날짜로 답하지 못하고, 사용자가 말한 판매일을
+    근거에 없는 숫자로 보고 검증(V7)이 막는다. 판매일이 없으면 null이다 (선택 입력).
     calc_eta는 남은 거리 ÷ 현재 속도로 코드가 계산한 대략값이다. 참고용이라 판정 근거로 쓰지 않게 지시문에 적는다.
-    table_verdict·verdict_mode (09-30 D7, services/verdict.py): 코드가 판정 표로 낸 등급과, LLM이 그 등급을
+    table_verdict·verdict_mode (services/verdict.py): 코드가 판정 표로 낸 등급과, LLM이 그 등급을
     그대로 써야 하는지(fixed) 표 이상에서 고를 수 있는지(raise_only, 회색 지대)를 알려 준다.
-    needs_broker (10-01): 관세사가 봐야 하는 단계인지 코드가 정한 값. LLM은 이 값에 맞춰 설명만 한다. 통관 정보가 없으면 null.
-    facts (10-08): 코드가 센 지난 사실(묘박지 대기 anchorage, 지난 조회 대비 도착 예정 변화 eta_change). 판정 신호가 아니라
-    설명 재료다. 없으면 칸을 아예 넣지 않는다: 그동안의 입력 모양과 재생 녹화(_replay_matches)가 그대로 맞게 하려는 것이다.
+    needs_broker: 관세사가 봐야 하는 단계인지 코드가 정한 값. LLM은 이 값에 맞춰 설명만 한다. 통관 정보가 없으면 null.
+    facts: 코드가 센 지난 사실(묘박지 대기 anchorage, 지난 조회 대비 도착 예정 변화 eta_change). 판정 신호가 아니라
+    설명 재료다. 없으면 칸을 아예 넣지 않는다: 재생 녹화(_replay_matches)의 입력 모양이 그대로 맞게 하려는 것이다.
     """
     data = {
         "table_verdict": table_verdict,
@@ -543,7 +536,7 @@ STAGE_SUSPECT = "(단계 이름 확인 필요)"  # 주입 모양 단계명 대�
 
 
 def _clean_customs(data: dict) -> dict:
-    """통관 단계명(UNI-PASS 외부 글자)이 주입 모양이면 LLM에 넘기기 전에 바꾼다 (SDD 7절, 10-01).
+    """통관 단계명(UNI-PASS 외부 글자)이 주입 모양이면 LLM에 넘기기 전에 바꾼다 (SDD 7절).
     단계명은 외부에서 온 글자라 주입이 들어올 수 있는 길이다. 판정 LLM이 그 문장을 보지 않게 한다 (예방 조치).
     화면의 근거 카드에는 원래 글자가 그대로 있다. 여기서 바꾸는 것은 LLM 입력뿐이다."""
     if guard.looks_like_injection(data.get("stage_name")):
@@ -567,7 +560,7 @@ def _loose_json(content: str | None, output_model: type[BaseModel]) -> str | Non
     """도구 라운드에서 모델이 response_format 없이 낸 본문을 output_model JSON으로 읽는다. 읽히면 깨끗한 JSON 문자열, 아니면 None.
 
     ```json 코드 울타리와 앞뒤 공백만 벗긴다. 그 이상은 하지 않는다: 여기서 못 읽으면 _ask_json이
-    response_format을 붙여 한 번 더 묻는 쪽이 더 믿을 만하다 (10-05).
+    response_format을 붙여 한 번 더 묻는 쪽이 더 믿을 만하다.
     """
     text = (content or "").strip()
     if text.startswith("```"):
@@ -587,7 +580,7 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
     """여러 함수가 같이 쓰는 한 번의 문답. 지시문(Langfuse) + skills 문서를 system에, 자료를 user에 넣고
     구조화 출력으로 받은 JSON을 output_model로 검사한다.
     skills는 넣을 Skill 폴더다 (JUDGE_SKILLS 등). 빈 튜플이면 넣지 않는다: 판단 기준이 필요 없는 호출(서류 칸 옮겨 적기)용.
-    tools·run_tool: LLM이 직접 부를 도구 목록(OpenAI 형식)과, 부른 도구를 실제로 실행하는 함수 (10-02, 후속 질문만).
+    tools·run_tool: LLM이 직접 부를 도구 목록(OpenAI 형식)과, 부른 도구를 실제로 실행하는 함수 (후속 질문·채팅 에이전트).
     run_tool(이름, 인자)는 도구 결과 dict를 돌려준다. 부른 기록은 LLMAnswer.tool_calls에 담는다.
     context: 로그인 사용자의 기억 블록(<user_cargo>·<user_memory>, services/memory.compose_blocks). 판정·후속 질문만 쓴다.
     순서는 지시문 + Skill(system, 고정) → 기억 블록 → 이번 자료 (docs/specs/memory.md 읽기 흐름 2). 고정된 앞부분이
@@ -595,7 +588,7 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
 
     Raises:
         LLMError: 호출 실패, 또는 답이 JSON이 아니거나 모양이 output_model과 다를 때.
-                  내용 규칙(V1~V7) 검사와 재시도는 C-7 validate.py가 맡는다.
+                  내용 규칙 검사와 재시도는 validate.py와 라우터가 맡는다.
     """
     if replay.replay_enabled() and not (model or os.environ.get("LLM_MODEL")):
         return _replay_answer(prompt_name, user_content, output_model)
@@ -606,21 +599,21 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
         messages.append({"role": "user", "content": context})
     messages.append({"role": "user", "content": user_content})
     if feedback:
-        # 검증 위반을 붙여 다시 묻는 경우 (C-7). 코드가 쓴 지시라 자료(user_content)와 섞지 않고 따로 보낸다
+        # 검증 위반을 붙여 다시 묻는 경우. 코드가 쓴 지시라 자료(user_content)와 섞지 않고 따로 보낸다
         messages.append({"role": "user", "content": f"Your previous answer broke these rules. Answer again in the same JSON format and fix them:\n{feedback}"})
     # 트레이스 입력은 코드가 모은 자료(user_content)만. 지시문·skills 전문은 길고 매번 같아서 빼고 prompt_version으로 가린다
-    # 기억 블록은 가리지 않고 그대로 남긴다 (10-02 결정 8: 운영자가 보는 기록. DB 줄은 탈퇴·삭제 때 지운다)
+    # 기억 블록은 가리지 않고 그대로 남긴다 (운영자가 보는 기록. DB 줄은 탈퇴·삭제 때 지운다)
     generation = start_generation(prompt_name, f"{context}\n\n{user_content}" if context else user_content, prompt.source)
     response_format = {"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": schema}}
     called: list[dict] = []
-    # 이번 생성에서 부른 chat() 결과 전부. 도구 고리는 chat()을 여러 번 부르는데 기록에 마지막 한 번만 남아
-    # Langfuse 토큰·비용이 실제보다 적게 보였다 (10-06 점검). 끝낼 때 _summed로 합쳐 남긴다
+    # 이번 생성에서 부른 chat() 결과 전부. 도구 고리는 chat()을 여러 번 부르므로 마지막 한 번만 남기면
+    # Langfuse 토큰·비용이 실제보다 적게 보인다. 끝낼 때 _summed로 합쳐 남긴다
     rounds: list[LLMResult] = []
     try:
-        # 도구가 없으면 한 번 묻고 끝난다 (판정·배 고르기 등, 지금까지와 같음: response_format을 붙인 한 번의 호출).
-        # 도구가 있으면(후속 질문·채팅 에이전트, 10-02) LLM이 도구를 부르는 동안 결과를 돌려주며 다시 묻는다. MAX_TOOL_ROUNDS번 부른 뒤에는
+        # 도구가 없으면 한 번 묻고 끝난다 (판정·배 고르기 등: response_format을 붙인 한 번의 호출).
+        # 도구가 있으면(후속 질문·채팅 에이전트) LLM이 도구를 부르는 동안 결과를 돌려주며 다시 묻는다. MAX_TOOL_ROUNDS번 부른 뒤에는
         # tool_choice="none"으로 더 부르지 말고 답하게 한다. 같은 도구를 끝없이 부르는 것을 막는 상한이다 (가이드 Tool trajectory)
-        # 도구를 고를 기회가 있는 라운드에는 response_format을 붙이지 않는다 (10-05 실측): deepseek-v4-flash(OpenRouter)는
+        # 도구를 고를 기회가 있는 라운드에는 response_format을 붙이지 않는다: 일부 모델(deepseek-v4-flash 등)은
         # strict json_schema가 같이 오면 도구를 한 번도 안 부르고 JSON만 낸다. 빼면 바로 맞는 도구를 부른다.
         # 대신 도구를 안 부르고 낸 본문을 JSON으로 읽어 보고, 안 읽히면 같은 대화에 response_format + tool_choice="none"으로 한 번 더 묻는다
         for round_no in range(MAX_TOOL_ROUNDS + 1):
@@ -660,23 +653,21 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
                 # 도구 결과는 자료다. 지시로 읽지 않는다는 규칙은 프롬프트에 있다 (marvia-follow-up "Tools" 절)
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(output, ensure_ascii=False)})
     except LLMError as e:
-        # 앞 라운드에서 이미 쓴 토큰·비용은 남긴다. 한 번도 답을 못 받았으면 None (전과 같음)
+        # 앞 라운드에서 이미 쓴 토큰·비용은 남긴다. 한 번도 답을 못 받았으면 None
         end_generation(generation, _summed(rounds) if rounds else None, prompt.version, error=str(e))
         raise
-    result = _summed(rounds)  # 도구 라운드 합산 (main 10-06 점검)
-    cut_retried = False  # 끊긴 답을 다시 받은 적이 있나. 한 번만 다시 받는다 (10-06)
+    result = _summed(rounds)  # 도구 라운드 합산
+    cut_retried = False  # 끊긴 답을 다시 받은 적이 있나. 한 번만 다시 받는다
     while True:
         try:
             output = output_model.model_validate_json(result.content or "")
             break
         except ValidationError as e:
             if result.finish_reason in CUT_FINISH_REASONS and not cut_retried:
-                # 10-06 실측: 서류 판독에서 HTTP 200인데 스트림이 JSON 중간(`{"vessel":`)에서 끊기고 finish_reason도 None인 답이
-                # 두 번 왔다. 정상 종료(stop)나 토큰 한도(length) 신호가 없는 답은 모델이 끝까지 쓰지 못한 것이라, 같은 대화로
+                # HTTP 200인데 JSON 중간에서 끊기고 finish_reason이 None이나 "error"인 답이 가끔 온다.
+                # 정상 종료(stop)나 토큰 한도(length) 신호가 없는 답은 모델이 끝까지 쓰지 못한 것이라, 같은 대화로
                 # 한 번 더 묻는다. chat()은 이 경우를 재시도하지 않으므로(RETRYABLE_CODES는 상태 코드만 본다) 여기서 한다.
                 # length는 다시 물어도 같은 한도에 닿으므로 건드리지 않고, 형식이 틀린 stop 답은 프롬프트 문제라 아래에서 올린다
-                # 10-06 평가 3회 실측: 판정 답 74번 중 4번이 finish_reason="error"·출력 토큰 0으로 JSON 중간에서 끊겼다(제공사 Google).
-                # None만 보던 때는 이것이 bad_format(프롬프트 문제)으로 잘못 세져 라우터가 형식 오류 안내를 붙여 다시 물었다
                 cut_retried = True
                 logger.warning("llm %s 답이 끊김(finish_reason %s), %.1f초 뒤 한 번 더 묻는다",
                                result.model, result.finish_reason, RETRY_WAIT_SEC)
@@ -688,7 +679,7 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
                 except LLMError as call_error:
                     end_generation(generation, previous, prompt.version, output=previous.content, error=str(call_error))
                     raise
-                # 다시 물은 답도 한 라운드로 더한다. 토큰·비용은 _summed가 모든 라운드를 합친다 (main과 합칠 때 10-06)
+                # 다시 물은 답도 한 라운드로 더한다. 토큰·비용은 _summed가 모든 라운드를 합친다
                 rounds.append(again)
                 summed = _summed(rounds)
                 # 끊겨서 다시 물은 것은 Langfuse retry_count에도 센다 (end_generation: attempts - 1). _summed는 라운드 수를 재시도로 세지 않는다
@@ -708,7 +699,7 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
 
 
 def _summed(rounds: list[LLMResult]) -> LLMResult:
-    """도구 고리 여러 라운드의 chat() 결과를 하나로 합친다 (10-06 점검: Langfuse에 마지막 라운드 토큰만 남았다).
+    """도구 고리 여러 라운드의 chat() 결과를 하나로 합친다 (Langfuse에 모든 라운드의 토큰·비용이 남게).
     본문·도구 호출·모델·finish_reason·request_id는 마지막 라운드 것이고, 토큰·캐시 토큰·비용은 모든 라운드의 합이다.
     값을 하나도 안 준 칸(None)은 합도 None으로 둔다(Vertex는 cost를 안 준다). 재시도 수는 라운드마다의 재시도(attempts-1)를 더한다.
     지연은 마지막 시도의 것을 그대로 둔다 (LLMResult.latency_ms 정의). 한 라운드면 그 결과를 그대로 돌려준다."""
@@ -724,8 +715,8 @@ def _summed(rounds: list[LLMResult]) -> LLMResult:
                    attempts=1 + sum(r.attempts - 1 for r in rounds))
 
 
-# ── LLM 녹화 답 재생 (09-29 결정) ─────────────────────────────
-# 채점자가 키 없이 데모 3건을 돌리게 하는 장치다 (SDD 6.1, CLAUDE.md "REPLAY_MODE=true면 키 없이").
+# ── LLM 녹화 답 재생 ─────────────────────────────
+# 채점자가 키 없이 데모를 돌리게 하는 장치다 (SDD 6.1, CLAUDE.md "REPLAY_MODE=true면 키 없이").
 # REPLAY_MODE이고 LLM_MODEL이 비어 있을 때만 탄다. LLM_MODEL이 있으면 재생 모드에서도 진짜 LLM을 부른다.
 # 녹화 파일: evals/fixtures/replay/llm/<프롬프트 이름>.json. 실제 모델로 데모 입력을 한 번 돌려 받은 답이다.
 # 녹화 답은 그 입력에만 맞다. 입력이 다르면(판매일을 다르게 넣는 등) 녹화 답을 쓰지 않고 LLMError를 낸다.
@@ -777,10 +768,10 @@ def judge(
     memory: str | None = None,
     facts: dict | None = None,
 ) -> LLMAnswer:
-    """2층 판정. output은 JudgeOutput. 자료는 코드가 모은 신호·통관·여유 일수·날짜 (SDD 4.1 7단계, 09-29 D8).
-    feedback은 출력 검증(C-7) 위반 내용이다. 주면 위반을 고쳐 다시 답하라고 붙인다 (SDD 5.7 재시도).
-    memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md). 데이터일 뿐이고 등급은 지금처럼 판정 표가 정한다.
-    facts: 코드가 센 지난 사실 (10-08, routers/agent._judge_facts). 설명 재료일 뿐 등급에 쓰지 않는다."""
+    """2층 판정. output은 JudgeOutput. 자료는 코드가 모은 신호·통관·여유 일수·날짜 (SDD 4.1 7단계).
+    feedback은 출력 검증(validate.py) 위반 내용이다. 주면 위반을 고쳐 다시 답하라고 붙인다 (SDD 5.7 재시도).
+    memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md). 데이터일 뿐이고 등급은 판정 표가 정한다.
+    facts: 코드가 센 지난 사실 (routers/agent._judge_facts). 설명 재료일 뿐 등급에 쓰지 않는다."""
     return _ask_json(JUDGE_PROMPT, _judge_input(signals, customs, days_margin, trusted_eta, sale_due_date,
                                                 table_verdict, verdict_mode, facts),
                      "judge", JUDGE_SCHEMA, JudgeOutput, model, feedback=feedback, skills=JUDGE_SKILLS, context=memory)
@@ -848,7 +839,7 @@ def pick_vessel(
         "customs": {"ship_name": customs.ship_name, "ship_nat": customs.ship_nat,
                     "voyage": customs.voyage, "entry_date": customs.entry_date.isoformat() if customs.entry_date else None},
         # 마지막 수신 후 경과 시간은 코드가 계산해 붙인다. LLM은 지금 시각을 몰라서 수신 시각만 주면
-        # 1시간 전 신호를 "오래됐다"고 읽었다 (09-27 스모크 테스트). freshness를 코드가 정하는 원칙과 같다 (CLAUDE.md)
+        # 1시간 전 신호를 "오래됐다"고 읽는다. freshness를 코드가 정하는 원칙과 같다 (CLAUDE.md)
         "candidates": [
             {**c.model_dump(mode="json"), "hours_since_last": _hours_since(c.last_time, now)} for c in candidates
         ],
@@ -864,7 +855,7 @@ def pick_vessel(
 
 
 # ── 후속 질문 answer_follow_up() ────────────────────────────────
-# C-9: 근거 범위 밖 질문은 거절한다 ("비트코인 시세" 거절이 완료 기준).
+# 근거 범위 밖 질문은 거절한다 (예: "비트코인 시세").
 
 FOLLOW_UP_PROMPT = "marvia-follow-up"
 FOLLOW_UP_SCHEMA = {
@@ -883,7 +874,7 @@ class FollowUpOutput(BaseModel):
     answer: str
 
 
-# 컨테이너 번호 토큰 (10-06 결정, CLAUDE.md "컨테이너 번호는 B/L처럼 LLM에 원문을 넘기지 않는다").
+# 컨테이너 번호 토큰 (CLAUDE.md "컨테이너 번호는 B/L처럼 LLM에 원문을 넘기지 않는다").
 # 컨테이너 번호도 화물을 특정하는 번호라 LLM은 [CNTR1], [CNTR2] 번호표만 본다. 화면에 나가는 답에서는 코드가 원래 번호로 되돌린다
 CONTAINER_TOKEN = re.compile(r"\[CNTR\d+\]")
 
@@ -924,34 +915,34 @@ def answer_follow_up(question: str, response: AgentResponse, *, model: str | Non
     """이미 나온 판정(response)에 대한 후속 질문에 답한다. output은 FollowUpOutput.
 
     질문은 사용자 자유 입력이라 데이터로만 넘긴다 (SDD 7절 신뢰 경계). 300자 제한은 AgentRequest가 이미 건다.
-    feedback: 앞 답이 검증 규칙(V1·V7)을 어겼을 때 어긴 내용. judge()와 같은 방식으로 다시 묻는다 (09-29, 평가 F06)
+    feedback: 앞 답이 검증 규칙(V1·V7)을 어겼을 때 어긴 내용. judge()와 같은 방식으로 다시 묻는다
 
-    AIS 목적지 원문(shipfinder dest 근거 카드)은 빼고 넘긴다 (SDD 7절, 10-01). 아무 배나 AIS에 쓸 수 있는 글자라
+    AIS 목적지 원문(shipfinder dest 근거 카드)은 빼고 넘긴다 (SDD 7절). 아무 배나 AIS에 쓸 수 있는 글자라
     "지금부터 너는 ~" 같은 역할 재설정 문장이 들어올 수 있다. 판정 LLM처럼 코드가 destcode로 계산한
     dest_changed 신호 카드만 남긴다. 화면의 근거 카드에는 그대로 있다 (여기서 빼는 것은 LLM 입력뿐).
 
-    tools·run_tool (10-02, D9 B안): 지난 결과에 없는 지금 값(현재 위치·남은 거리·입항 기록)을 물으면 LLM이
+    tools·run_tool: 지난 결과에 없는 지금 값(현재 위치·남은 거리·입항 기록)을 물으면 LLM이
     읽기 전용 MCP 도구를 직접 골라 부른다. 목록은 mcp_client.read_only_tools(), 실행은 routers/agent.py가 /mcp로 한다.
-    판정 흐름(judge)은 지금처럼 코드가 도구를 부른다.
+    판정 흐름(judge)은 코드가 도구를 부른다.
     memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md 읽기 흐름). judge()와 같은 자리에 넣는다.
 
-    컨테이너 번호는 원문을 넘기지 않고 [CNTR1] 번호표로 바꿔 준다 (10-06 결정). LLM은 번호표를 그대로 답에 쓰고,
+    컨테이너 번호는 원문을 넘기지 않고 [CNTR1] 번호표로 바꿔 준다. LLM은 번호표를 그대로 답에 쓰고,
     사용자에게 가는 문장에서는 라우터가 원래 번호로 되돌린다 (container_tokens, restore_containers).
     """
     # customs_detail(UNI-PASS 처리 이력 원문)은 화면 전용이라 LLM에 넘기지 않는다. 중량·관세법인명 등이 들어 있다 (docs/specs/customs-detail.md)
-    # 통관 칸 중 컨테이너 번호는 B/L처럼 화물을 특정하는 번호라 원문을 주지 않는다 (10-06 점검). 칸을 빼지 않고 아래에서 [CNTR1]
-    # 번호표로 바꾼다: "컨테이너 번호 뭐야?"에 LLM이 번호표로 답하면 라우터가 화면에서만 원래 번호로 되돌린다 (10-06 정운 결정).
-    # 포워더·선사 이름은 남긴다. "포워더가 어디야" 같은 후속 질문에 답하는 재료다 (10-06 점검)
+    # 통관 칸 중 컨테이너 번호는 B/L처럼 화물을 특정하는 번호라 원문을 주지 않는다. 칸을 빼지 않고 아래에서 [CNTR1]
+    # 번호표로 바꾼다: "컨테이너 번호 뭐야?"에 LLM이 번호표로 답하면 라우터가 화면에서만 원래 번호로 되돌린다.
+    # 포워더·선사 이름은 남긴다. "포워더가 어디야" 같은 후속 질문에 답하는 재료다
     result = response.model_dump(mode="json", exclude={"trace_id", "vessel_candidates", "customs_detail"})
     result["evidence"] = [e for e in result.get("evidence") or []
                           if not (e["source"] == "shipfinder" and e["field"] == "dest")]
-    # 컨테이너 번호는 번호표로만 (10-06). customs.container_no는 [CNTR1], [CNTR2]가 되고, 다른 칸(근거 카드 값, 지난 답)에
+    # 컨테이너 번호는 번호표로만. customs.container_no는 [CNTR1], [CNTR2]가 되고, 다른 칸(근거 카드 값, 지난 답)에
     # 같은 번호가 있어도 같은 번호표로 바뀐다. 되돌리는 쪽은 routers/agent.py _follow_up (같은 container_tokens로 다시 만든다)
     tokens = container_tokens(response.customs.container_no if response.customs else None)
     if tokens:
         result = hide_containers(result, tokens)
         question = hide_containers(question, tokens)  # 사용자가 질문에 이 화물의 컨테이너 번호를 직접 써도 번호표로만 간다
-    # 품명(10-06 오후)은 해외 화주가 적하목록에 쓴 글자라 주입 모양이면 뺀다 (chat._cargo_summary와 같은 예방 조치)
+    # 품명은 해외 화주가 적하목록에 쓴 글자라 주입 모양이면 뺀다 (chat._cargo_summary와 같은 예방 조치)
     if result.get("customs") and guard.looks_like_injection(result["customs"].get("goods_name")):
         result["customs"]["goods_name"] = None
     data = {"result": result, "question": question}
@@ -962,7 +953,7 @@ def answer_follow_up(question: str, response: AgentResponse, *, model: str | Non
 
 # ── 서류 칸 뽑기 extract_doc_fields() ────────────────────────────
 # docs/specs/document-extract.md 4단계: OCR 글자에서 6칸을 옮겨 적는다. 판단은 하지 않는다.
-# 10-02 결정 6: B/L 조건 세 칸(원본 B/L·은행 지시식·운임 + 인코텀즈)과 화물 인도 연락처(회사·역할·회사 전화)도 읽는다.
+# B/L 조건 세 칸(원본 B/L·은행 지시식·운임 + 인코텀즈)과 화물 인도 연락처(회사·역할·회사 전화)도 읽는다.
 # 조건은 고르기라 근거 글(*_text)을 글자 그대로 같이 받고, 그 글이 서류에 있는지 코드가 본다 (doc_ocr.check_conditions).
 # B/L 번호는 코드(doc_ocr.take_bl)가 먼저 뽑아 [BL]로 가린 글자만 받는다 (CLAUDE.md).
 # 옮긴 값이 글자에 실제로 있는지는 doc_ocr.check_fields가 검사한다.
@@ -1005,7 +996,7 @@ class DocFieldsOutput(BaseModel):
     pol: str | None
     pod: str | None
     item: str | None
-    # 10-02 결정 6. 기본값 None: 이 칸이 생기기 전 모양의 답(테스트·녹화)도 읽힌다. 값 검사는 doc_ocr.check_conditions
+    # B/L 조건·연락처. 기본값 None: 이 칸이 없는 예전 모양의 답(테스트·녹화)도 읽힌다. 값 검사는 doc_ocr.check_conditions
     doc_kind: str | None = None           # bl / arrival_notice. 거래처 출처(B/L·A/N)를 정하는 데만 쓴다
     original_bl: str | None = None        # required / surrendered
     original_bl_text: str | None = None   # 위 값의 근거로 서류에서 그대로 옮긴 글
@@ -1017,7 +1008,7 @@ class DocFieldsOutput(BaseModel):
     contact_company: str | None = None    # 화물 인도 연락처 회사 (개인 이름 아님)
     contact_role: str | None = None       # 포워더 / 관세사 / 수출자 / 판매처
     contact_phone: str | None = None      # 회사·부서 전화 (개인 휴대폰 아님)
-    # 10-06 출항일 YYYY-MM-DD (A/N의 ETD, B/L의 Shipped on board). 기본값 None: 프롬프트가 Langfuse에 등록되기 전이라
+    # 출항일 YYYY-MM-DD (A/N의 ETD, B/L의 Shipped on board). 기본값 None: 프롬프트 버전에 따라
     # LLM이 이 칸을 모르거나 null로 두어도 읽힌다. 모양·서류 속 존재·eta와의 순서 검사는 doc_ocr.check_fields
     etd: str | None = None
 
@@ -1106,7 +1097,7 @@ class MemoryOpsOutput(BaseModel):
 def write_memory(content: str, *, model: str | None = None) -> LLMAnswer:
     """기억 뽑기. output은 MemoryOpsOutput. content는 services/memory.writer_input이 만든 JSON 글자.
 
-    모델은 MEMORY_MODEL(.env). 없으면 LLMError(not_configured)이고 부르는 쪽이 조용히 건너뛴다 (10-02 결정 10).
+    모델은 MEMORY_MODEL(.env). 없으면 LLMError(not_configured)이고 부르는 쪽이 조용히 건너뛴다.
     판단 기준 Skill은 넣지 않는다. 메모장 종류·칸 규칙은 프롬프트에 있고 코드가 다시 검사한다.
     """
     model = model or os.environ.get("MEMORY_MODEL")
@@ -1116,7 +1107,7 @@ def write_memory(content: str, *, model: str | None = None) -> LLMAnswer:
 
 
 # ── 대화 제목 make_chat_title() ─────────────────────────────
-# 대화 목록(10-06 결정)의 제목. 첫 사용자 말을 코드가 B/L을 [BL1]로 가린 글만 받는다 (CLAUDE.md, B/L 원본은 LLM에 안 간다).
+# 대화 목록의 제목. 첫 사용자 말을 코드가 B/L을 [BL1]로 가린 글만 받는다 (CLAUDE.md, B/L 원본은 LLM에 안 간다).
 # 결과 검사(한 줄·길이·주입 모양)와 실패 시 대신 쓸 제목은 services/conversations.py가 맡는다.
 
 TITLE_PROMPT = "marvia-chat-title"
@@ -1145,7 +1136,7 @@ def make_chat_title(masked_text: str, *, model: str | None = None) -> LLMAnswer:
 
 
 # ── 통관 해설 채점 grade_customs() ─────────────────────────────
-# 평가 전용 LLM-as-judge (SDD 5.12 customs_explanation, 가이드 평가 4축 ④ "생성 모델 ≠ 판정 모델").
+# 평가 전용 LLM-as-judge (SDD 5.12 customs_explanation, "생성 모델 ≠ 판정 모델").
 # 서비스 요청에서는 부르지 않는다. evals/judge.py가 평가 실행 때만 부른다.
 # 판정 LLM이 쓴 통관 해설(단계 뜻 · 다음 단계 · 관세사 필요 여부)을 customs-stages Skill(단계 목록은 rules.md customs_stages) 기준으로 0/1 채점한다.
 
@@ -1155,7 +1146,7 @@ GRADE_SCHEMA = {
     "additionalProperties": False,
     "required": ["score", "reason"],
     "properties": {
-        # 정수 enum은 Gemini 구조화 출력이 지원하지 않아 빈 {}가 온다 (10-01, 채점 모델을 gemini-2.5-flash로 바꿀 때 확인).
+        # 정수 enum은 Gemini 구조화 출력이 지원하지 않아 빈 {}가 온다.
         # 0/1 범위는 GradeOutput(Literal[0, 1])이 검사한다
         "score": {"type": "integer", "description": "지시문의 다섯 조건을 모두 지키면 1, 하나라도 어기면 0"},
         "reason": {"type": "string", "description": "어긴 조건 번호와 이유 한 줄. 다 지키면 pass"},
@@ -1226,34 +1217,33 @@ def route_chat(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
                      ChatRouteOutput, model, skills=())
 
 
-# ── 채팅 에이전트 chat_agent() (10-05 결정) ──────────────────────────
-# route_chat은 문장을 의도 하나로 나누고 끝났다. 그래서 네 의도에 안 맞는 실무 질문("포워더가 항차 번호를 안 줘")은
-# 전부 고정 안내로 갔고, 한 문장에 조회 둘이 필요한 일("상하이에서 오는 배 중 제일 먼저 오는 배 지금 어디야")도 못 했다 (10-05 실측 대화).
+# ── 채팅 에이전트 chat_agent() ──────────────────────────
+# route_chat은 문장을 의도 하나로 나누고 끝나서, 네 의도에 안 맞는 실무 질문("포워더가 항차 번호를 안 줘")이나
+# 한 문장에 조회 둘이 필요한 일("상하이에서 오는 배 중 제일 먼저 오는 배 지금 어디야")을 못 한다.
 # chat_agent는 LLM이 도구를 골라 부르고, 결과를 보고 다음 도구를 또 고른다 (_ask_json의 도구 루프, 상한 MAX_TOOL_ROUNDS).
 # 도구 목록과 실행은 services/chat.py가 준다: 화물 조회·화물 질문·입항 선박 검색 + 읽기 전용 MCP 도구.
-# 등급·여유 일수는 지금처럼 코드가 정한다. B/L은 가린 토큰만 온다 (CLAUDE.md).
+# 등급·여유 일수는 코드가 정한다. B/L은 가린 토큰만 온다 (CLAUDE.md).
 # Skill 문서를 통째로 넣는다: 도구가 필요 없는 실무 질문은 이 문서 안에서만 답하게 한다 (RAG 아님).
 
 CHAT_AGENT_PROMPT = "marvia-chat-agent"
 CHAT_AGENT_SKILLS = ALL_SKILLS  # 되묻기 설명법(cargo-verdict), 통관 단계, AIS, 부두를 모두 물을 수 있다
-# 도구 없이 답할 때의 근거 칸 (10-05 실측): 실무 질문 답에 Skill 문서에 없는 조언("판매처에 문의", "A/N에 B/L 번호가 보통 적혀 있다")이
-# 섞여 나왔는데, 숫자·영문·옮긴 낱말만 보는 V7·V9·V10으로는 못 잡았다. 그래서 답의 종류(answer_kind)와 근거 문장(skill_quote)을 받는다.
+# 도구 없이 답할 때의 근거 칸: 실무 질문 답에 Skill 문서에 없는 조언("판매처에 문의")이 섞여 나올 수 있는데,
+# 숫자·영문·옮긴 낱말만 보는 V7·V9·V10으로는 못 잡는다. 그래서 답의 종류(answer_kind)와 근거 문장(skill_quote)을 받는다.
 #   skill: Skill 문서로 답했다. skill_quote는 그 답을 받치는 Skill 문서 원문 한 조각이고, 코드가 원문에 그대로 있는지 본다 (validate V14)
 #   not_in_skills: 수입 화물 질문이지만 Skill 문서에 없다. 코드가 고정 문구를 쓴다 (chat.NOT_IN_SKILLS)
 #   unrelated: 수입 화물과 상관없는 말. 코드가 고정 안내를 쓴다 (chat.OTHER_REPLY)
 #   tool: 도구를 불렀고 그 결과를 받은 뒤의 답. 도구 없이 tool을 내면 코드가 도구를 부르라고 다시 묻는다 (chat._agent).
-#     따로 둔 이유 (10-05 실측): 도구를 쓴 답을 unrelated + 빈 reply로 내게 했을 때 도구를 안 부른 답과 코드가 구별하지 못했다.
-#     같은 날 진단에서 deepseek-v4-flash(OpenRouter)는 strict response_format을 붙이면 도구를 전혀 부르지 않고 이 모양만 냈다
-#     (붙이지 않으면 search_arrivals·ask_cargo를 바로 불렀다). 그 문제는 _ask_json 쪽이고, 여기서는 tool을 낸 답을 코드가 알아보게만 한다
+#     따로 둔 이유: 도구를 쓴 답과 도구를 안 부른 답을 코드가 구별해야 한다. 도구를 안 부르는 모델 문제는
+#     _ask_json 쪽에서 다루고, 여기서는 tool을 낸 답을 코드가 알아보게만 한다
 # 도구를 쓴 답이면 근거 칸은 보지 않는다. 종류를 잘못 골라도 결과는 고정 문구 중 하나라 지어낸 조언이 화면에 가지 않는다
-#   web: 웹 검색 도구(chat.WEB_TOOL)로 받은 결과로 답했다 (10-05 결정). skill_quote는 웹 검색 결과 원문 한 조각이고,
+#   web: 웹 검색 도구(chat.WEB_TOOL)로 받은 결과로 답했다. skill_quote는 웹 검색 결과 원문 한 조각이고,
 #     코드가 가져온 웹 글에 그대로 있는지 본다 (V14와 같은 방식, chat._web_violations)
-#   general: 3층 (10-05 결정). 교과서 수준의 일반 해운 설명(용어 뜻, 일반 절차)을 모델 지식으로 답했다. 근거 조각 없이 내보내되
-#     숫자·세액·특정 화물·배 이야기는 안 되고 꼬리표는 없다: 고지는 이용약관으로 옮겼다 (10-07, chat._agent). 검사는 V7·V9(허용 용어 확장)·V10·V13
-#   unrelated: 이제 한 문장짜리 직접 답을 낼 수 있다 (날짜·"마르비아가 뭐야?" 같은 잡담). 검사에 걸리면 고정 안내로 바뀐다
-#   clarify: 사용자가 쓴 식별자(예: TEST41)가 B/L 번호인지 배 이름인지 모르겠다 (10-05 실측). 코드가 고정 문장으로 되묻는다
+#   general: 3층. 교과서 수준의 일반 해운 설명(용어 뜻, 일반 절차)을 모델 지식으로 답했다. 근거 조각 없이 내보내되
+#     숫자·세액·특정 화물·배 이야기는 안 되고 꼬리표는 없다: 고지는 이용약관에 있다 (chat._agent). 검사는 V7·V9(허용 용어 확장)·V10·V13
+#   unrelated: 한 문장짜리 직접 답을 낼 수 있다 (날짜·"마르비아가 뭐야?" 같은 잡담). 검사에 걸리면 고정 안내로 바뀐다
+#   clarify: 사용자가 쓴 식별자(예: TEST41)가 B/L 번호인지 배 이름인지 모르겠다. 코드가 고정 문장으로 되묻는다
 #     (chat.clarify_reply). reply는 비운다: LLM 글은 화면에 가지 않고 식별자도 코드가 문장에서 직접 뽑는다
-# help·greeting: 사용법 질문과 인사. 문장은 services/chat.py가 고정 문구로 낸다 (10-05 결정)
+# help·greeting: 사용법 질문과 인사. 문장은 services/chat.py가 고정 문구로 낸다
 CHAT_AGENT_KINDS = ("tool", "skill", "web", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting")
 CHAT_AGENT_SCHEMA = {
     "type": "object",
@@ -1273,7 +1263,7 @@ class ChatAgentOutput(BaseModel):
     # 기본값은 도구를 쓴 답(두 칸을 보지 않음)과 예전 녹화 답이 그대로 읽히게 둔 것이다. 실제 호출은 strict 스키마라 늘 채워 온다
     answer_kind: Literal["tool", "skill", "web", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting"] = "unrelated"
     skill_quote: str = ""  # answer_kind가 skill이면 Skill 문서, web이면 웹 검색 결과 원문 그대로의 한 조각
-    # 사용자 말에 걱정·기한 압박이 묻어 있나 (10-06 결정 "먼저 제안"). 신호일 뿐이다: 제안할지는 services/chat.py가 정한다.
+    # 사용자 말에 걱정·기한 압박이 묻어 있나 ("먼저 제안"). 신호일 뿐이다: 제안할지는 services/chat.py가 정한다.
     # 기본값 False는 예전 녹화 답이 그대로 읽히게 둔 것이다 (실제 호출은 strict 스키마라 늘 채워 온다)
     watch_cue: bool = False
 
@@ -1283,10 +1273,10 @@ def chat_agent(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
                feedback: str | None = None, on_screen: dict | None = None, evidence: str | None = None) -> LLMAnswer:
     """가린 문장과 최근 대화를 받아 도구를 골라 쓰고 답 한 칸을 낸다. output은 ChatAgentOutput.
 
-    on_screen: 화면에 지금 떠 있는 배들 {"vessel", "arrivals"} (10-08 정운 실사용 36번). services/chat._masked_screen이 가리고 거른 자료다.
-    자료일 뿐이다 (프롬프트 Trust boundary). 없으면 입력 JSON에 칸 자체를 넣지 않아 예전 입력과 같다.
+    on_screen: 화면에 지금 떠 있는 배들 {"vessel", "arrivals"}. services/chat._masked_screen이 가리고 거른 자료다.
+    자료일 뿐이다 (프롬프트 Trust boundary). 없으면 입력 JSON에 칸 자체를 넣지 않는다.
 
-    evidence: 이번 문장에서 앞서 부른 도구가 모은 근거 목록 글 (줄마다 [E1] 같은 id, services/citations.evidence_prompt_block, 10-08 정운 실사용 58번).
+    evidence: 이번 문장에서 앞서 부른 도구가 모은 근거 목록 글 (줄마다 [E1] 같은 id, services/citations.evidence_prompt_block).
     도구 결과 안에도 같은 글이 evidence 칸으로 오지만, 다시 묻는 호출은 앞 도구 결과가 대화에 없어서 입력 자료로 다시 준다. 자료일 뿐이다. 없으면 칸 자체를 넣지 않는다.
 
     history: [{"role": "user"|"assistant", "text": 가린 글}]. 자료일 뿐이다 (프롬프트 Trust boundary).
@@ -1303,10 +1293,10 @@ def chat_agent(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
                      ChatAgentOutput, model, feedback=feedback, skills=CHAT_AGENT_SKILLS, tools=tools, run_tool=run_tool)
 
 
-# ── 웹 검색 web_search() (10-05 결정) ──────────────────────────────
+# ── 웹 검색 web_search() ──────────────────────────────
 # 채팅 에이전트의 좁은 웹 검색 도구가 쓴다 (services/chat.py WEB_TOOL). Skill 문서가 못 받치는 실무 질문(B/L 번호 찾는 곳, 포워더 확인,
 # A/N 뜻)에만 쓰고, 판정·특정 화물·세액·통관 가능 여부에는 쓰지 않는다 (PRD 4절). 그 제한은 chat.py가 건다. 여기는 검색 호출만 한다.
-# OpenRouter 웹 플러그인을 engine=exa로 쓴다 (10-05 실측, 계정은 ZDR 제한이 있음):
+# OpenRouter 웹 플러그인을 engine=exa로 쓴다 (계정에 ZDR 제한이 있음):
 #   - engine 기본값(네이티브)은 Gemini의 구글 검색이라 출처가 vertexaisearch 리다이렉트 주소이고 원문이 안 온다. 검증할 글이 없어 못 쓴다
 #   - firecrawl은 ZDR 계정에서 400으로 막힌다
 #   - exa는 응답 annotations(url_citation)에 실제 주소·제목·가져온 원문(content)을 준다 -> 이것이 "가져온 웹 글"이다
@@ -1332,7 +1322,7 @@ def web_search(query: str) -> list[dict]:
     if model.startswith(VERTEX_PREFIX):
         model = WEB_FALLBACK_MODEL
     start = time.monotonic()
-    # 검색도 요청 트레이스에 generation으로 남긴다 (10-05): 비용(약 $0.008)과 결과가 Langfuse에서 안 보였다.
+    # 검색도 요청 트레이스에 generation으로 남긴다: 비용과 결과가 Langfuse에서 보이게.
     # 검색어는 위에서 B/L·MRN 토큰을 막은 가린 문장이다. 트레이스 실패는 검색을 막지 않는다 (start/end가 삼킨다)
     generation = start_generation("web_search", query)
     resp = None

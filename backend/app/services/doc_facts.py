@@ -1,6 +1,5 @@
-"""서류 사진에서 읽은 B/L 조건·화물 인도 연락처의 자동 저장과, 채팅에서 물을 때 코드가 쓰는 답 (10-08 사용자 결정).
+"""서류 사진에서 읽은 B/L 조건·화물 인도 연락처의 자동 저장과, 채팅에서 물을 때 코드가 쓰는 답.
 
-책임: 확인 화면(POST /api/memory/document-facts)을 없앤 뒤의 두 길을 코드로 맡는다.
   save_from_document()  POST /api/document 끝에서: 로그인 + B/L 검사 통과(bl_status ok)일 때 검사를 통과한 칸만 저장한다
   read()                채팅 도구 cargo_documents: 그 화물의 저장된 조건(user_cargo)과 서류 출처 거래처(메모장)를 읽는다
   reply_lines()         읽은 값을 사람 말 줄로. 값은 코드가 쓰고, LLM에는 칸 이름과 있음/없음만 돌려준다 (services/chat.py)
@@ -9,7 +8,7 @@
 지키는 것:
 - 검사(doc_ocr.check_conditions)에 걸린 칸은 저장하지 않는다. 거래처는 서류 종류(B/L·A/N)를 알 때만 저장한다
 - 저장한 값은 사람이 확인하지 않았다. 답은 "서류 사진에서 읽은 값(확인 전)"이라고 밝힌다 (026 doc_facts_at)
-- 연락처(회사 전화)는 사용자 화면에만 간다. LLM에는 넘기지 않는다 (CLAUDE.md 개인정보, 10-08 사용자 결정)
+- 연락처(회사 전화)는 사용자 화면에만 간다. LLM에는 넘기지 않는다 (CLAUDE.md 개인정보)
 - 저장·읽기 실패는 서류 응답·채팅 답을 막지 않는다. 로그에는 종류만 남긴다
 - B/L 원본은 LLM에 가지 않는다. 여기서는 화물 지문(cargo.cargo_key)으로만 찾는다
 """
@@ -51,7 +50,7 @@ def _db_ready() -> bool:
 
 
 def passed(fields, key: str):
-    """검사를 통과한 칸 값. 값이 없거나 검사에 하나라도 걸렸으면 None (10-08 사용자 결정: 걸린 칸은 저장하지 않는다).
+    """검사를 통과한 칸 값. 값이 없거나 검사에 하나라도 걸렸으면 None (걸린 칸은 저장하지 않는다).
     fields는 schemas.document.DocumentFields다."""
     f = getattr(fields, key, None)
     if f is None or not f.value or f.checks:
@@ -132,7 +131,7 @@ def reply_lines(facts: dict) -> list[str]:
 
 
 def llm_view(facts: dict | None) -> dict:
-    """LLM에 돌려줄 도구 결과. 칸 이름과 있음/없음만 준다. 값·회사 이름·전화는 넣지 않는다 (10-08 사용자 결정).
+    """LLM에 돌려줄 도구 결과. 칸 이름과 있음/없음만 준다. 값·회사 이름·전화는 넣지 않는다 (개인정보).
     답 줄은 코드가 마지막 답 뒤에 붙인다(services/chat._agent). LLM이 따로 값을 말하지 않게 shown_by_code를 준다."""
     if not facts:
         return {"ok": True, "stored": [], "contact": False, "shown_by_code": True}
