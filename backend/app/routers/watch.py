@@ -4,15 +4,17 @@
 다시 판정·알림은 services/watch.py에 있다.
 
   POST /api/cargo/watch/state   {"bl_no"}           → {"saved", "watch"}   결과 화면의 버튼 상태
-  PUT  /api/cargo/watch         {"bl_no", "on"}     → {"watch"}            지켜보기 켜기·끄기
+  PUT  /api/cargo/watch         {"bl_no", "on"}     → {"watch", "known_vessel"?, "notice"?}  지켜보기 켜기·끄기
+                                    (켜기만 known_vessel을 준다. false면 배를 몰라 자동 확인이 안 돈다는 안내 notice를 같이 준다)
   GET  /api/watch                                   → {"items", "updated_at", "sample"}  지켜보는 화물 목록·위치
   GET  /api/watch/changes                           → {"changes": [...]}   안 본 판정 변화 (다음 접속 때 띠)
   POST /api/watch/changes/seen                      → {"cleared": 건수}    띠를 보여 줬으니 "봤음"으로
 
   GET    /api/watch/vessels             → {"items"}            B/L 없이 배만 지켜보는 목록
   POST   /api/watch/vessels  {mmsi | call_sign, name, flag?, dest?, eta?} → {"mmsi", "watch": true}   배 지켜보기 켜기
-                                    (mmsi 없이 call_sign만 오면 ShipFinder 검색으로 MMSI를 정한다. 못 정하면 422, 검색 실패 503)
-  DELETE /api/watch/vessels/{mmsi}      → {"mmsi", "watch": false}  배 지켜보기 끄기
+                                    (mmsi 없이 call_sign만 오면 ShipFinder 검색으로 MMSI를 정한다. 못 정하면 422, 검색 실패 503.
+                                     mmsi는 9자리 정수만 받는다. 아니면 422)
+  DELETE /api/watch/vessels/{mmsi}      → {"mmsi", "watch": false}  배 지켜보기 끄기 (9자리 아니면 422)
 
 B/L 번호는 주소에 넣지 않고 요청 본문(JSON)으로만 받는다. 주소는 접속 로그·브라우저 기록에 남기 때문이다 (SDD 3.5).
 그래서 상태 조회도 GET이 아니라 POST다. 응답에는 B/L을 되돌려 주지 않는다. 변화 목록은 가린 번호(bl_masked)만 담는다.
@@ -23,8 +25,8 @@ from __future__ import annotations
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel, Field, StrictInt
 
 from backend.app.auth import CurrentUser, current_user
 from backend.app.observability.logging import log_failure
@@ -43,6 +45,11 @@ _ERRORS = {
     "no_key": (503, "화물 정보를 안전하게 열 수 없습니다. 관리자에게 알려 주세요"),
 }
 
+# MMSI는 9자리 정수다 (ITU-R M.585). 범위 밖(123, 10^19)이 DB까지 가면 bigint 넘침이 "저장소 연결 실패"로 잘못 안내됐다
+# (10-08 QA E1-5). 규칙이 아니라 번호 형식이라 코드에 둔다
+MMSI_MIN, MMSI_MAX = 100_000_000, 999_999_999
+Mmsi = Annotated[StrictInt, Field(ge=MMSI_MIN, le=MMSI_MAX)]  # StrictInt: true가 1로 바뀌어 들어오지 않게
+
 
 class StateBody(BaseModel):
     bl_no: str
@@ -50,7 +57,7 @@ class StateBody(BaseModel):
 
 class VesselBody(BaseModel):
     """채팅에서 본 배. name 이하는 사용자가 본 글 그대로의 표시용 값이다 (services/vessel_watch.py)."""
-    mmsi: int | None = None
+    mmsi: Mmsi | None = None  # 9자리만. 없으면(null·생략) call_sign으로 찾는다
     call_sign: str | None = None  # 입항 예정 목록처럼 MMSI가 없는 곳에서 온다. mmsi가 있으면 쓰지 않는다
     name: str
     flag: str | None = None
@@ -91,7 +98,12 @@ def put_watch(body: WatchBody, user: Annotated[CurrentUser | None, Depends(curre
     user = _login_required(user)
     try:
         with ops.open_conn() as conn:
-            return {"watch": svc.set_watch(conn, user.id, body.bl_no, body.on)}
+            on = svc.set_watch(conn, user.id, body.bl_no, body.on)
+            if not on:
+                return {"watch": False}
+            # 배를 모르는 화물은 켜져도 워커가 다시 판정하지 않는다. 켜졌다고만 하면 사용자는 알림을 기다린다 (10-08 QA E1-9)
+            known = svc.vessel_known(conn, user.id, body.bl_no)
+            return {"watch": True, "known_vessel": known, "notice": None if known else svc.NO_VESSEL_NOTICE}
     except svc.WatchError as e:
         log_failure("watch_set", e.kind)
         status, detail = _ERRORS[e.kind]
@@ -161,14 +173,20 @@ def get_vessel_watches(user: Annotated[CurrentUser | None, Depends(current_user)
 
 @router.post("/watch/vessels")
 def add_vessel_watch(body: VesselBody, user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> dict:
-    """채팅에서 본 배를 지켜보기에 올린다. 같은 배를 다시 올리면 보인 값만 갱신한다."""
+    """채팅에서 본 배를 지켜보기에 올린다. 같은 배를 다시 올리면 보인 값만 갱신한다.
+
+    순서 (10-08 QA E1-3): 1) DB로 이름·한도·이미 지켜보는 배인지를 먼저 본다(짧게 연결하고 닫는다)
+    2) 그다음에만 ShipFinder(호출부호로 MMSI 찾기, 위치 받아 두기)를 부른다 3) 다시 연결해 저장한다(한도는 저장 때 잠금 안에서 다시 센다).
+    예전에는 외부 호출이 먼저라 한도가 찬 사용자의 요청도 ShipFinder 하루 한도를 썼다.
+    외부 호출 동안 DB 연결을 붙잡지 않는 것은 그대로다."""
     user = _login_required(user)
     try:
         mmsi = body.mmsi
+        if not mmsi and not (body.call_sign or "").strip():
+            raise vsvc.VesselWatchError("invalid")
+        with ops.open_conn() as conn:
+            vsvc.precheck(conn, user.id, mmsi, body.name)
         if not mmsi:
-            # 외부 검색이 느려도 DB 연결을 붙잡지 않게 연결을 열기 전에 찾는다
-            if not (body.call_sign or "").strip():
-                raise vsvc.VesselWatchError("invalid")
             mmsi = vsvc.resolve_mmsi(body.call_sign, body.name)  # 호출부호로 못 찾으면 선명으로 한 번 더
         # 위치 캐시가 비었으면 한 번 받아 둔다. add_vessel이 그 값을 지도 첫 점으로 넣는다
         vsvc.fetch_position(mmsi)
@@ -184,7 +202,7 @@ def add_vessel_watch(body: VesselBody, user: Annotated[CurrentUser | None, Depen
 
 
 @router.delete("/watch/vessels/{mmsi}")
-def remove_vessel_watch(mmsi: int, user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> dict:
+def remove_vessel_watch(mmsi: Annotated[int, Path(ge=MMSI_MIN, le=MMSI_MAX)], user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> dict:
     """배 지켜보기를 푼다. 켜져 있지 않아도 오류가 아니다."""
     user = _login_required(user)
     try:

@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 from backend.app.clients.mof import MAX_PAGES, MofClient, SailingPlan
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.services.vessel_pick import pick_by_call_sign
+from backend.app.services.watch import usable_position_time
 
 # 입항 신고를 오늘부터 며칠 뒤까지 볼지. 해수부 신고가 1주 앞까지 나온다.
 # mcp_server/tools/port_schedule.py의 LOOKAHEAD_DAYS와 같은 근거다
@@ -93,6 +94,23 @@ class Budget:
         return True
 
 
+def _position_row_time(p, now: datetime) -> tuple[datetime | None, str | None]:
+    """받은 위치를 저장해도 되면 (초 단위 보고 시각, None), 아니면 (None, 버린 이유 코드) (10-08 QA E1-6).
+
+    - no_time: 보고 시각이 없다. 언제 위치인지 몰라 경로에 놓지 못한다
+    - future_time: 지금보다 rules.md position_future_tolerance_minutes 넘게 미래다. 넣으면 그 점이 오래도록 "현재 위치"가 된다
+    - no_position: (0, 0) 좌표. AIS 수신기가 위치를 못 잡았을 때 흔히 오는 값이다(기니만 한가운데). 실제 위치가 아니다
+    규칙은 services/watch.usable_position_time 하나다 (aisstream·켤 때 첫 점과 같다)."""
+    if p.last_time is None:
+        return None, "no_time"
+    ts = usable_position_time(p.last_time, now)
+    if ts is None:
+        return None, "future_time"
+    if p.lat == 0 and p.lng == 0:
+        return None, "no_position"
+    return ts, None
+
+
 def _spend(sf: ShipFinderClient, budget: Budget, mmsi: int) -> bool:
     """이 배 위치를 받아도 되나. 클라이언트가 받아 둔 위치를 다시 쓸 배(rules.md position_reuse_minutes)는 ShipFinder를
     부르지 않으므로 예산을 쓰지 않고 True. 그 밖에는 예산에서 하나를 쓴다. 기준은 클라이언트와 같다(position_reusable)."""
@@ -131,11 +149,12 @@ def collect_positions(conn, sf: ShipFinderClient, budget: Budget, now: datetime 
         except ShipFinderError as e:
             failed.append({"mmsi": mmsi, "code": e.code})  # 한 척 실패로 전체를 멈추지 않는다
             continue
-        if p.last_time is None:
-            failed.append({"mmsi": mmsi, "code": "no_time"})  # 보고 시각 없는 위치는 언제 것인지 몰라 버린다
+        ts, dropped = _position_row_time(p, now)
+        if ts is None:
+            failed.append({"mmsi": mmsi, "code": dropped})  # 시각 없음·미래 시각·(0, 0) 좌표는 버린다
             continue
         cur = conn.execute(INSERT_POSITION, (
-            p.mmsi, p.last_time, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat,
+            p.mmsi, ts, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat,
             p.dest, p.destcode, p.ais_eta, json.dumps(p.raw, ensure_ascii=False),
         ))
         saved += _inserted(cur)
@@ -161,13 +180,15 @@ ON CONFLICT (mmsi, ts) DO NOTHING
 """
 
 
-def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget) -> dict:
+def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget, now: datetime | None = None) -> dict:
     """지켜보는 사용자 화물(user_cargo 진행 중, watch 켬)의 배 위치를 받아 watch_positions에 쌓는다. 예산이 떨어지면 멈춘다.
 
     감시·지도 경로의 재료다. 연구용 대상(positions)보다 먼저 부른다. 사용자가 보는 화면이라 우선한다 (run.py).
     같은 실행의 지켜보기 재판정(run_watch)은 이 위치를 다시 쓰지 않는다. 재판정은 api의 MCP(/mcp)를 거쳐 api 프로세스의
     ShipFinderClient로 부르므로, 이 워커 프로세스의 캐시와 따로다. 그래서 worker/run.py가 재판정 몫의 예산을 따로 떼어 둔다.
+    미래 시각·(0, 0) 좌표 보고는 버린다 (_position_row_time).
     """
+    now = now or datetime.now(timezone.utc)
     mmsis = [row[0] for row in conn.execute(SELECT_WATCHED).fetchall()]
     saved, failed = 0, []
     for mmsi in mmsis:
@@ -178,10 +199,11 @@ def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget) -> dict:
         except ShipFinderError as e:
             failed.append({"mmsi": mmsi, "code": e.code})  # 한 척 실패로 전체를 멈추지 않는다
             continue
-        if p.last_time is None:
-            failed.append({"mmsi": mmsi, "code": "no_time"})  # 언제 위치인지 모르면 경로에 넣지 않는다
+        ts, dropped = _position_row_time(p, now)
+        if ts is None:
+            failed.append({"mmsi": mmsi, "code": dropped})  # 언제·어디인지 믿을 수 없으면 경로에 넣지 않는다
             continue
-        cur = conn.execute(INSERT_WATCH_POSITION, (p.mmsi, p.last_time, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat))
+        cur = conn.execute(INSERT_WATCH_POSITION, (p.mmsi, ts, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat))
         saved += _inserted(cur)
     return {"watched": len(mmsis), "watch_positions_new": saved, "watch_positions_failed": failed}
 

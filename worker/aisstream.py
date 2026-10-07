@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from backend.app.services.rules import rule
+from backend.app.services.watch import usable_position_time
 from worker.collector import INSERT_WATCH_POSITION, SELECT_WATCHED
 
 STREAM_URL = "wss://stream.aisstream.io/v0/stream"
@@ -113,7 +114,9 @@ def parse_position(raw: Any, watched: set[int], fetched_at: datetime) -> tuple |
     """aisstream 메시지 하나를 watch_positions 한 줄(INSERT_WATCH_POSITION 순서)로 바꾼다. 순수 함수.
 
     돌려주는 값: (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat) 또는 None.
-    None인 경우: JSON이 아님, PositionReport가 아님, MMSI가 지켜보는 목록에 없음, 시각·좌표를 못 읽음.
+    None인 경우: JSON이 아님, PositionReport가 아님, MMSI가 지켜보는 목록에 없음, 시각·좌표를 못 읽음,
+    받은 시각(fetched_at)보다 rules.md position_future_tolerance_minutes 넘게 미래인 보고, (0, 0) 좌표 (10-08 QA E1-6).
+    보고 시각은 초 단위로 내린다: 같은 보고가 소수점 차이로 두 줄이 되지 않고 ShipFinder 보고와도 맞는다 (services/watch.usable_position_time).
     문자열 칸(ShipName, Destination 등)은 읽지도 저장하지도 않는다. 그 안의 문장은 지시가 아니라 데이터다 (SDD 7절).
     sog 102.3, cog 360은 AIS의 '값 없음'이라 None으로 둔다."""
     if isinstance(raw, (bytes, bytearray)):
@@ -144,6 +147,11 @@ def parse_position(raw: Any, watched: set[int], fetched_at: datetime) -> tuple |
     if ts is None or lat is None or lng is None:
         return None
     if not (-90 <= lat <= 90 and -180 <= lng <= 180) or lat == _LAT_NA or lng == _LNG_NA:
+        return None
+    if lat == 0 and lng == 0:  # 위치를 못 잡은 수신기가 흔히 보내는 값. 실제 위치가 아니다
+        return None
+    ts = usable_position_time(ts, fetched_at)
+    if ts is None:  # 시계가 틀린 미래 보고. 넣으면 오래도록 "현재 위치"가 된다
         return None
     sog, cog = _number(report.get("Sog")), _number(report.get("Cog"))
     if sog is not None and (sog < 0 or sog >= _SOG_NA):

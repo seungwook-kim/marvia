@@ -93,7 +93,7 @@ def run_once(shipfinder_calls: int) -> dict:
     summary["done_cargo_purged"] = purge_done_cargo(conn)  # 반출 3년 지난 끝난 화물과 그 메모 삭제 (migrations/015)
     summary["conversations_purged"] = purge_old_conversations(conn)  # 90일 지난 대화 목록 삭제 (migrations/018)
     summary["watch_positions_purged"] = purge_watch_positions(conn)  # 안 지켜보는 배의 30일 지난 감시 위치 삭제 (migrations/021)
-    summary["vessel_detail_usage_purged"] = purge_vessel_detail_usage(conn)  # 7일 지난 선박 자세히 보기 횟수 줄 삭제 (migrations/025)
+    summary["vessel_detail_usage_purged"] = purge_vessel_detail_usage(conn)  # 오늘 포함 최근 7일만 남기고 선박 자세히 보기 횟수 줄 삭제 (migrations/025, 027에서 경계 바로잡음)
     if watch_enabled():
         try:
             # 지켜보는 화물 재판정 (services/watch.py). 떼어 둔 예산만큼, 배를 아는 화물만

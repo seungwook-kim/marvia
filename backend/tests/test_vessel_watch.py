@@ -13,7 +13,7 @@ from backend.app.services import vessel_watch as vsvc
 from backend.app.services.watch import MAX_WATCH
 from backend.tests.test_admin import _login
 
-NOW = datetime(2026, 10, 8, 6, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 6, 6, tzinfo=timezone.utc)  # 지난 시각 (미래 보고는 버린다, 10-08 QA E1-6)
 USER = "user-123"  # _login이 쓰는 사용자 ID
 
 
@@ -119,22 +119,23 @@ def test_add_is_idempotent_and_updates_shown_values():
 def test_limit_counts_only_new_vessels():
     conn = FakeConn()
     for i in range(MAX_WATCH):
-        vsvc.add_vessel(conn, USER, 1000 + i, f"S{i}")
+        vsvc.add_vessel(conn, USER, 440000000 + i, f"S{i}")
     with pytest.raises(vsvc.VesselWatchError) as e:
-        vsvc.add_vessel(conn, USER, 9999, "NEW")
+        vsvc.add_vessel(conn, USER, 440009999, "NEW")
     assert e.value.kind == "limit"
-    vsvc.add_vessel(conn, USER, 1000, "S0 RENAMED")  # 이미 있는 배는 한도에 걸리지 않는다
-    vsvc.add_vessel(conn, "other-user", 9999, "NEW")  # 한도는 사용자별이다
+    vsvc.add_vessel(conn, USER, 440000000, "S0 RENAMED")  # 이미 있는 배는 한도에 걸리지 않는다
+    vsvc.add_vessel(conn, "other-user", 440009999, "NEW")  # 한도는 사용자별이다
 
 
 def test_invalid_input_rejected_and_text_trimmed():
     conn = FakeConn()
-    for mmsi, name in ((0, "X"), (-5, "X"), (1, "   ")):
+    # MMSI는 9자리만 (10-08 QA E1-5). bool(True는 1)도 받지 않는다
+    for mmsi, name in ((0, "X"), (-5, "X"), (123, "X"), (10 ** 19, "X"), (True, "X"), (440999901, "   ")):
         with pytest.raises(vsvc.VesselWatchError) as e:
             vsvc.add_vessel(conn, USER, mmsi, name)
         assert e.value.kind == "invalid"
-    vsvc.add_vessel(conn, USER, 5, "N", dest="D" * 500)
-    assert len(conn.rows[(USER, 5)]["dest"]) == vsvc.TEXT_MAX
+    vsvc.add_vessel(conn, USER, 440000005, "N", dest="D" * 500)
+    assert len(conn.rows[(USER, 440000005)]["dest"]) == vsvc.TEXT_MAX
 
 
 def test_list_has_last_position_and_no_verdict_fields():
@@ -163,7 +164,7 @@ def test_endpoints_round_trip(db, me):
 
 def test_limit_is_409_and_blank_name_is_422(db, me):
     for i in range(MAX_WATCH):
-        assert _call("post", "/api/watch/vessels", {**VESSEL, "mmsi": 2000 + i}, me).status_code == 200
+        assert _call("post", "/api/watch/vessels", {**VESSEL, "mmsi": 440000100 + i}, me).status_code == 200
     r = _call("post", "/api/watch/vessels", VESSEL, me)
     assert r.status_code == 409 and "5척" in r.json()["detail"]
     r = _call("post", "/api/watch/vessels", {**VESSEL, "name": " "}, me)
@@ -171,7 +172,7 @@ def test_limit_is_409_and_blank_name_is_422(db, me):
 
 
 ENDPOINTS = [("get", "/api/watch/vessels", None), ("post", "/api/watch/vessels", VESSEL),
-             ("delete", "/api/watch/vessels/1", None)]
+             ("delete", "/api/watch/vessels/440999901", None)]
 
 
 @pytest.mark.parametrize("method,path,body", ENDPOINTS)
@@ -360,6 +361,72 @@ def test_position_failure_still_turns_watch_on_without_point(db, me, monkeypatch
     r = _call("post", "/api/watch/vessels", VESSEL, me)
     assert r.status_code == 200 and client.positions == [440999901] and client.closed
     assert db.inserted == [] and (USER, 440999901) in db.rows and "secret-url" not in r.text
+
+
+# ── 10-08 QA E1 ──
+
+@pytest.mark.parametrize("mmsi", [123, 0, -5, 10 ** 19, True, "440999901", 440999901.5])
+def test_bad_mmsi_is_422_not_503(db, me, mmsi):
+    """MMSI는 9자리 정수만 받는다 (E1-5). 예전에는 10^19가 DB까지 가서 "저장소 연결 실패"(503)로 잘못 안내됐다."""
+    r = _call("post", "/api/watch/vessels", {**VESSEL, "mmsi": mmsi}, me)
+    assert r.status_code == 422 and db.rows == {}
+
+
+@pytest.mark.parametrize("path", ["/api/watch/vessels/123", "/api/watch/vessels/99999999999999999999",
+                                  "/api/watch/vessels/abc"])
+def test_bad_mmsi_in_delete_path_is_422(db, me, path):
+    assert _call("delete", path, None, me).status_code == 422
+
+
+class _CountingClient(_PosClient):
+    """search·position을 부르면 센다. 한도가 찬 사용자의 요청은 하나도 부르면 안 된다."""
+
+
+def test_full_list_is_refused_before_any_shipfinder_call(db, me, monkeypatch):
+    """한도·이름 검사는 DB로 먼저 한다 (E1-3). 한도가 찼으면 호출부호 검색도 위치 조회도 하지 않는다."""
+    for i in range(MAX_WATCH):
+        db.rows[(USER, 440000100 + i)] = {"name": f"S{i}", "flag": None, "dest": None, "eta": None, "created_at": NOW}
+    client = _use(monkeypatch, _CountingClient([(440999901, "TST01")]))
+    assert _call("post", "/api/watch/vessels", SIGN_BODY, me).status_code == 409
+    assert _call("post", "/api/watch/vessels", VESSEL, me).status_code == 409
+    assert client.queries == [] and client.positions == []
+    # 이미 지켜보는 배를 다시 올리는 것은 한도에 걸리지 않는다 (보인 값만 갱신)
+    r = _call("post", "/api/watch/vessels", {**VESSEL, "mmsi": 440000100, "name": "RENAMED"}, me)
+    assert r.status_code == 200 and db.rows[(USER, 440000100)]["name"] == "RENAMED"
+
+
+def test_blank_name_is_refused_before_shipfinder(db, me, monkeypatch):
+    client = _use(monkeypatch, _CountingClient([(440999901, "TST01")]))
+    assert _call("post", "/api/watch/vessels", {**SIGN_BODY, "name": "  "}, me).status_code == 422
+    assert client.queries == [] and client.positions == []
+
+
+def test_add_vessel_counts_inside_user_lock():
+    """트랜잭션을 여는 연결이면 사용자별 잠금을 잡은 뒤 세고 넣는다 (E1-10과 같은 경쟁). 첫 위치 점은 잠금 밖이다."""
+    from contextlib import contextmanager
+
+    class TxConn(FakeConn):
+        def __init__(self):
+            super().__init__()
+            self.events = []
+
+        @contextmanager
+        def transaction(self):
+            self.events.append("begin")
+            yield
+            self.events.append("commit")
+
+        def execute(self, sql, params=()):
+            if "pg_advisory_xact_lock" in sql:
+                self.events.append(("lock", params[0]))
+                return _Cur([(None,)])
+            self.events.append(" ".join(sql.split()).split(" ")[0])
+            return super().execute(sql, params)
+
+    conn = TxConn()
+    vsvc.add_vessel(conn, USER, 440999901, "TEST STAR")
+    assert conn.events[:2] == ["begin", ("lock", f"vessel_watch:{USER}")]
+    assert conn.events.index("INSERT") < conn.events.index("commit")
 
 
 # ── 워커·마이그레이션 ──

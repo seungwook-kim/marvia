@@ -53,8 +53,31 @@ class FakeConn:
 
 def test_parse_fixture_into_watch_position_row():
     row = aisstream.parse_position(MSG, {MMSI}, FETCHED)
-    assert row == (MMSI, datetime(2026, 10, 7, 1, 23, 45, 123456, tzinfo=timezone.utc), FETCHED,
+    # 보고 시각은 초 단위로 내린다 (10-08 QA E1-6: 소수점 차이로 같은 보고가 두 줄이 되지 않게)
+    assert row == (MMSI, datetime(2026, 10, 7, 1, 23, 45, tzinfo=timezone.utc), FETCHED,
                    35.0512, 129.0844, 11.6, 312.4, 0)
+
+
+def test_future_report_and_null_island_are_dropped():
+    """받은 시각보다 rules.md position_future_tolerance_minutes 넘게 미래인 보고와 (0, 0) 좌표는 저장하지 않는다 (E1-6)."""
+    future = copy.deepcopy(MSG)
+    future["MetaData"]["time_utc"] = "2026-10-07 03:00:00.5 +0000 UTC"  # 받은 01:24보다 1시간 넘게 미래
+    assert aisstream.parse_position(future, {MMSI}, FETCHED) is None
+    near = copy.deepcopy(MSG)
+    near["MetaData"]["time_utc"] = "2026-10-07 01:50:00 +0000 UTC"  # 허용 안쪽(시계 오차)은 받는다
+    assert aisstream.parse_position(near, {MMSI}, FETCHED) is not None
+    assert aisstream.parse_position(_variant(Latitude=0, Longitude=0), {MMSI}, FETCHED) is None
+    assert aisstream.parse_position(_variant(Latitude=0, Longitude=129.0), {MMSI}, FETCHED) is not None  # 적도 위 실제 위치는 받는다
+
+
+def test_same_report_with_fraction_difference_is_one_row():
+    """aisstream 소수점 차이 보고는 초 단위로 같은 줄이 된다. 두 번째는 UNIQUE (mmsi, ts)에 걸려 새 줄이 아니다."""
+    conn = FakeConn()
+    a, b = copy.deepcopy(MSG), copy.deepcopy(MSG)
+    a["MetaData"]["time_utc"] = "2026-10-07 01:23:45.100000000 +0000 UTC"
+    b["MetaData"]["time_utc"] = "2026-10-07 01:23:45.900000000 +0000 UTC"
+    assert aisstream.handle_message(conn, a, {MMSI}, FETCHED) is True
+    assert aisstream.handle_message(conn, b, {MMSI}, FETCHED) is False and len(conn.inserted) == 1
 
 
 def test_parse_accepts_bytes_and_str():

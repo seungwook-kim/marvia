@@ -132,8 +132,10 @@ export function TodayBoard() {
                 <tbody>{changes.map((c, i) => <tr key={`${c.bl_masked}-${i}`}>
                   <td className="td-num">{dateTime(c.changed_at, true)}</td>
                   <td>{c.label ?? c.bl_masked}<span className="td-sub">{c.bl_masked}</span></td>
-                  <td><span className="td-change"><VerdictBadge verdict={c.from_verdict}/><span aria-hidden="true">→</span><VerdictBadge verdict={c.to_verdict}/></span>
-                    <span className="sr-only">{verdictLabels[c.from_verdict]}에서 {verdictLabels[c.to_verdict]}로</span></td>
+                  <td>{c.kind === 'eta'
+                    ? <span className="td-change">도착 예정 변경</span>
+                    : <><span className="td-change"><VerdictBadge verdict={c.from_verdict}/><span aria-hidden="true">→</span><VerdictBadge verdict={c.to_verdict}/></span>
+                      <span className="sr-only">{verdictLabels[c.from_verdict]}에서 {verdictLabels[c.to_verdict]}로</span></>}</td>
                   <td>{c.reason ?? '-'}</td>
                 </tr>)}</tbody>
               </table></div>}

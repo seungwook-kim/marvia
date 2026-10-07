@@ -20,7 +20,7 @@ def _cargo_row(**over):
     row = {"cargo_key": "k1", "bl_masked": "MOC*******1006", "label": "고추", "goods_name": "TEST GOODS",
            "vessel_name": "TEST STAR", "vessel_flag": "KR", "vessel_mmsi": MMSI, "status": "active",
            "last_verdict": "watch", "last_stage": "입항보고 수리", "last_eta": date(2026, 10, 9),
-           "last_days_margin": 3, "last_checked_at": NOW}
+           "last_days_margin": 3, "last_checked_at": NOW, "watch_fail_count": 0, "watch_attempt_at": None}
     row.update(over)
     return tuple(row.values())
 
@@ -93,3 +93,17 @@ def test_route_returns_list_for_logged_in_user(monkeypatch):
         r = c.get("/api/watch", headers=headers)
     assert r.status_code == 200 and r.json()["items"][0]["bl_masked"] == "MOC*******1006"
     assert conn.calls[0][1] == ["user-123"]  # 출입증의 사용자 것만 읽는다
+
+
+def test_list_marks_unknown_vessel_and_paused_cargo():
+    """known_vessel: 배를 모르면 워커가 다시 판정하지 않는다 (10-08 QA E1-9).
+    auto_paused: 잇달아 실패해 자동 확인을 멈췄다 (E1-1). 사용자가 마지막 시도 뒤에 조회했으면 풀린 것이다."""
+    n = svc.pause_after()
+    rows = [_cargo_row(),
+            _cargo_row(cargo_key="k2", vessel_mmsi=None),
+            _cargo_row(cargo_key="k3", watch_fail_count=n, watch_attempt_at=NOW + timedelta(hours=1)),
+            _cargo_row(cargo_key="k4", watch_fail_count=n, watch_attempt_at=NOW - timedelta(hours=1))]
+    items = {i["cargo_key"]: i for i in svc.watch_list(FakeConn(rows, {}), "u1")["items"]}
+    assert (items["k1"]["known_vessel"], items["k1"]["auto_paused"]) == (True, False)
+    assert items["k2"]["known_vessel"] is False
+    assert items["k3"]["auto_paused"] is True and items["k4"]["auto_paused"] is False

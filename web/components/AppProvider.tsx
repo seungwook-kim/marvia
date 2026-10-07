@@ -49,7 +49,10 @@ export type AttachOutcome = 'sent' | 'busy' | 'unread' | 'failed';
 /** 접속하자마자 보이는 첫 말풍선 글. 코드가 쓴 문장이고 서버가 준 값만 쓴다. 서버가 reason을 주면 덧붙이고, 없으면 지어내지 않는다 */
 function changesText(changes: WatchChange[]): string {
   const lines = changes.map(c => {
-    const base = `지켜보던 화물 ${c.label ?? c.bl_masked}의 판정이 ${verdictLabels[c.from_verdict]}에서 ${verdictLabels[c.to_verdict]} 등급으로 바뀌었어요.`;
+    // 도착 예정만 바뀐 줄(kind eta)은 등급이 그대로다. "주의에서 주의로"라고 쓰지 않는다 (서버 services/watch.pending_changes)
+    const base = c.kind === 'eta'
+      ? `지켜보던 화물 ${c.label ?? c.bl_masked}의 도착 예정이 바뀌었어요.`
+      : `지켜보던 화물 ${c.label ?? c.bl_masked}의 판정이 ${verdictLabels[c.from_verdict]}에서 ${verdictLabels[c.to_verdict]} 등급으로 바뀌었어요.`;
     return c.reason ? `${base} ${c.reason}` : base;
   });
   return `${lines.join('\n')}\nB/L로 다시 조회하면 이유를 자세히 볼 수 있어요.`;

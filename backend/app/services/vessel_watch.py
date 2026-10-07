@@ -1,6 +1,7 @@
 """B/L 없이 배(MMSI)만 지켜보기의 업무 규칙.
 
-  add_vessel()     채팅에서 본 배를 지켜보기에 올린다 (같은 배를 다시 올리면 보인 값만 갱신)
+  precheck()       외부 호출(ShipFinder) 전에 이름·한도·중복을 DB로 먼저 본다 (10-08 QA E1-3)
+  add_vessel()     채팅에서 본 배를 지켜보기에 올린다 (같은 배를 다시 올리면 보인 값만 갱신). 한도는 사용자 잠금 안에서 센다
   remove_vessel()  지켜보기를 푼다
   list_vessels()   내가 지켜보는 배와 마지막 위치·지나온 길 (GET /api/watch/vessels)
 HTTP는 routers/watch.py가, 위치 수집은 worker/collector.py(SELECT_WATCHED)가 맡는다. 여기는 DB와 규칙만 안다.
@@ -20,11 +21,13 @@ from __future__ import annotations
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.observability.logging import log_failure
 from backend.app.services.vessel_pick import by_call_sign, norm_sign, single
-from backend.app.services.watch import MAX_WATCH, _track, seed_position
+from backend.app.services.watch import MAX_WATCH, _track, owner_lock, seed_position
 
 make_client = ShipFinderClient  # 테스트가 가짜 클라이언트로 바꿔 끼우는 자리 (mcp_server/tools/vessel_candidates.py와 같은 방식)
 
 TEXT_MAX = 120  # 표시용 글(이름·국적·목적지·도착 예정) 길이 상한. 화면 말풍선이 깨지지 않게 자르는 값이다
+# MMSI는 9자리 정수다 (ITU-R M.585). 라우터가 먼저 거르지만(routers/watch.py Mmsi) 서비스도 같은 범위만 받는다 (10-08 QA E1-5)
+MMSI_MIN, MMSI_MAX = 100_000_000, 999_999_999
 
 
 class VesselWatchError(Exception):
@@ -102,7 +105,7 @@ def fetch_position(mmsi: int) -> bool:
     캐시에 TTL(rules.md api_cache_ttl_hours) 안의 위치가 있으면 부르지 않는다 (하루 50회 한도).
     받은 값은 ShipFinderClient가 캐시에 넣는다(clients/shipfinder._cached). 실패해도 지켜보기는 점 없이 켜진다. 받았으면 True.
     DB 연결을 열기 전에 부른다: 외부 호출이 느려도 연결을 붙잡지 않게 (resolve_mmsi와 같은 이유)."""
-    if not mmsi or mmsi <= 0:
+    if not valid_mmsi(mmsi):
         return False
     if ShipFinderClient.cache.entry(f"shipfinder:pos:{mmsi}") is not None:
         return False
@@ -119,24 +122,53 @@ def fetch_position(mmsi: int) -> bool:
             client.close()
 
 
+def valid_mmsi(mmsi) -> bool:
+    """9자리 정수 MMSI인가. bool(True는 1)은 받지 않는다."""
+    return isinstance(mmsi, int) and not isinstance(mmsi, bool) and MMSI_MIN <= mmsi <= MMSI_MAX
+
+
+def _check_room(conn, user_id: str, mmsi: int | None) -> None:
+    """올릴 자리가 있나. 이미 지켜보는 배(mmsi가 같다)는 한도를 다시 세지 않는다. 자리가 없으면 limit."""
+    if mmsi is not None:
+        if conn.execute("SELECT 1 FROM vessel_watch WHERE user_id = %s AND mmsi = %s", [user_id, mmsi]).fetchone():
+            return
+    count = conn.execute("SELECT count(*) FROM vessel_watch WHERE user_id = %s", [user_id]).fetchone()[0]
+    if count >= MAX_WATCH:
+        raise VesselWatchError("limit")
+
+
+def precheck(conn, user_id: str, mmsi: int | None, name: str | None) -> None:
+    """ShipFinder를 부르기 전에 DB만으로 거를 수 있는 것을 먼저 거른다 (10-08 QA E1-3). 못 올리면 VesselWatchError.
+
+    - 이름이 비었거나 MMSI가 9자리가 아니면 invalid
+    - 한도: 이미 MAX_WATCH척이면 limit. MMSI를 아는데 이미 지켜보는 배면 통과(보인 값만 갱신한다)
+      호출부호만 온 요청(mmsi None)은 어느 배인지 아직 몰라 "이미 지켜보는 배"인지 알 수 없다. 한도가 찼으면 limit으로 끝낸다:
+      그 배를 찾으려고 ShipFinder를 부르는 것이 이 확인의 목적과 어긋난다
+    여기서 통과해도 저장(add_vessel)이 잠금 안에서 한도를 다시 센다. 그사이 다른 요청이 자리를 채웠을 수 있다."""
+    if not _clean(name) or (mmsi is not None and not valid_mmsi(mmsi)):
+        raise VesselWatchError("invalid")
+    _check_room(conn, user_id, mmsi)
+
+
 def add_vessel(conn, user_id: str, mmsi: int, name: str, flag: str | None = None,
                dest: str | None = None, eta: str | None = None) -> dict:
-    """배를 지켜보기에 올린다. 이미 있으면 보인 값(이름·국적·목적지·도착 예정)만 갱신하고 한도를 다시 세지 않는다."""
+    """배를 지켜보기에 올린다. 이미 있으면 보인 값(이름·국적·목적지·도착 예정)만 갱신하고 한도를 다시 세지 않는다.
+
+    한도 세기와 넣기를 사용자 잠금(services/watch.owner_lock) 안에서 한다. 같은 사용자의 동시 요청이 둘 다
+    "4척"을 보고 6척이 되는 일을 막는다 (10-08 QA E1-10과 같은 경쟁)."""
     name = _clean(name)
-    if not mmsi or mmsi <= 0 or not name:
+    if not valid_mmsi(mmsi) or not name:
         raise VesselWatchError("invalid")
-    exists = conn.execute("SELECT 1 FROM vessel_watch WHERE user_id = %s AND mmsi = %s", [user_id, mmsi]).fetchone()
-    if not exists:
-        count = conn.execute("SELECT count(*) FROM vessel_watch WHERE user_id = %s", [user_id]).fetchone()[0]
-        if count >= MAX_WATCH:
-            raise VesselWatchError("limit")
-    conn.execute(
-        """INSERT INTO vessel_watch (user_id, mmsi, name, flag, dest, eta) VALUES (%s, %s, %s, %s, %s, %s)
-           ON CONFLICT (user_id, mmsi) DO UPDATE SET name = EXCLUDED.name, flag = EXCLUDED.flag,
-             dest = EXCLUDED.dest, eta = EXCLUDED.eta, updated_at = now()""",
-        [user_id, mmsi, name, _clean(flag), _clean(dest), _clean(eta)],
-    )
-    # 이미 받아 둔 위치를 지도 첫 점으로. 워커 수집 전에도 지도에 점이 나오게. 실패해도 켜기는 된다
+    with owner_lock(conn, user_id, "vessel_watch"):
+        _check_room(conn, user_id, mmsi)
+        conn.execute(
+            """INSERT INTO vessel_watch (user_id, mmsi, name, flag, dest, eta) VALUES (%s, %s, %s, %s, %s, %s)
+               ON CONFLICT (user_id, mmsi) DO UPDATE SET name = EXCLUDED.name, flag = EXCLUDED.flag,
+                 dest = EXCLUDED.dest, eta = EXCLUDED.eta, updated_at = now()""",
+            [user_id, mmsi, name, _clean(flag), _clean(dest), _clean(eta)],
+        )
+    # 이미 받아 둔 위치를 지도 첫 점으로. 워커 수집 전에도 지도에 점이 나오게. 실패해도 켜기는 된다.
+    # 잠금(트랜잭션) 밖에서 넣는다: 안에서 실패하면 올린 배까지 되돌려진다
     seed_position(conn, mmsi)
     return {"mmsi": mmsi, "watch": True}
 
