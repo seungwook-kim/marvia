@@ -338,3 +338,47 @@ def test_pick_hit_uses_shared_rule_recent_single_ship():
 
     assert _pick_hit([hit(1, 9900001, 0), hit(2, 9900002, 123), hit(3, 9900003, 552)], "tst 01", NOW).mmsi == 1
     assert _pick_hit([hit(1, 9900001, 0), hit(2, 9900002, 1)], "TST01", NOW) is None
+
+
+# ── 10-08 QA E1-6: 미래 시각·(0, 0) 위치는 버린다, 초 단위로 내린다 ──
+
+class _OddSF(_FakeSF):
+    """mmsi마다 다른 보고: 1은 정상(소수점 초), 2는 하루 뒤 미래, 3은 (0, 0)."""
+
+    def position(self, mmsi):
+        base = datetime(2026, 10, 2, 3, 0, 5, 750000, tzinfo=timezone.utc)
+        ts = base + timedelta(days=1) if mmsi == 2 else base
+        lat, lng = (0.0, 0.0) if mmsi == 3 else (34.6, 128.9)
+        return type("P", (), {"mmsi": mmsi, "last_time": ts, "fetched_at": base, "lat": lat, "lng": lng, "sog": 12.0,
+                              "cog": 60.0, "navistat": 0, "dest": None, "destcode": None, "ais_eta": None, "raw": {}})()
+
+
+def test_watch_positions_drop_future_and_null_island():
+    from worker.collector import collect_watch_positions
+    conn = _WatchConn([1, 2, 3])
+    now = datetime(2026, 10, 2, 3, 1, tzinfo=timezone.utc)
+    result = collect_watch_positions(conn, _OddSF(), Budget(5), now=now)
+    assert result["watch_positions_new"] == 1
+    assert result["watch_positions_failed"] == [{"mmsi": 2, "code": "future_time"}, {"mmsi": 3, "code": "no_position"}]
+    assert conn.inserted[0][1] == datetime(2026, 10, 2, 3, 0, 5, tzinfo=timezone.utc)  # 초 아래는 버린다
+
+
+def test_research_positions_drop_future_too():
+    conn = ScriptedConn(tracked=[1, 2])
+    now = datetime(2026, 10, 2, 3, 1, tzinfo=timezone.utc)
+    result = collect_positions(conn, _OddSF(), Budget(5), now=now)
+    assert result["positions_new"] == 1 and result["positions_failed"] == [{"mmsi": 2, "code": "future_time"}]
+
+
+def test_migration_027_fixes_vessel_detail_usage_window_and_adds_watch_columns():
+    """025는 day < 오늘-7 을 지워 8일치를 남겼다 (E1-11). 027이 함수를 바꿔 오늘 포함 7일만 남긴다.
+    지켜보기 실패 기록·알림 보류·도착 예정 변화 칸도 027이 더한다 (E1-1, E1-2, E1-7)."""
+    from backend.app.db import MIGRATIONS_DIR
+    [path] = [p for p in MIGRATIONS_DIR.glob("*.sql") if p.name.endswith("_watch_retry_eta_change.sql")]
+    sql = path.read_text(encoding="utf-8")
+    assert "CREATE OR REPLACE FUNCTION purge_old_vessel_detail_usage(keep_days integer DEFAULT 7)" in sql
+    assert "WHERE day <= (now() AT TIME ZONE 'Asia/Seoul')::date - keep_days" in sql
+    for col in ("watch_attempt_at", "watch_fail_count", "notify_pending", "notify_pending_at",
+                "eta_changed_from", "eta_changed_to", "eta_change_hours"):
+        assert f"ADD COLUMN IF NOT EXISTS {col}" in sql
+    assert path.name > "025_vessel_detail_usage_purge.sql"  # 025 뒤에 적용돼 함수를 덮는다

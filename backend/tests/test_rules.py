@@ -43,7 +43,9 @@ def test_each_rules_file_has_its_own_keys():
                        "portwatch_port_id", "port_traffic_recent_days", "port_traffic_base_days",
                        "port_traffic_busy_ratio", "port_traffic_quiet_ratio", "port_traffic_cache_hours",
                        "port_traffic_retry_minutes", "aisstream_bbox_busan", "aisstream_bbox_wide",
-                       "aisstream_max_mmsi", "aisstream_refresh_minutes"},
+                       "aisstream_max_mmsi", "aisstream_refresh_minutes",
+                       # 지켜보기 워커 운영값 (10-08 QA E1)
+                       "watch_pause_after_failures", "watch_notify_retry_hours", "position_future_tolerance_minutes"},
         "cargo-verdict": {"margin_act_days", "act_signals", "gray_signals", "ignore_signals", "ignore_dest_values",
                           "sale_date_words", "sale_passed_words", "plan_compare_words", "sale_compare_words"},
         "referrals": {"signal_referrals", "referral_order", "referral_max", "referral_prefix", "signal_referral_links",

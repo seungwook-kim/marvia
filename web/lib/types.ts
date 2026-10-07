@@ -274,10 +274,14 @@ export type KakaoLinkResult = 'connected' | 'expired' | 'mismatch' | 'no_consent
 
 /** POST /api/cargo/watch/state. saved: 이 화물의 기록이 서버에 저장됐나(조회 직후 비동기로 저장돼 잠깐 false일 수 있다), watch: 지켜보는 중인가 */
 export interface WatchState { saved: boolean; watch: boolean }
-/** GET /api/watch/changes의 한 줄. 지난 접속 뒤 판정이 바뀐 지켜보는 화물. B/L은 마스킹된 값만 온다 */
+/** GET /api/watch/changes의 한 줄. 지난 접속 뒤 판정이나 도착 예정이 바뀐 지켜보는 화물. B/L은 마스킹된 값만 온다 */
 export interface WatchChange { bl_masked: string; label: string | null; from_verdict: Verdict; to_verdict: Verdict; changed_at: string;
   /** 서버가 판정이 바뀐 이유를 문장으로 보내 주면 붙인다. 없으면 쓰지 않는다 */
-  reason?: string | null }
+  reason?: string | null;
+  /** verdict: 등급 변화, eta: 등급은 그대로이고 도착 예정만 바뀜(from_verdict = to_verdict), both: 둘 다. 옛 서버 응답에는 없다(등급 변화로 본다) */
+  kind?: 'verdict' | 'eta' | 'both';
+  /** 도착 예정 변화 (YYYY-MM-DD, 늦어지면 양수 시간). 없으면 null */
+  eta_from?: string | null; eta_to?: string | null; eta_change_hours?: number | null }
 
 /** 내 화물 현황 표 (GET /api/cargo/sheet). 날짜는 모두 "YYYY-MM-DD" */
 export interface CargoLc { id: number; lc_no: string; opened_on: string | null }

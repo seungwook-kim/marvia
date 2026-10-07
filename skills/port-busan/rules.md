@@ -25,6 +25,10 @@ aisstream_bbox_busan: [[34.70, 128.40], [35.35, 129.60]]
 aisstream_bbox_wide: [[20.0, 110.0], [46.0, 150.0]]
 aisstream_max_mmsi: 200
 aisstream_refresh_minutes: 10
+# 지켜보기 워커 운영값 (services/watch.py, worker/collector.py, worker/aisstream.py, 10-08 QA). 판정에는 안 쓴다
+watch_pause_after_failures: 3
+watch_notify_retry_hours: 24
+position_future_tolerance_minutes: 60
 ---
 
 # 부산항 기준값
@@ -51,3 +55,6 @@ aisstream_refresh_minutes: 10
 | aisstream_bbox_wide | aisstream 넓은 구독 범위(동아시아). AISSTREAM_BBOX=wide일 때 쓴다 | worker/aisstream.py |
 | aisstream_max_mmsi | aisstream 구독에 넣는 지켜보는 배 MMSI 상한 | worker/aisstream.py |
 | aisstream_refresh_minutes | 지켜보는 배 목록을 다시 읽어 구독을 갱신하는 간격(분) | worker/aisstream.py |
+| watch_pause_after_failures | 지켜보는 화물의 자동 재판정이 이 횟수만큼 잇달아 실패(예외·판정 없음)하면 자동 확인을 멈춘다. 사용자가 다시 조회하거나 지켜보기를 다시 켜면 풀린다 | services/watch.py |
+| watch_notify_retry_hours | 카카오톡 알림이 일시 오류(네트워크 등)로 못 나가면 다음 실행에서 다시 보낸다. 처음 실패한 뒤 이 시간이 지나면 더 보내지 않는다(낡은 알림) | services/watch.py |
+| position_future_tolerance_minutes | 위치 보고 시각이 지금보다 이 분 넘게 미래면 시계가 틀린 보고로 보고 버린다. 안 버리면 그 점이 영원히 "현재 위치"가 된다 | services/watch.py (usable_position_time), worker/collector.py, worker/aisstream.py |

@@ -93,7 +93,7 @@ def test_state_and_toggle_round_trip(db, me):
     db.add()
     assert _call("post", "/api/cargo/watch/state", {"bl_no": BL}, me).json() == {"saved": True, "watch": False}
     r = _call("put", "/api/cargo/watch", {"bl_no": BL, "on": True}, me)
-    assert r.status_code == 200 and r.json() == {"watch": True} and BL not in r.text
+    assert r.status_code == 200 and r.json() == {"watch": True, "known_vessel": True, "notice": None} and BL not in r.text
     assert _call("post", "/api/cargo/watch/state", {"bl_no": BL}, me).json() == {"saved": True, "watch": True}
     assert _call("put", "/api/cargo/watch", {"bl_no": BL, "on": False}, me).json() == {"watch": False}
 
@@ -128,6 +128,24 @@ def test_put_off_without_row_is_ok(db, me):
     assert _call("put", "/api/cargo/watch", {"bl_no": BL, "on": False}, me).json() == {"watch": False}
 
 
+def test_put_off_without_key_is_error_not_false_success(db, me, monkeypatch):
+    """열쇠가 없으면 실제로 끄지 못한다. watch:false로 답하지 않고 no_key 오류를 준다 (10-08 QA E1-4)."""
+    db.add(watch=True)
+    monkeypatch.delenv("BL_ENCRYPTION_KEY")
+    r = _call("put", "/api/cargo/watch", {"bl_no": BL, "on": False}, me)
+    assert r.status_code == 503 and r.json()["detail"] == "화물 정보를 안전하게 열 수 없습니다. 관리자에게 알려 주세요"
+    assert db.rows[0]["watch"] is True
+
+
+def test_put_on_for_cargo_without_vessel_says_auto_check_will_not_run(db, me):
+    """배를 모르는 화물도 켜지지만, 워커가 다시 판정하지 않는다는 것을 응답이 알린다 (10-08 QA E1-9)."""
+    db.add(vessel_mmsi=None)
+    r = _call("put", "/api/cargo/watch", {"bl_no": BL, "on": True}, me)
+    body = r.json()
+    assert r.status_code == 200 and body["watch"] is True and body["known_vessel"] is False
+    assert body["notice"] and "자동" in body["notice"] and BL not in r.text
+
+
 def test_body_is_validated(db, me):
     assert _call("put", "/api/cargo/watch", {"bl_no": BL}, me).status_code == 422  # on 없음
     assert _call("post", "/api/cargo/watch/state", {}, me).status_code == 422
@@ -136,13 +154,15 @@ def test_body_is_validated(db, me):
 # ── changes / seen ──
 
 def test_changes_then_seen(db, me):
-    db.add(label="고추", last_verdict="act", changed_from="watch", change_seen=False,
+    db.add(label="고추", last_verdict="act", changed_from="watch", change_seen=False, watch=True,
            changed_at=datetime(2026, 10, 5, tzinfo=timezone.utc))
     db.add(bl="MOCKBL20261001", user="other", change_seen=False, changed_at=datetime(2026, 10, 5, tzinfo=timezone.utc))
     r = _call("get", "/api/watch/changes", None, me)
     assert r.status_code == 200
-    assert r.json() == {"changes": [{"bl_masked": "MOC*******1005", "label": "고추", "from_verdict": "watch",
-                                     "to_verdict": "act", "changed_at": "2026-10-05T00:00:00+00:00",
+    assert r.json() == {"changes": [{"bl_masked": "MOC*******1005", "label": "고추", "kind": "verdict",
+                                     "from_verdict": "watch", "to_verdict": "act",
+                                     "changed_at": "2026-10-05T00:00:00+00:00",
+                                     "eta_from": None, "eta_to": None, "eta_change_hours": None,
                                      "reason": None}]}
     assert BL not in r.text  # 가린 번호만 나간다
     assert _call("post", "/api/watch/changes/seen", None, me).json() == {"cleared": 1}
