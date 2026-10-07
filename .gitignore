@@ -46,3 +46,6 @@ evals/fixtures/replay/shipfinder/
 evals/fixtures/replay/mof/
 evals/fixtures/replay/unipass/
 evals/fixtures/replay/positions/
+
+# 실서비스 DB 덤프 (회원 개인정보 포함). 커밋 금지
+db_dump/
