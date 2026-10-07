@@ -21,7 +21,8 @@ def test_request_normalizes_bl_and_accepts_optional_fields():
     assert req.follow_up_question is None      # 첫 조회는 선택 칸이 비어 있다
 
 
-@pytest.mark.parametrize("bad", ["ABC", "A" * 21, "TEST-BL-01"])
+# 하이픈은 공백처럼 지운다(10-08 QA B11). 밑줄·마침표 같은 다른 기호는 여전히 거절한다
+@pytest.mark.parametrize("bad", ["ABC", "A" * 21, "TEST_BL_01", "TEST.BL.01"])
 def test_request_rejects_bad_bl(bad):
     with pytest.raises(ValidationError):
         AgentRequest(bl_no=bad, bl_type="MASTER", sale_due_date=date(2026, 9, 28), session_id="s1")

@@ -9,7 +9,7 @@ LLM은 여기서 재생하지 않는다. LLM_MODEL이 비어 있으면 services/
 재생 파일 위치 (값은 전부 실제와 형식만 같은 가공값, SDD 7절):
   shipfinder/<엔드포인트>/<키>.json   VesselSearch는 keywords, VesselPositionSingle·VesselFlagInfo는 mmsi가 키
   mof/<API>/<호출부호>.xml            CntlVssl2(관제), VsslEtrynd5(선박운항정보). 호출부호가 없으면 _ALL.xml
-  unipass/<B/L 번호>.xml              mblNo 또는 hblNo. 모의 번호만 쓴다
+  unipass/<B/L 번호>.xml              mblNo 또는 hblNo. 모의 번호만 쓴다. 파일 안 mblNo·hblNo 칸으로 구분을 맞춘다 (unipass_body)
   positions/<MMSI>.json               6시간 간격 위치 이력 [{"at","lat","lng","sog"}] (position_history)
 파일이 없으면 "그런 대상 없음"으로 답한다. 검색은 빈 목록, 위치·국적은 status 3, 해수부는 빈 결과, UNI-PASS는 tCnt 0.
 실제 API가 모르는 배에 답하는 모양과 같아서, 라우터는 0척 되묻기 같은 평소 경로를 탄다.
@@ -109,16 +109,58 @@ def mof_transport() -> httpx.MockTransport:
     return httpx.MockTransport(handle)
 
 
-def unipass_transport() -> httpx.MockTransport:
-    """UnipassClient가 REPLAY_MODE일 때 쓰는 transport. B/L 번호(mblNo 또는 hblNo)로 파일을 고른다.
+# 재생 파일 안의 B/L 번호 칸 (UNI-PASS 응답 cargCsclPrgsInfoQryVo의 mblNo·hblNo)
+_BL_TAG = {"mblNo": re.compile(r"<mblNo>\s*([^<]*?)\s*</mblNo>"), "hblNo": re.compile(r"<hblNo>\s*([^<]*?)\s*</hblNo>")}
 
-    파일이 없으면 tCnt 0(없는 B/L)으로 답한다. 라우터는 insufficient로 B/L 확인을 되묻는다 (SDD 4.1).
+
+def _bl_numbers(body: str) -> dict[str, str]:
+    """재생 파일 본문의 {"mblNo": 번호, "hblNo": 번호}. 칸이 없거나 비면 그 열쇠가 없다."""
+    found = {}
+    for param, pattern in _BL_TAG.items():
+        match = pattern.search(body)
+        if match and match.group(1):
+            found[param] = match.group(1).strip().upper()
+    return found
+
+
+def unipass_body(param: str, bl_no: str) -> str | None:
+    """UNI-PASS 재생 응답 본문. 요청 구분(param: mblNo=마스터, hblNo=하우스)과 번호에 맞는 파일이 없으면 None.
+
+    실제 UNI-PASS는 마스터 번호를 hblNo로 물으면(또는 반대) 없다고 답한다. 예전 재생은 구분을 보지 않아,
+    "구분을 바꿔 다시 조회"(routers/agent._fetch_customs)가 재생 데모·평가에서 시험되지 않고 틀린 구분이 화물 표에 저장됐다 (10-08 QA B6).
+      1. 파일 이름(<번호>.xml)으로 찾은 파일 안에 mblNo·hblNo 칸이 있으면, 이 번호가 요청 구분의 칸과 같을 때만 돌려준다.
+         번호가 반대 구분 칸에 있으면 없는 B/L로 답한다
+      2. 파일 안 번호 칸이 이 번호와 하나도 맞지 않거나 칸이 없으면(평가셋 TESTBL01처럼 파일 이름만으로 고른 재생) 예전처럼 돌려준다
+      3. 그 이름의 파일이 없으면 다른 재생 파일 중 요청 구분 칸이 이 번호인 것을 찾는다. 데모 하우스 화물의 마스터 번호로도 조회된다
+    """
+    number = bl_no.strip().upper()
+    folder = REPLAY_DIR / "unipass"
+    body = _read(folder / f"{file_key(number)}.xml")
+    if body is not None:
+        tags = _bl_numbers(body)
+        if number not in tags.values() or tags.get(param) == number:
+            return body
+        return None
+    if not folder.is_dir():
+        return None
+    for path in sorted(folder.glob("*.xml")):
+        other = _read(path)
+        if other is not None and _bl_numbers(other).get(param) == number:
+            return other
+    return None
+
+
+def unipass_transport() -> httpx.MockTransport:
+    """UnipassClient가 REPLAY_MODE일 때 쓰는 transport. B/L 구분(mblNo 또는 hblNo)과 번호로 파일을 고른다 (unipass_body).
+
+    맞는 파일이 없으면 tCnt 0(없는 B/L)으로 답한다. 라우터는 반대 구분으로 한 번 더 조회한다 (routers/agent._fetch_customs).
     재생 파일에도 실제 B/L 번호는 쓰지 않는다. TESTBL01 같은 모의 번호만 쓴다 (CLAUDE.md).
     """
 
     def handle(request: httpx.Request) -> httpx.Response:
-        bl_no = request.url.params.get("mblNo") or request.url.params.get("hblNo") or ""
-        body = _read(REPLAY_DIR / "unipass" / f"{file_key(bl_no)}.xml") if bl_no else None
+        param = "mblNo" if request.url.params.get("mblNo") else "hblNo"
+        bl_no = request.url.params.get(param) or ""
+        body = unipass_body(param, bl_no) if bl_no else None
         return httpx.Response(200, text=body if body is not None else _UNIPASS_NOT_FOUND)
 
     return httpx.MockTransport(handle)

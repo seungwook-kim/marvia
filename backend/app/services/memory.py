@@ -606,10 +606,18 @@ def _cargo_rows(conn, user_id: str) -> dict[str, dict]:
 class MemoryContext:
     """판정·후속 LLM에 넣을 블록. blocks가 None이면 기억이 없다(처음 사용자, EC-12).
     user_facts: 블록 중 사용자가 직접 준 값만 모은 글 (받아야 하는 날, 포워더가 알려 준 입항일, 메모 칸 글).
-    지난 조회 결과(last_*)는 넣지 않는다. 출력 검사가 사용자 값만 근거로 칠 때 쓴다."""
+    지난 조회 결과(last_*)는 넣지 않는다. 출력 검사가 사용자 값만 근거로 칠 때 쓴다.
+    judge_blocks: 판정 LLM용 블록. blocks와 같되 <user_cargo>에 품명이 없다. 품명은 판정 LLM에 주지 않는다
+    (CLAUDE.md "하지 말 것", 10-08 QA B3). 후속 질문 LLM은 지난 결과의 customs.goods_name을 이미 받으므로 blocks를 그대로 쓴다.
+    load_context는 늘 둘 다 채운다(블록이 없으면 둘 다 None). 직접 만들면서 비워 두면 for_judge()가 blocks를 쓴다."""
 
     blocks: str | None
     user_facts: str = ""
+    judge_blocks: str | None = None
+
+    def for_judge(self) -> str | None:
+        """판정 LLM에 넣을 블록 (품명 없는 쪽). routers/agent.run_agent가 쓴다."""
+        return self.judge_blocks if self.judge_blocks is not None else self.blocks
 
 
 def _db_ready() -> bool:
@@ -617,9 +625,10 @@ def _db_ready() -> bool:
     return bool(os.environ.get("DATABASE_URL"))
 
 
-def compose_blocks(rows: list[dict], items: list[dict], cargo_rows: dict[str, dict]) -> str | None:
-    """<user_cargo> → <user_memory> 순서의 데이터 블록 (Spec 읽기 흐름 2). 번호는 넣지 않는다 (EC-09). 둘 다 비면 None."""
-    cargo_text, memory_text = cargo.render_block(rows), render(items, cargo_rows)
+def compose_blocks(rows: list[dict], items: list[dict], cargo_rows: dict[str, dict], *, goods: bool = True) -> str | None:
+    """<user_cargo> → <user_memory> 순서의 데이터 블록 (Spec 읽기 흐름 2). 번호는 넣지 않는다 (EC-09). 둘 다 비면 None.
+    goods=False면 <user_cargo>에 품명을 넣지 않는다. 판정 LLM용이다 (10-08 QA B3, cargo.cargo_line)."""
+    cargo_text, memory_text = cargo.render_block(rows, goods=goods), render(items, cargo_rows)
     if not cargo_text and not memory_text:
         return None
     return f"<user_cargo>\n{cargo_text}\n</user_cargo>\n<user_memory>\n{memory_text}\n</user_memory>"
@@ -646,7 +655,8 @@ def load_context(user_id: str | None, bl_no: str | None = None) -> MemoryContext
     except Exception as e:  # noqa: BLE001 - 기억은 부가 기능이다. 종류만 남긴다
         log_failure("memory_read", type(e).__name__)
         return None
-    return MemoryContext(blocks=compose_blocks(rows, items, every), user_facts=user_facts(rows, items))
+    return MemoryContext(blocks=compose_blocks(rows, items, every), user_facts=user_facts(rows, items),
+                         judge_blocks=compose_blocks(rows, items, every, goods=False))
 
 
 def lookup_notes(user_id: str | None, bl_no: str) -> list[str]:

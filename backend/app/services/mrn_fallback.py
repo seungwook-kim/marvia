@@ -4,7 +4,8 @@ routers/agent.py의 조회가 UNI-PASS에서 B/L을 못 찾았고(insufficient) 
 - 해수부 입항 신고에서 MRN으로 배(선명·호출부호·입항 예정·접안 시설)를 찾는다
 - 호출부호로 ShipFinder 후보 → AIS 위치 → 부산까지 남은 거리 (기존 MCP 도구)
 - status=partial, verdict=None. 통관 정보가 없어서 판정하지 않는다. trusted_eta도 정하지 않는다
-해수부에서도 못 찾으면 None (부르는 쪽은 원래 응답을 그대로 돌려준다).
+해수부에서 그 MRN을 못 찾으면 None, 해수부 조회 자체가 실패하면 MrnLookupFailed.
+부르는 쪽(routers/agent._assess)은 둘을 다른 문장으로 알린다: "MRN도 찾지 못함"과 "해수부 조회 실패"는 사용자가 할 일이 다르다 (10-08 QA B11).
 """
 from __future__ import annotations
 
@@ -22,6 +23,14 @@ from backend.app.services.mcp_client import estimate_distance, get_live_position
 
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 3, 14  # 입항 신고를 찾는 기간. 통지서는 보통 입항 며칠 전에 온다
 
+class MrnLookupFailed(Exception):
+    """해수부 입항 신고 조회가 실패했다(시간 초과·키 오류 등). MRN이 없는 것과 구분한다. code는 MofError 코드."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 NO_CUSTOMS_YET = ("통관 정보는 아직 세관(UNI-PASS)에 없습니다. 보통 적하목록이 올라오는 입항 전후에 조회됩니다. "
                   "대신 MRN으로 해수부 입항 신고에서 배를 찾았습니다.")
 
@@ -30,8 +39,22 @@ def _iso(t) -> str | None:
     return t.isoformat() if isinstance(t, datetime) else (str(t) if t else None)
 
 
+def _answer(ship_name: str | None, arrival: datetime | None, facility: str | None) -> str:
+    """MRN 대체 답 문장. 모르는 값은 "확인되지 않음입니다"처럼 칸 이름에 끼워 넣지 않고 문장을 바꿔 말한다 (10-08 QA B11)."""
+    ship = f"{ship_name}호" if ship_name else "이 배"
+    parts = [NO_CUSTOMS_YET]
+    if arrival:
+        when = arrival.astimezone(timezone(timedelta(hours=9))).strftime("%m월 %d일 %H:%M")
+        parts.append(f"{ship}가 {when} 부산 입항 예정입니다.")
+    else:
+        parts.append(f"{ship}의 부산 입항 예정 시각은 아직 신고되지 않았습니다.")
+    parts.append(f"접안 예정지는 {facility}입니다." if facility else "접안 예정지는 아직 정해지지 않았습니다.")
+    parts.append("통관 정보가 들어오면 판정까지 다시 볼 수 있습니다.")
+    return " ".join(parts)
+
+
 def assess(request: AgentRequest) -> AgentResponse | None:
-    """MRN 대체 응답. 해수부에 없으면 None."""
+    """MRN 대체 응답. 해수부에 그 MRN이 없으면 None, 해수부 조회가 실패하면 MrnLookupFailed."""
     if not request.mrn:
         return None
     today = date.today()
@@ -40,7 +63,7 @@ def assess(request: AgentRequest) -> AgentResponse | None:
         plans = client.sailing_plans_all(today - timedelta(days=LOOKBACK_DAYS), today + timedelta(days=LOOKAHEAD_DAYS))
     except MofError as e:
         log_failure("mrn_fallback_mof", e.code)
-        return None
+        raise MrnLookupFailed(e.code) from None
     finally:
         client.close()
     plan = next((p for p in plans if p.mrn and p.mrn.upper() == request.mrn), None)
@@ -86,9 +109,7 @@ def assess(request: AgentRequest) -> AgentResponse | None:
         code = (found.get("error") or {}).get("code") or ("ambiguous" if cands else "not_found")
         log_failure("mrn_fallback_vessel", code)
 
-    when = plan.expected_arrival.astimezone(timezone(timedelta(hours=9))).strftime("%m월 %d일 %H:%M") if plan.expected_arrival else "확인되지 않음"
-    answer = (f"{NO_CUSTOMS_YET} {plan.ship_name}호가 {when} 부산 입항 예정이고 접안 예정지는 {plan.facility or '확인되지 않음'}입니다. "
-              "통관 정보가 들어오면 판정까지 다시 볼 수 있습니다.")
+    answer = _answer(plan.ship_name, plan.expected_arrival, plan.facility)
     return AgentResponse(
         status="partial", verdict=None, vessel_match="confirmed" if vessel else "none", vessel_candidates=[],
         missing_inputs=[], reasons=[], conflicts=[], actions=["입항 전후에 같은 B/L로 다시 조회하세요"],

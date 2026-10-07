@@ -29,13 +29,21 @@
 (memory.remember_later). 등급은 여전히 판정 표가 정한다. 사용자가 없으면(평가 실행기·데모) 아무것도 안 한다.
 회색 지대(raise_only) 판정에는 기억 블록을 주지 않고, 출력 검사에서 기억은 사용자가 준 날짜·숫자만 V7 근거로 친다.
 지난 조회 값과 메모 낱말은 근거가 아니다(validate.user_supplied_text). V12는 블록을 실제로 줬을 때만 건다.
+판정 LLM에 주는 기억 블록에는 품명이 없다(MemoryContext.for_judge). 품명은 판정 LLM에 주지 않는다 (CLAUDE.md).
+
+10-08 QA로 더한 것:
+  - 판매 예정일이 범위(rules.md sale_due_past_days·sale_due_future_days) 밖이면 조회 전에 되묻고 화물 표를 덮지 않는다 (B2)
+  - 요청에 판매 예정일이 없으면 화물 표에 저장된 날짜로 판정하고 답에 그 사실을 한 줄 적는다 (B4)
+  - 한 요청 안에서 DB가 한 번 실패하면 남은 DB 단계는 건너뛴다 (B7, _db_state)
+  - 후속 질문 도구를 모델이 거절하면 그 모델은 한동안 도구 없이 바로 묻는다 (B8, llm.tools_rejected)
+  - LLM reasons의 같은 신호는 첫 번째만 남긴다 (B9, _unique_reasons)
 """
 import json
 import logging
 from contextvars import ContextVar
 import os
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 import pycountry
@@ -101,6 +109,14 @@ POSITION_TOOL_FAILED = "선박 위치 조회에 실패해 판정하지 않았습
 # "잠시 뒤"가 아니라 내일이라고 알린다
 QUOTA_EXHAUSTED_TAIL = " 오늘 선박 위치 조회 한도를 다 써서, 내일 다시 조회해 주세요."
 NOT_BUSAN = "부산항에 내리는 화물만 확인할 수 있습니다. 이 화물은 다른 항만으로 들어옵니다."
+# 판매 예정일이 받아 주는 범위 밖일 때 (10-08 QA B2). 날짜는 사용자가 준 값 그대로 보여 준다. 코드 문장이라 V7 대상이 아니다
+SALE_DUE_OUT_OF_RANGE = ("판매 예정일이 {day}로 들어왔는데, 오늘 기준으로 너무 지났거나 너무 먼 날짜라 판정하지 않았습니다. "
+                         "판매 예정일을 다시 확인해 주세요.")
+# 요청에 판매 예정일이 없어 화물 표에 저장된 날짜로 판정했을 때 답 끝에 코드가 붙이는 한 줄 (10-08 QA B4)
+SAVED_SALE_DUE_NOTE = "저장된 판매 예정일 {day:%m-%d} 기준입니다."
+# MRN을 줬는데 해수부 입항 신고에도 없을 때 / 해수부 조회가 실패했을 때 NO_CARGO 뒤에 붙이는 문장 (10-08 QA B11)
+MRN_NOT_FOUND = "알려 주신 MRN으로 해수부 입항 신고도 찾아봤지만 찾지 못했어요. MRN도 다시 확인해 주세요."
+MRN_LOOKUP_FAILED = "알려 주신 MRN으로 해수부 입항 신고를 찾아보려 했지만 해수부 조회에 실패했어요. 잠시 뒤 다시 조회해 주세요."
 LLM_FAILED = "판정을 만들지 못했습니다. 조회한 값과 신호만 보여 드립니다."
 # 판정 LLM이 끝내 실패했을 때 표 등급으로 확정하며 쓰는 문구 (_llm_gave_up). 숫자를 넣지 않는다 (V7)
 TABLE_FALLBACK = "판정 표 기준으로 '{label}'입니다. 설명 문장은 만들지 못했습니다. 아래 근거를 확인해 주세요."
@@ -193,25 +209,91 @@ def run_agent(request: AgentRequest,
     with request_span("/api/agent"):
         quota_guard(request.session_id, user_id)
         with session_scope(request.session_id, user_id):
-            context = memory_service.load_context(user_id, request.bl_no)
-            blocks = context.blocks if context else None
-            if request.follow_up_question:
-                response = _logged(request, _follow_up(request, user_id, blocks), user_id)
-            else:
-                # 지난 조회의 신뢰 ETA를 화물 표에서 읽어 둔다. 화물 표를 덮기 전 값이라야 "바뀜"을 셀 수 있다 (eta_change)
-                row = _saved_row(user_id, request.bl_no)
-                token = previous_eta.set(_last_eta_of(row))
-                # 구분을 말하지 않았으면 지난번에 찾은 구분(화물 표 bl_type)부터 조회한다. 하우스·마스터를 매번 둘 다 부르지 않게
-                saved_type = (row or {}).get("bl_type")
-                if request.bl_type is None and saved_type in OTHER_BL_TYPE:
-                    request = request.model_copy(update={"bl_type": saved_type})
-                try:
-                    response = _logged(request, _assess(request, blocks), user_id)
-                finally:
-                    previous_eta.reset(token)
-            # 화물 표에는 실제로 찾은 구분을 적는다. 다음 조회가 그 구분으로 바로 간다 (services/cargo.upsert_assessment)
-            memory_service.remember_later(user_id, matched_request(request, response), response, released=is_released(response))
-            return response
+            # 이 요청 안의 DB 상태. 한 단계가 DB에 못 붙으면 남은 단계는 다시 붙어 보지 않는다 (10-08 QA B7, _db_ready)
+            db_token = _db_state.set({"failed": False})
+            try:
+                return _run(request, user_id)
+            finally:
+                _db_state.reset(db_token)
+
+
+def _run(request: AgentRequest, user_id: str | None) -> AgentResponse:
+    """run_agent의 본문. 문맥(span, 세션, DB 상태)은 run_agent가 연다."""
+    # 판매 예정일이 범위 밖이면 외부 조회·LLM 없이 되묻는다 (10-08 QA B2). 화물 표에 쓰지 않아 저장된 정상 값을 덮지 않는다
+    if sale_due_out_of_range(request.sale_due_date):
+        log_failure("input", "sale_due_date_out_of_range")
+        return _logged(request, _response(status="insufficient", missing_inputs=["sale_due_date"],
+                                          answer=SALE_DUE_OUT_OF_RANGE.format(day=request.sale_due_date.isoformat())),
+                       user_id)
+    context = memory_service.load_context(user_id, request.bl_no)
+    if context is None and user_id and os.environ.get("DATABASE_URL"):
+        # 사용자도 DB 주소도 있는데 None이면 읽기가 실패한 것이다(memory.load_context가 예외를 삼키고 None). 남은 DB 단계를 건너뛴다
+        _mark_db_failed()
+    blocks = context.blocks if context else None
+    judge_blocks = context.for_judge() if context else None  # 판정 LLM용: 품명 없는 블록 (10-08 QA B3)
+    if request.follow_up_question:
+        response = _logged(request, _follow_up(request, user_id, blocks, judge_blocks), user_id)
+    else:
+        # 지난 조회의 신뢰 ETA를 화물 표에서 읽어 둔다. 화물 표를 덮기 전 값이라야 "바뀜"을 셀 수 있다 (eta_change)
+        row = _saved_row(user_id, request.bl_no)
+        token = previous_eta.set(_last_eta_of(row))
+        # 구분을 말하지 않았으면 지난번에 찾은 구분(화물 표 bl_type)부터 조회한다. 하우스·마스터를 매번 둘 다 부르지 않게
+        saved_type = (row or {}).get("bl_type")
+        if request.bl_type is None and saved_type in OTHER_BL_TYPE:
+            request = request.model_copy(update={"bl_type": saved_type})
+        # 판매 예정일을 안 줬으면 화물 표에 저장된 날짜로 판정한다 (10-08 QA B4). 조회마다 날짜가 있다 없다 해서 등급이 오락가락하지 않게.
+        # 화물 표 쓰기에는 원래 요청(request)을 넘긴다: 저장 날짜를 "이번 입력"으로 다시 쓰면 그 칸의 확인 대기(pending)가 지워진다
+        saved_due = saved_sale_due(row) if request.sale_due_date is None else None
+        judged_request = request.model_copy(update={"sale_due_date": saved_due}) if saved_due else request
+        try:
+            response = _assess(judged_request, judge_blocks)
+        finally:
+            previous_eta.reset(token)
+        if saved_due:
+            response = _with_saved_due_note(response, saved_due)
+        response = _logged(judged_request, response, user_id)
+    if _db_failed():
+        # DB가 이미 안 붙는 요청이다. 뒤 작업(화물 표 쓰기·기억 뽑기)도 붙지 못하고 일꾼 자리만 잡는다
+        log_failure("memory_write", "skipped_after_db_failure")
+        return response
+    # 화물 표에는 실제로 찾은 구분을 적는다. 다음 조회가 그 구분으로 바로 간다 (services/cargo.upsert_assessment)
+    memory_service.remember_later(user_id, matched_request(request, response), response, released=is_released(response))
+    return response
+
+
+def today_kst() -> date:
+    """오늘 한국 날짜. 판매 예정일 범위 검사의 기준이다. 테스트가 고정 날짜를 쓰려고 바꿔 끼운다 (backend/tests/conftest.py)."""
+    return datetime.now(KST).date()
+
+
+def sale_due_out_of_range(day: date | None, today: date | None = None) -> bool:
+    """판매 예정일이 받아 주는 범위 밖인가 (10-08 QA B2). 날짜가 없으면 False.
+    범위는 오늘(한국 날짜) 기준 rules.md sale_due_past_days일 전부터 sale_due_future_days일 뒤까지 (skills/cargo-verdict/rules.md).
+    1900-01-01 같은 입력 실수로 여유 일수가 수만 일이 되거나, 저장된 정상 값이 덮이는 것을 막는다."""
+    if day is None:
+        return False
+    today = today or today_kst()
+    return (day < today - timedelta(days=rule("sale_due_past_days"))
+            or day > today + timedelta(days=rule("sale_due_future_days")))
+
+
+def saved_sale_due(row: dict | None, today: date | None = None) -> date | None:
+    """화물 표에 저장된 판매 예정일. 없거나 범위 밖이면 None (10-08 QA B4).
+    범위 밖 값은 이 검사가 생기기 전에 저장된 입력 실수일 수 있어 판정에 쓰지 않는다."""
+    value = (row or {}).get("sale_due_date")
+    if isinstance(value, datetime):
+        value = value.date()
+    if not isinstance(value, date) or sale_due_out_of_range(value, today):
+        return None
+    return value
+
+
+def _with_saved_due_note(response: AgentResponse, day: date) -> AgentResponse:
+    """저장된 판매 예정일로 판정한 응답의 답 끝에 그 사실을 한 줄 붙인다 (SAVED_SALE_DUE_NOTE). 코드 문장이라 검증 뒤에 붙인다.
+    판매 예정일을 실제로 쓴 응답(근거 카드에 sale_due_date가 있는 것)에만 붙인다. 반출·조회 실패처럼 날짜를 안 쓴 답에는 붙이지 않는다."""
+    if not any(e.field == "sale_due_date" for e in response.evidence):
+        return response
+    return response.model_copy(update={"answer": f"{response.answer} {SAVED_SALE_DUE_NOTE.format(day=day)}"})
 
 
 def matched_request(request: AgentRequest, response: AgentResponse) -> AgentRequest:
@@ -225,8 +307,9 @@ def matched_request(request: AgentRequest, response: AgentResponse) -> AgentRequ
 
 def is_not_found(response: AgentResponse | None) -> bool:
     """마스터·하우스 둘 다 UNI-PASS에 없어서 끝난 응답인가. 채팅(services/chat.py)이 "결과 없음" 갈래를 가를 때 쓴다.
-    세관 장애(failed, 다른 문구)와는 문구로 가른다. 그 문구는 이 모듈의 NO_CARGO 하나다."""
-    return bool(response and response.status == "failed" and response.answer == NO_CARGO)
+    세관 장애(failed, 다른 문구)와는 문구로 가른다. 그 문구는 이 모듈의 NO_CARGO로 시작한다
+    (MRN도 찾아본 경우 뒤에 MRN 문장이 붙는다, 10-08 QA B11)."""
+    return bool(response and response.status == "failed" and response.answer.startswith(NO_CARGO))
 
 
 def is_released(response: AgentResponse) -> bool:
@@ -246,9 +329,15 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
         # 세관 장애(시간 초과·키 오류)는 대체하지 않는다 (EC-04). 둘은 문구로 가른다 (is_not_found)
         if is_not_found(failure) and request.mrn:
             from backend.app.services import mrn_fallback  # 이 경우에만 불러온다
-            alternative = mrn_fallback.assess(request)
+            try:
+                alternative = mrn_fallback.assess(request)
+            except mrn_fallback.MrnLookupFailed:
+                # 해수부 장애. MRN이 틀렸다고 말하지 않는다 (10-08 QA B11)
+                return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_LOOKUP_FAILED}"})
             if alternative is not None:
                 return alternative
+            # MRN을 줬는데 해수부에도 없다. B/L만 다시 확인하라고 하면 MRN을 받은 사실이 사라진다 (10-08 QA B11)
+            return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_NOT_FOUND}"})
         return failure
 
     response = _after_customs(request, customs, memory)
@@ -467,13 +556,13 @@ def _saved_row(user_id: str | None, bl_no: str) -> dict | None:
     if not user_id or not os.environ.get("DATABASE_URL"):
         return None
     key = cargo_service.cargo_key(bl_no)
-    if not key:
+    if not key or _db_failed():
         return None
     try:
         with connect() as conn:
             return cargo_service.get_row(conn, user_id, key)
     except Exception as e:  # noqa: BLE001 - 부가 정보다. 종류만 남긴다
-        log_failure("cargo_read", type(e).__name__)
+        _mark_db_failed("cargo_read", e)
         return None
 
 
@@ -502,8 +591,8 @@ def _judged(out, signal_set, request: AgentRequest, customs: CustomsRecord, coll
     verdict = out.verdict
     decided_by = "llm" if verdict_table.LEVEL[verdict] > verdict_table.LEVEL[table] else "rule"
     # V2: watch·act면 이유가 1개 이상. LLM이 비워 두면 표의 근거(켜진 신호, 여유 일수)를 쓴다
-    reasons = out.reasons or (verdict_table.table_reasons(signal_set, collected.get("days_margin"))
-                              if verdict != "fine" else [])
+    reasons = _unique_reasons(out.reasons) or (verdict_table.table_reasons(signal_set, collected.get("days_margin"))
+                                               if verdict != "fine" else [])
 
     status, missing = "ok", []
     if from_cache:
@@ -521,6 +610,19 @@ def _judged(out, signal_set, request: AgentRequest, customs: CustomsRecord, coll
         customs=_customs_info(customs, out.customs),
         **collected,
     )
+
+
+def _unique_reasons(reasons: list[Reason]) -> list[Reason]:
+    """같은 신호(rule)가 여러 번 나오면 첫 번째만 남긴다 (10-08 QA B9). LLM이 같은 신호를 문장만 바꿔 되풀이하곤 했다.
+    꺼진 신호(triggered=false)는 화면이 "해당 없음"으로 따로 그려서(web/app/page.tsx 판정 신호) 여기서 빼지 않는다."""
+    seen: set[str] = set()
+    unique = []
+    for reason in reasons:
+        if reason.rule in seen:
+            continue
+        seen.add(reason.rule)
+        unique.append(reason)
+    return unique
 
 
 def _llm_gave_up(signal_set, margin: int | None, table: str, gray: bool, customs: CustomsRecord,
@@ -620,14 +722,16 @@ def _evidence_text(response: AgentResponse) -> str:
     return " ".join(f"{e.field} {e.value}" for e in response.evidence)
 
 
-def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | None = None) -> AgentResponse:
+def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | None = None,
+               judge_memory: str | None = None) -> AgentResponse:
     """후속 질문. 같은 세션·같은 B/L의 가장 최근 결과를 DB에서 꺼내 그 안에서만 답한다.
+    memory는 후속 질문 LLM에, judge_memory(품명 없는 블록)는 지난 결과가 없어 다시 판정할 때 판정 LLM에 넣는다 (10-08 QA B3).
 
     세션별로 지난 결과를 저장해 두는 방식이다. 로그인했으면 세션 대신 사용자 ID로 찾아, 기기가 달라도 이어진다.
     DB가 없거나 지난 결과가 없으면 조회·판정을 한 번 더 해서 그 결과로 답한다 (DB 없이도 돌아야 한다).
     판정·근거는 지난 결과 그대로 두고 answer만 질문의 답으로 바꿔 돌려준다.
     """
-    previous = _previous_response(request, user_id) or _assess(request, memory)
+    previous = _previous_response(request, user_id) or _assess(request, judge_memory)
     failed = previous.model_copy(update={"answer": FOLLOW_UP_FAILED, "trace_id": current_request_id()})
 
     # 프롬프트 주입 차단 (SDD 7절). "지금부터 너는 ~" 같은 질문은 프롬프트 방어만으로는 가끔 뚫려서
@@ -644,6 +748,9 @@ def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | 
     # 배가 이미 확정된 결과면 후보 검색 도구를 주지 않는다. get_vessel_candidates 한 번이 ShipFinder를 최대 11회 쓴다
     if previous.vessel is not None:
         tools = [t for t in tools if t["function"]["name"] != CANDIDATES_TOOL]
+    # 이 모델이 도구 붙은 요청을 최근에 거절했으면 처음부터 도구 없이 묻는다. 매 질문 LLM을 두 번 부르지 않게 (10-08 QA B8)
+    if tools and llm.tools_rejected():
+        tools = []
     run_tool = _capped_follow_up_tool(previous)
     for attempt in range(1, JUDGE_ATTEMPTS + 1):
         try:
@@ -659,6 +766,7 @@ def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | 
             # 맞는 제공사가 없으면 도구 요청만 404가 날 수 있다. 후속 답 자체는 막지 않는다
             if tools and e.kind == "bad_request":
                 log_failure("follow_up", "tools rejected, retry without tools")
+                llm.remember_tools_rejected()  # 다음 질문부터는 이 모델에 도구를 붙이지 않는다 (llm.TOOLS_REJECT_TTL_SEC 동안)
                 tools = []
                 continue
             log_failure("follow_up", _llm_error(e))
@@ -780,13 +888,13 @@ def _previous_response(request: AgentRequest, user_id: str | None = None) -> Age
     입력이 바뀌었으면 지난 결과를 쓰지 않는다 (_inputs_changed). 판매 예정일이나 포워더 입항 예정일을 새로 주고
     물었는데 옛 여유 일수·등급으로 답하면 틀린 답이다. None을 돌려주면 _follow_up이 새로 조회·판정한 결과로 답한다.
     """
-    if not _db_configured("db_read"):
+    if not _db_ready("db_read"):
         return None
     try:
         with connect() as conn:
             saved = _same_cargo(recent_responses(conn, request.session_id, mask_bl(request.bl_no), user_id), request.bl_no)
     except Exception as e:
-        log_failure("db_read", type(e).__name__)
+        _mark_db_failed("db_read", e)
         return None
     if not saved:
         return None
@@ -937,6 +1045,9 @@ def _identify(customs: CustomsRecord, request: AgentRequest) -> tuple[list[Vesse
         picked = _resolved_pick(customs, request, mrn_call_sign)
         if picked == TOOL_FAILED:
             return [], TOOL_FAILED, None, None
+        if picked == UNVERIFIED:
+            # 지켜보기에 저장된 배가 이 화물의 지난 결과와 맞지 않는다. 검색하지 않고 확정하지 않는다 (워커 예산, _trusted_vessel_known)
+            return [], "uncertain", None, None
         if picked is not None:
             chosen, picked_call_sign = picked
             # 호출부호를 알면 해수부를 호출부호로 조회한다 (선명으로 훑으면 훨씬 느리다)
@@ -1016,12 +1127,16 @@ def _identify(customs: CustomsRecord, request: AgentRequest) -> tuple[list[Vesse
 # 후보 확인 검색(ShipFinder 1~2회)을 다시 하지 않는다. 워커는 화물당 ShipFinder 1회만 떼어 두기 때문이다 (worker/run.py).
 # 사용자 요청 경로에서는 늘 None이다. 화면이 보낸 resolved_mmsi는 아래처럼 후보와 대조한다
 trusted_vessel: ContextVar[int | None] = ContextVar("trusted_vessel", default=None)
+# _resolved_pick이 "지켜보기가 믿으려던 배를 지난 결과로 확인하지 못했다"를 알릴 때 쓰는 표시 (10-08 QA B1).
+# _identify는 이때 검색 없이 확정하지 않은 채로 끝낸다(_after_customs가 되묻기로 바꾼다)
+UNVERIFIED = "unverified"
 
 
 def _resolved_pick(customs: CustomsRecord, request: AgentRequest,
                    mrn_call_sign: str | None) -> tuple[VesselCandidate, str | None] | str | None:
     """사용자가 고른 MMSI가 이 화물의 후보인지 확인한다.
-    (후보, 호출부호), 후보가 아니면 None, 검색 도구가 모두 실패하면 TOOL_FAILED.
+    (후보, 호출부호), 후보가 아니면 None, 검색 도구가 모두 실패하면 TOOL_FAILED,
+    지켜보기에 저장된 배가 지난 결과와 맞지 않으면 UNVERIFIED (검색하지 않는다).
 
     1. 이 화물의 지난 되묻기 응답(조회 이력)에 실린 후보 목록. 외부 호출이 없어 먼저 본다
     2. 없으면 식별과 같은 검색을 다시 한다: MRN 호출부호 검색, 그다음 선명 검색. ShipFinder 호출이 1~2번 늘지만
@@ -1029,7 +1144,12 @@ def _resolved_pick(customs: CustomsRecord, request: AgentRequest,
     """
     target = request.resolved_mmsi
     if trusted_vessel.get() == target:
-        # 지켜보기 재판정: 저장해 둔 확정 배. 후보 줄 대신 세관 선명으로 최소한의 후보를 만든다 (_vessel_info가 쓰는 칸만)
+        # 지켜보기 재판정: 저장해 둔 확정 배. 다만 이 화물의 지난 결과가 다른 배를 가리키면 믿지 않는다 (10-08 QA B1, _trusted_vessel_known).
+        # 믿지 않을 때도 검색하지 않는다: 워커 예산은 화물당 ShipFinder 1회라서다. 부르는 쪽은 되묻기(판정 없음)로 끝낸다
+        if _trusted_vessel_known(request, target) is False:
+            log_failure("identify", "trusted_vessel_unverified")
+            return UNVERIFIED
+        # 후보 줄 대신 세관 선명으로 최소한의 후보를 만든다 (_vessel_info가 쓰는 칸만)
         return VesselCandidate(mmsi=target, imo=None, name=customs.ship_name or "", flag=None, dest=None,
                                last_time=datetime.now(timezone.utc), ship_type=None,
                                match_reasons=["지켜보기에 저장된 확정 배"]), None
@@ -1060,10 +1180,31 @@ def _resolved_pick(customs: CustomsRecord, request: AgentRequest,
     return TOOL_FAILED if searches and failed == len(searches) else None
 
 
+def _trusted_vessel_known(request: AgentRequest, target: int) -> bool | None:
+    """지켜보기가 믿으려는 배(target)가 이 화물의 지난 결과에서 확정되었거나 후보로 나왔던 배인가 (10-08 QA B1).
+
+    예전 화물 표 쓰기는 후보가 아니라 거절된 resolved_mmsi도 vessel_mmsi로 저장했다(services/cargo._vessel, 지금은 고침).
+    그렇게 저장된 줄을 가려내려고 조회 이력(query_log)을 본다. DB 읽기만 하고 외부 호출은 없다.
+      True:  지난 결과 중 하나가 그 배를 확정했거나 후보로 보여 줬다
+      False: 배 정보가 있는 지난 결과는 있는데 어느 것도 그 배가 아니다 (거절된 번호가 저장된 줄)
+      None:  배 정보가 있는 지난 결과가 없다 (이력이 90일 정리로 지워졌거나 실패만 남음). 판단할 근거가 없어 지금처럼 믿는다
+    """
+    informative = False
+    for saved in _saved_cargo_responses(request):
+        vessel = saved.get("vessel") if isinstance(saved.get("vessel"), dict) else None
+        candidates = [c for c in saved.get("vessel_candidates") or [] if isinstance(c, dict)]
+        if vessel is None and not candidates:
+            continue
+        informative = True
+        if (vessel and vessel.get("mmsi") == target) or any(c.get("mmsi") == target for c in candidates):
+            return True
+    return False if informative else None
+
+
 def _saved_cargo_responses(request: AgentRequest) -> list[dict]:
     """이 세션(로그인했으면 사용자)·이 화물의 최근 결과 JSON들. DB가 없거나 못 읽으면 빈 목록.
     사용자 ID는 지금 요청의 사용량 이름(quota.owner_var, session_scope가 정한다)에서 꺼낸다. _assess의 인자를 늘리지 않으려는 것이다."""
-    if not _db_configured("db_read"):
+    if not _db_ready("db_read"):
         return []
     owner = quota.owner_var.get() or ""
     user_id = owner[len("user:"):] if owner.startswith("user:") else None
@@ -1071,7 +1212,7 @@ def _saved_cargo_responses(request: AgentRequest) -> list[dict]:
         with connect() as conn:
             rows = recent_responses(conn, request.session_id, mask_bl(request.bl_no), user_id)
     except Exception as e:
-        log_failure("db_read", type(e).__name__)
+        _mark_db_failed("db_read", e)
         return []
     return [r for r in _cargo_rows(rows, request.bl_no) if isinstance(r, dict)]
 
@@ -1093,19 +1234,52 @@ def _position_history(mmsi: int | None) -> list[dict]:
         rows = replay_position_history(mmsi)
         if rows is not None:
             return rows
-    if not mmsi or not _db_configured("positions_read"):
+    if not mmsi or not _db_ready("positions_read"):
         return []
     try:
         with connect() as conn:
             return recent_positions(conn, mmsi)
     except Exception as e:
-        log_failure("positions_read", type(e).__name__)
+        _mark_db_failed("positions_read", e)
         return []
 
 
 def _llm_error(e: llm.LLMError) -> str:
     """LLM 실패를 종류(kind)와 HTTP 코드로 줄인다. 메시지에는 공급자 응답 문장이 들어 있을 수 있어 뺀다."""
     return f"{e.kind} {e.code}" if e.code else e.kind
+
+
+# 한 요청(run_agent) 안의 DB 상태 (10-08 QA B7). DB가 응답하지 않으면 기억 읽기·화물 표 읽기·이력 읽기·위치 이력·이력 쓰기가
+# 단계마다 연결을 기다려 요청 하나가 10초 넘게 걸렸다. 첫 실패를 여기 적고 남은 단계는 붙어 보지 않는다.
+# run_agent만 {"failed": bool}을 넣는다. 지켜보기 재판정(services/watch.py)처럼 _assess를 직접 부르는 길은 None이라 지금처럼 단계마다 붙는다:
+# 워커 한 번에 여러 화물을 도는데, 한 화물의 실패가 다른 화물로 번지면 안 된다
+_db_state: ContextVar[dict | None] = ContextVar("agent_db_state", default=None)
+
+
+def _db_failed() -> bool:
+    """이 요청에서 DB가 이미 실패했나. run_agent 밖(지켜보기·테스트의 직접 호출)은 늘 False."""
+    state = _db_state.get()
+    return bool(state and state["failed"])
+
+
+def _mark_db_failed(stage: str | None = None, error: Exception | None = None) -> None:
+    """DB 단계가 실패했음을 남긴다. stage가 있으면 예외 종류를 로그에 남기고(메시지는 접속 정보가 섞일 수 있어 뺀다),
+    run_agent 안이면 남은 단계가 건너뛰게 표시한다."""
+    if stage:
+        log_failure(stage, type(error).__name__ if error else "failed")
+    state = _db_state.get()
+    if state is not None:
+        state["failed"] = True
+
+
+def _db_ready(stage: str) -> bool:
+    """이 단계에서 DB를 써도 되나. 주소가 없으면(_db_configured) False, 이 요청에서 이미 실패했으면 건너뛰었다고 남기고 False."""
+    if not _db_configured(stage):
+        return False
+    if _db_failed():
+        log_failure(stage, "skipped_after_db_failure")
+        return False
+    return True
 
 
 def _db_configured(stage: str) -> bool:
@@ -1285,7 +1459,7 @@ def _logged(request: AgentRequest, response: AgentResponse, user_id: str | None 
 
     이력 저장이 실패해도 응답은 나가야 한다. DB 없이도 서비스가 돌아야 하기 때문이다.
     """
-    if not _db_configured("db_write"):
+    if not _db_ready("db_write"):
         return response
     try:
         with connect() as conn:
@@ -1309,5 +1483,5 @@ def _logged(request: AgentRequest, response: AgentResponse, user_id: str | None 
                 response=_as_jsonb(_seal_containers(response, request.bl_no)),
             )
     except Exception as e:
-        log_failure("db_write", type(e).__name__)
+        _mark_db_failed("db_write", e)
     return response

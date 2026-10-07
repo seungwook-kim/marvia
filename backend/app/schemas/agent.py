@@ -24,10 +24,19 @@ Freshness = Literal["fresh", "stale", "unknown"]
 
 # B/L 번호 형식: 영문 대문자+숫자 8~20자 (SDD 3.1). 공백은 검증 전에 제거한다.
 _BL_PATTERN = re.compile(r"^[A-Z0-9]{8,20}$")
+# 검증 전에 지우는 글자: 공백과 하이픈 모양 글자. 서류·메일에서 "ABCD-1234567"처럼 끊어 적은 번호를 그대로 붙여 넣으면
+# 422가 났다 (10-08 QA B11). UNI-PASS 번호에는 하이픈이 없어 지워도 다른 번호가 되지 않는다.
+# 하이픈(-), 유니코드 하이픈·대시류(U+2010~U+2015), 빼기 기호(U+2212)
+_DASHES = "".join(chr(c) for c in (*range(0x2010, 0x2016), 0x2212))  # 유니코드 하이픈·대시류와 빼기 기호. 글자를 파일에 직접 쓰지 않으려고 번호로 만든다
+_BL_SEPARATORS = re.compile(r"[\s\-" + re.escape(_DASHES) + "]+")
 _MRN_PATTERN = re.compile(r"^[0-9]{2}[A-Z0-9]{8}[IE]$")  # 적하목록 관리번호 (docs/specs/mrn-fallback.md)
 # 항차 번호. 배 고르기 LLM(llm.pick_vessel) 프롬프트에 그대로 들어가므로 자유 글을 막아 지시문 주입을 차단한다.
 # 실제 항차 모양(0925W, 2634E, 108A, 045S/N, FE-12)에 맞춰 영문·숫자로 시작하고 영문·숫자·공백·하이픈·슬래시·점만, 20자까지
 VOYAGE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9 ./-]{0,19}$"
+# MMSI는 9자리 숫자다(ITU). 화면이 보내는 값은 후보 목록의 MMSI라 이 범위를 넘을 수 없다.
+# 범위 밖 값(10^20 등)은 DB BIGINT 칸(user_cargo.vessel_mmsi)에 들어가지 못해 뒤 작업이 NumericValueOutOfRange로 죽었다 (10-08 QA B1).
+# 형식 경계라 rules.md(판정 재료)가 아니라 여기 둔다
+MMSI_MIN, MMSI_MAX = 1, 999_999_999
 # 세션 ID 길이 상한. 화면은 crypto.randomUUID()(36자), 지켜보기는 watch-YYYYMMDD, 데모는 marvia-demo-session을 쓴다.
 # 이력·트레이스·사용량 이름에 그대로 들어가는 값이라 끝없이 긴 값을 받지 않는다
 SESSION_ID_MAX = 128
@@ -36,16 +45,18 @@ SESSION_ID_MAX = 128
 class AgentRequest(BaseModel):
     """C2. 필수 4개 + 선택 4개. 선택 칸이 채워졌는지로 첫 조회/되묻기 답/후속 질문을 구분한다."""
 
-    bl_no: str = Field(description="B/L 번호. 영문+숫자 8~20자, 공백 제거")
+    bl_no: str = Field(description="B/L 번호. 영문+숫자 8~20자, 공백·하이픈 제거")
     # B/L 구분. None이면 "모름"이다. 사용자는 자기 B/L이 마스터인지 하우스인지 모르는 경우가 많다.
     # 모르면 하우스, 마스터 순서로 UNI-PASS를 조회하고, 정했으면 그 구분 먼저 그다음 반대쪽을 본다 (routers/agent._fetch_customs)
     bl_type: Literal["MASTER", "HOUSE"] | None = None
     # 선택 입력. 필수는 B/L 하나다. 품목에 따라 판매일을 정하지 않는 경우도 많아서,
     # 없으면 여유 일수 없이 배 상태만으로 판정한다 (skills/cargo-verdict/rules.md 판정 표)
     sale_due_date: date | None = Field(default=None, description="판매 예정일 (필요 입고일). 선택")
-    session_id: str = Field(max_length=SESSION_ID_MAX)
+    # 빈 세션 ID는 받지 않는다. 이력·사용량 이름이 비면 다른 요청과 섞인다 (10-08 QA B5)
+    session_id: str = Field(min_length=1, max_length=SESSION_ID_MAX)
     follow_up_question: str | None = Field(default=None, max_length=300, description="후속 질의. 300자 제한 (SDD 7절)")
-    resolved_mmsi: int | None = Field(default=None, description="되묻기 후 사용자가 고른 선박")
+    resolved_mmsi: int | None = Field(default=None, ge=MMSI_MIN, le=MMSI_MAX,
+                                      description="되묻기 후 사용자가 고른 선박. MMSI 9자리 이하 양수")
     voyage_no: str | None = Field(default=None, max_length=20, pattern=VOYAGE_PATTERN,
                                   description="되묻기 후 입력. 영문·숫자·공백·-·/·. 20자까지")
     forwarder_eta: date | None = None
@@ -54,6 +65,24 @@ class AgentRequest(BaseModel):
     # 서류 사진에서 사용자가 확인한 출항일. 내 화물 현황 표 출항 칸(user_cargo.departed_on, source 'document')에 적는 데만 쓴다
     # (services/cargo.upsert_assessment). 판정·되묻기 구분·LLM 입력에는 쓰지 않는다. 사용자가 직접 적은 날짜(manual)는 덮지 않는다
     departed_on: date | None = Field(default=None, description="서류 사진에서 읽은 출항일")
+
+    @field_validator("follow_up_question", mode="before")
+    @classmethod
+    def _trim_question(cls, v):
+        """앞뒤 공백을 떼고, 비면 None. 공백뿐인 질문을 후속 질문으로 받아 LLM을 부르지 않게 한다 (10-08 QA B5).
+        None이면 첫 조회로 처리된다."""
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+    @field_validator("resolved_mmsi", mode="before")
+    @classmethod
+    def _no_bool_mmsi(cls, v):
+        """true/false는 파이썬에서 1/0이라 MMSI 1로 받아진다. 숫자가 아닌 값은 받지 않는다 (10-08 QA B1)."""
+        if isinstance(v, bool):
+            raise ValueError("resolved_mmsi는 숫자여야 합니다")
+        return v
 
     @field_validator("voyage_no", mode="before")
     @classmethod
@@ -78,8 +107,9 @@ class AgentRequest(BaseModel):
     @field_validator("bl_no")
     @classmethod
     def _normalize_bl(cls, v: str) -> str:
-        """공백 제거·대문자화 뒤 형식 검사. 형식 오류는 라우터가 400으로 돌려준다 (SDD 8절)."""
-        v = re.sub(r"\s+", "", v).upper()
+        """공백·하이픈 제거·대문자화 뒤 형식 검사. 형식 오류는 라우터가 400으로 돌려준다 (SDD 8절).
+        하이픈은 공백처럼 끊어 적는 표기라 지운다 (10-08 QA B11, _BL_SEPARATORS)."""
+        v = _BL_SEPARATORS.sub("", v).upper()
         if not _BL_PATTERN.match(v):
             raise ValueError("bl_no는 영문+숫자 8~20자여야 합니다")
         return v

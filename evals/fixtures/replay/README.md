@@ -32,7 +32,7 @@
 `Dockerfile.railway`는 `REPLAY_MODE=true`일 때 서버를 켜기 전에 이 스크립트를 먼저 돌리고, 서버는 켜진 동안 4시간마다 다시 만든다(`DEMO_REFRESH`, 기본 on).
 만든 파일(`shipfinder/`·`mof/`·`unipass/`·`positions/`)은 실행 시각에 따라 바뀌어 깃에 올리지 않는다(.gitignore). `llm/`과 이 README는 건드리지 않는다.
 
-- 라이브 데모 10건: B/L `DEMOQD2610001` ~ `DEMOQD2610010`. 순항·주의·긴급과 되묻기, 반출 완료를 실제 API 응답처럼 필드를 다 채운 모의 화물로 보여 준다.
+- 라이브 데모 10건: B/L `DEMOQD2610001`, `DEMOSH2610002`, `DEMONB2610003`, `DEMOHC2610004`, `DEMOTJ2610005`, `DEMODL2610006`, `DEMOKH2610007`, `DEMOHP2610008`, `DEMOSH2610009`, `DEMOQD2610010` (DEMO 뒤 두 글자가 적재항이라 이어진 번호가 아니다). 순항·주의·긴급과 되묻기, 반출 완료를 실제 API 응답처럼 필드를 다 채운 모의 화물로 보여 준다.
   시나리오는 `scripts/demo_live.py`의 `SPECS`에 한 건당 dict 하나로 적고, 그것을 펼친 `evals/fixtures/demo_live.jsonl`을 make_demo가 읽는다
 - 평가셋 3건: N01(정상)·B01(되묻기)·F04(실패). B/L은 `TESTBL01`·`TESTBL04`·`TESTBL26`
 - 서류 대조 10건(`TESTBL41~50`, `demo_papers.jsonl`)은 서버 데모에 넣지 않는다. 기능 테스트(`test_demo_papers.py`)만 쓴다
