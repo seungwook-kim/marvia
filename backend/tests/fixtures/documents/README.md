@@ -1,7 +1,7 @@
 # 서류 사진 테스트 자료 (가공)
 
-전부 가짜 도착 통지서다. 회사명, B/L 번호(MRVA2026090001), 선명(SEA STAR), 날짜는 지어낸 값이다 (CLAUDE.md "실제 B/L 번호를 쓰지 않는다").
-레포 밖 실험 폴더 `ocr_bench/`의 `make_samples.py`, `make_messy.py`로 만들었다 (2026-09-29).
+전부 가짜 도착 통지서다. 회사명, B/L 번호(MRVA2026090001), 선명(SEA STAR), 날짜는 지어낸 값이다 (테스트에는 실제 B/L 번호를 쓰지 않는다).
+레포 밖 OCR 실험 스크립트(`make_samples.py`, `make_messy.py`)로 만들었다. 같은 서식은 `scripts/doc_injection_check.py`도 쓴다.
 
 | 파일 | 무엇을 흉내 냈나 |
 |---|---|

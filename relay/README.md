@@ -1,8 +1,10 @@
 # 해수부 API 릴레이
 
 ## 무엇을, 왜
-10-07 실측: Railway(싱가포르)에서 해수부 API(`apis.data.go.kr`)를 부르면 ConnectTimeout이 난다(한국에서는 0.1초).
-서울 Cloud Run에 이 릴레이를 두고 백엔드가 여기를 거쳐 부르게 한다. GET만 그대로 넘기고 상태·본문·content-type을 돌려준다.
+Railway(싱가포르 지역)에서 해수부 API(`apis.data.go.kr`)를 부르면 ConnectTimeout이 난다(한국에서는 0.1초 안에 답한다).
+그래서 서울 Cloud Run에 이 릴레이를 두고 백엔드가 여기를 거쳐 부르게 한다. GET만 그대로 넘기고 상태·본문·content-type을 돌려준다.
+백엔드는 `MOF_BASE_URL`이 있을 때만 릴레이를 거치고, 없으면 해수부를 직접 부른다 (`backend/app/clients/mof.py`).
+배포 상태는 `docs/release_manifest.json`의 `mof_relay` 항목에 적는다. 레포 기준으로는 Railway 쪽 `MOF_BASE_URL`·`MOF_RELAY_TOKEN` 설정이 끝났다는 기록이 없다.
 
 ## 보안
 - `X-Relay-Token` 헤더가 환경변수 `RELAY_TOKEN`과 같아야 한다(상수 시간 비교). `RELAY_TOKEN`이 없으면 전부 503
@@ -18,16 +20,18 @@
 | `MOF_BASE_URL` | 백엔드 | 릴레이 주소(끝에 `/` 없이). 비우면 `https://apis.data.go.kr` 직접 호출 |
 | `MOF_RELAY_TOKEN` | 백엔드 | 있으면 모든 해수부 요청에 `X-Relay-Token`으로 보낸다 |
 
+`MOF_BASE_URL`·`MOF_RELAY_TOKEN`은 백엔드 코드가 읽지만 `.env.example`에는 아직 없다. 릴레이를 쓸 때 `.env`에 직접 넣는다.
+
 ## 배포 (템플릿)
 ```
 gcloud run deploy mof-relay --source relay --region asia-northeast3 \
   --allow-unauthenticated --set-env-vars RELAY_TOKEN=<비밀값> \
   --max-instances 2 --memory 256Mi
 ```
-`--allow-unauthenticated`여도 토큰이 없으면 막힌다. 토큰 값은 저장소에 적지 않는다.
+`--allow-unauthenticated`여도 토큰이 없으면 막힌다. 토큰 값은 저장소에 적지 않는다. 이미지는 `relay/Dockerfile`(python:3.12-slim, 비루트 사용자)이다.
 
 ## 로컬 실행
 ```
 RELAY_TOKEN=x python -m uvicorn relay.main:app --port 8099   # 저장소 루트에서
 ```
-테스트: `.venv/bin/python -m pytest relay -q`
+테스트: `python -m pytest relay -q` (`relay/test_relay.py`)

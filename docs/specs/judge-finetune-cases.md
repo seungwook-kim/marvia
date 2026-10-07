@@ -1,6 +1,8 @@
 # 판정 파인튜닝 조합표 (judge-finetune.md 부속)
 
-상태: 초안. 정답 라벨은 아직 없다. 아래 "결정 필요" 8건을 정운님과 정한 뒤 라벨을 붙인다.
+> 설계 검토 기록. 아래 표는 검토 당시 코드 기준이다. 현재는 등급을 코드 판정 표(skills/cargo-verdict/rules.md, services/verdict.py)가 정한다. 그 표에서 navstat_mismatch는 등급에 세지 않고(D2), 깨진·빈 목적지는 dest_changed로 세지 않으며(D1 일부), 켜진 신호가 없어도 여유가 margin_act_days 미만이면 watch다(D4). anchor_wait는 위치 이력으로 triggered를 낼 수 있고(D3), 판정 입력에 trusted_eta가 들어간다(D8).
+
+상태: 초안. 정답 라벨은 붙이지 않았다. 아래 "결정 필요" 8건을 먼저 정해야 라벨을 붙일 수 있다.
 목적: 2층 판정 `llm.judge()`가 받을 수 있는 입력을 빠짐없이 나누고, 학습 데이터가 어느 칸을 몇 건 채울지 정한다.
 
 근거 문서 (이 표의 모든 규칙은 아래에서 왔다)
@@ -8,7 +10,7 @@
 | 약칭 | 파일 | 쓴 부분 |
 |---|---|---|
 | CODE | backend/app/services/signals.py | 신호 7종이 실제로 낼 수 있는 상태와 값 |
-| RULES | skills/ais-reliability/rules.md | 임계값 (6시간, 12시간, 0.5노트, 24시간, 30해리, margin_act_days 2) |
+| RULES | skills/ais-reliability/rules.md | 임계값 (6시간, 12시간, 0.5노트, 24시간, 30해리, margin_act_days 2). 현재 30해리는 port-busan/rules.md busan_radius_nm, margin_act_days는 cargo-verdict/rules.md에 있다 |
 | AIS | skills/ais-reliability/SKILL.md | 2층 판정 원칙, 목적지 규칙, 되묻기 조건 |
 | CUS | skills/customs-stages/SKILL.md | 통관 10단계, 관세사 확인 조건 |
 | PROMPT | backend/app/prompts/marvia-judge.md | 출력 칸 규칙 (reasons, conflicts, needs_broker 등) |
@@ -190,7 +192,7 @@
 
 ---
 
-## 5. 결정 필요 (라벨 붙이기 전에 정운님과 정한다)
+## 5. 결정 필요 (라벨 붙이기 전에 정한다)
 
 | # | 무엇이 어긋나나 | 선택지 |
 |---|---|---|
@@ -201,6 +203,6 @@
 | D5 | 해수부 입항 신고가 아직 없거나 AIS ETA가 없어 eta_conflict unknown. fine 조건 "ETA 근거 2개 이상 일치"를 못 채움 | watch + "도착 1주일 전쯤 다시 조회", 또는 AIS ETA만으로 fine |
 | D6 | 판매일 또는 신뢰 ETA가 없어 days_margin null | 판정 보류, 또는 다른 신호대로 판정하고 여유는 말하지 않기 |
 | D7 | conflicts[].chosen에 쓸 출처 이름. V6는 근거 카드 source만 허용 | 근거 카드 source 목록(evidence.build)을 라벨 규칙으로 고정 |
-| D8 | 판정 입력에 해수부·AIS의 실제 날짜가 없다(신호 값에 "20시간 차이"만). 답에 날짜를 쓰려면 입력에 있어야 한다 (V7) | 날짜 없이 답하게 라벨을 쓰거나, _judge_input에 trusted_eta 날짜를 넣기 (C 묶음 변경) |
+| D8 | 판정 입력에 해수부·AIS의 실제 날짜가 없다(신호 값에 "20시간 차이"만). 답에 날짜를 쓰려면 입력에 있어야 한다 (V7) | 날짜 없이 답하게 라벨을 쓰거나, _judge_input에 trusted_eta 날짜를 넣기 (llm.py 변경) |
 
 D1·D2는 Skill 문서와 평가셋 정답이 서로 다른 답을 가리킨다. 파인튜닝과 무관하게 지금 모델도 두 기준 사이에서 흔들릴 수 있는 곳이라, 평가(D8 실행기) 전에 정하는 게 좋다.

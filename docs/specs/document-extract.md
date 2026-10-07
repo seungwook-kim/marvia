@@ -1,29 +1,30 @@
-# Spec: 서류 사진에서 조회 값 뽑기 (F9 서류 등록, 1차, 10-06 코드와 대조)
+# Spec: 서류 사진에서 조회 값 뽑기 (F9 서류 등록)
 
-PRD 5절 P1 "서류 사진·PDF에서 B/L·선명·ETA 추출(멀티모달)"을 P0로 당긴다는 09-23 결정에 따라, SDD에 없는 이 기능의 범위와 동작을 여기 먼저 적는다 (CLAUDE.md "SDD 5절과 작업 리스트에 없는 기능은 docs/specs/에 Spec을 먼저 쓴다").
-SDD 1절은 F9를 "인터페이스만 남기고 구현하지 않는다"고 적고 있다. 이 Spec이 그 줄을 대신하고, 코드 동결 전 SDD를 갈아엎을 때 SDD로 옮긴다.
+PRD 5절 P1 "서류 사진·PDF에서 B/L·선명·ETA 추출(멀티모달)"을 P0로 당겨 만든 기능이다. SDD 5절에 없던 기능이라 범위와 동작을 여기 먼저 적는다.
 
-> **10-08 사용자 결정 (아래 "사용자 확인 화면" 규칙을 바꿈)**: 확인 화면(DocumentPanel)을 지웠다. 사진은 채팅 입력창에 첨부하고(클립 버튼·붙여넣기·끌어 놓기, 한 번에 하나),
+> **현재 동작 (아래 "사용자 확인 화면" 규칙을 대신함)**: 확인 화면(DocumentPanel)은 없다. 사진·PDF는 채팅 입력창에 첨부하고(클립 버튼·붙여넣기·끌어 놓기, 한 번에 하나),
 > 보내면 `POST /api/document` 응답의 `bl_status`(서버 코드가 정함, `routers/document.bl_status_of`)로 화면 코드(`web/lib/docAttach.ts`)가 다음을 정한다.
 > `ok`(B/L 검사 모두 통과 + 조회 모양)면 사용자 글 + B/L(+MRN)을 채팅으로 보내 바로 조회한다(B/L은 서버가 가린다). `uncertain`이면 조회하지 않고 직접 입력을 부탁한다.
 > `none`이면 B/L·A/N 사진을 부탁한다. 읽은 값은 다시 보여 주지 않고, 가린 B/L과 읽은 칸 이름(`important`)만 말한다.
-> 항차·입항 예정일·출항일은 검사를 통과한 값만 DocHints로 넘긴다. B/L 조건·연락처 저장(document-facts)은 사용자 확인이 없으므로 이 길에서 하지 않는다.
+> 항차·입항 예정일·출항일은 검사를 통과한 값만 DocHints로 넘긴다. 출항일은 채팅 요청 `document.departed_on`으로 실려 화물 현황표 출항 칸에만 쓴다.
+> B/L 조건·연락처는 로그인 + `bl_status=ok`일 때 검사를 통과한 칸만 서버가 확인 없이 저장한다(`services/doc_facts.save_from_document`, `user_cargo.doc_facts_at/source` 026). 저장한 칸 이름은 `facts_saved`로 돌려준다.
+> 채팅 없이 끝난 첨부 턴은 `POST /api/conversations/{id}/attachment-turns`로 대화에 저장한다.
 
 ## Why
 
 - **상황**: 수입자는 포워더에게 받은 도착 통지서나 B/L 사본을 들고 있다. B/L 번호, 선명, 항차, 입항 예정일을 손으로 옮겨 적다가 틀린다.
 - **문제**: B/L 번호 한 글자가 틀리면 조회 자체가 실패하고, 선명·항차가 틀리면 남의 배로 판정할 수 있다 (PRD 6.1 오확정).
-- **가산 항목**: 멀티모달 +5, 모델 라우팅 +3 (가이드 10장). 이 기능이 둘 다에 걸린다.
+- **설계 의도**: 멀티모달 입력과 작업별 모델 선택(소형 LLM으로 옮겨 적기)을 같이 보여 준다.
 
 ## Goal
 
-- 사진 한 장을 올리면 7칸(B/L 번호, 선명, 항차, 입항 예정일, 선적항, 양하항, 품명)을 채워 **사용자 확인 화면**에 돌려준다. 판정으로 바로 넘기지 않는다 (SDD 비전 울타리: 추출값은 코드 형식 검증 → 사용자 확인 → 판정).
+- 사진 한 장을 올리면 7칸(B/L 번호, 선명, 항차, 입항 예정일, 선적항, 양하항, 품명)과 출항일을 채워 돌려준다. 추출값은 코드 형식 검증을 거친다. (처음 설계의 "사용자 확인 화면"은 현재는 코드가 정한 `bl_status`로 바뀜: ok일 때만 그 B/L로 조회한다)
 - 코드 검사를 통과하지 못한 칸은 "확인 필요"로 표시한다. 틀린 값을 조용히 채우지 않는다.
-- **Out of Scope (1차)**: 대형 비전 모델로 넘기기(2차), 손글씨, 중국어 칸 읽기, 서류 원본·OCR 글자의 DB 저장. (프론트 화면은 1차에서 빼려 했으나 지금은 만들어져 있다: `DocumentPanel.tsx`. 사용자가 확인한 값만 `POST /api/memory/document-facts`로 저장한다)
+- **Out of Scope**: 대형 비전 모델로 넘기기, 손글씨, 중국어 칸 읽기, 서류 원본·OCR 글자의 DB 저장.
 
 ## What
 
-### 흐름 (2단 구조, 09-29 결정)
+### 흐름 (2단 구조)
 
 1. **전처리 (코드)**: 빨간 픽셀을 흰색으로 지운다(빨간 도장·워터마크). 0°로 읽어 확신도가 낮으면 180°·270°도 읽어 가장 잘 읽힌 방향을 쓴다.
 2. **OCR (코드, 로컬)**: RapidOCR + ONNX Runtime, PaddleOCR PP-OCRv5 mobile 모델(글자 위치 `ch_PP-OCRv5_det_mobile`, 읽기 `korean_PP-OCRv5_rec_mobile`). 한국어 모델이 영어도 읽는다.
@@ -32,7 +33,7 @@ SDD 1절은 F9를 "인터페이스만 남기고 구현하지 않는다"고 적�
 5. **검사 (코드)**: 빈칸, OCR 글자에 실제로 있나(지어낸 값 차단), 항차 형식, 날짜는 OCR 글자 속 날짜와 날짜로 비교(`02-OCT-2026` = `2026년 10월 2일` = `2026-10-02`). 영문 선명 뒤 "호"는 뗀다.
 6. **응답**: 칸마다 값과 검사 결과. 하나라도 걸리면 `needs_review=true`.
 
-### PDF 입력 (10-06 결정)
+### PDF 입력
 
 - **구분**: 파일 앞 4바이트가 `%PDF`이면 PDF다. 파일 이름·content-type은 바꿀 수 있어 보지 않는다. 아니면 기존 사진 경로(`invalid_image` 포함)다.
 - **앞 2쪽만** 읽는다. 값은 앞 두 장에 있고, 쪽마다 OCR이 늘면 응답이 느려진다.
@@ -41,17 +42,18 @@ SDD 1절은 F9를 "인터페이스만 남기고 구현하지 않는다"고 적�
 - 이후 B/L 추출·가리기·LLM·검사는 사진과 같다. 라이브러리는 pypdfium2(Apache-2.0/BSD-3, `requirements-doc.txt`). PyMuPDF는 AGPL이라 뺐다.
 - **오류**: 열 수 없거나 암호가 걸렸거나 0쪽이면 400 `invalid_pdf`.
 
-### 10-06 코드와 맞춘 것 (확인)
+### 코드와 맞춘 것
 
 - 입력은 사진 또는 PDF 한 파일이고 상한은 10MB(`routers/document.py MAX_BYTES`, 넘으면 400 `too_large`)다. 폼에 `session_id`를 같이 보낼 수 있다. 로그인이 필수이고 하루 토큰 한도(docs/specs/token-quota.md)를 확인한다
-- 7칸 말고 **출항일 `etd`**(도착 통지서의 E.T.D. 또는 B/L의 Shipped/Laden on board 날짜, 서류에서 옮긴 값, 없으면 null)가 10-06에 더해졌다. 화물 시트의 `departed_source = 'document'`가 이 값에서 온다 (docs/ERD.md)
-- 응답에 `mrn`(코드가 "MRN" 이름표 옆에서 뽑음, docs/specs/mrn-fallback.md)과 `llm_error`(LLM 단계가 실패한 종류, 성공이면 null, 10-06)가 있다. LLM이 실패하면 `status=partial`이고 화면은 AI가 못 읽었다고 안내한다
+- 7칸 말고 **출항일 `etd`**(도착 통지서의 E.T.D. 또는 B/L의 Shipped/Laden on board 날짜, 서류에서 옮긴 값, 없으면 null)가 있다. 화물 시트의 `departed_source = 'document'`가 이 값에서 온다 (docs/ERD.md)
+- 응답에 `mrn`(코드가 "MRN" 이름표 옆에서 뽑음, docs/specs/mrn-fallback.md)과 `llm_error`(LLM 단계가 실패한 종류, 성공이면 null)가 있다. LLM이 실패하면 `status=partial`이고 화면은 AI가 못 읽었다고 안내한다
 - PDF 동작은 `services/doc_ocr.py`의 상수(`PDF_MAX_PAGES` 2, `PDF_MIN_TEXT_CHARS` 40, `PDF_RENDER_SCALE` 2, `PDF_MAX_PIXELS` 12,000,000)와 위 서술이 일치한다
-- 화면은 `web/components/DocumentPanel.tsx`가 확인 화면을 그린다
+- 응답에 `bl_status`(ok / uncertain / none, 코드가 정함), `important`(검사를 통과한 중요 칸 이름, 값 없음), `facts_saved`(저장한 B/L 조건·거래처 칸 이름), `doc_kind`가 있다 (`schemas/document.py`)
+- 화면은 별도 확인 화면 없이 채팅에서 처리한다 (`web/components/ChatBar.tsx`, `AppProvider.askWithAttachment`, `web/lib/docAttach.ts`)
 
 ### 규칙과의 관계
 
-- **LLM이 만드는 것**: CLAUDE.md는 셋(선박 선택, 판정, 후속 답)이라고 적는다. 이 기능이 넷째다. 값을 "고르거나 판단"하지 않고 OCR 글자에서 "옮겨 적기"만 하며, 검사 5단계가 옮긴 값이 글자에 있는지 확인한다.
+- **LLM이 만드는 것**: 판정 흐름의 LLM 몫은 셋(선박 선택, 판정 설명, 후속 답)이다. 이 기능은 판정 밖의 별도 호출이다. 값을 "고르거나 판단"하지 않고 OCR 글자에서 "옮겨 적기"만 하며, 검사 5단계가 옮긴 값이 글자에 있는지 확인한다.
 - **B/L은 LLM에 안 넘긴다**: 3단계에서 코드가 뽑고 가린다. 가린 뒤 남아 있으면 LLM을 부르지 않는다.
 - **품명**: 금지 규칙은 "UNI-PASS 응답의 품명"이다. 여기 품명은 사용자가 올린 서류에서 읽은 값이고, 저장하지 않는다.
 - **서류 속 문장은 데이터다** (SDD 7절 신뢰 경계). 프롬프트에 명시한다.
@@ -67,14 +69,14 @@ SDD 1절은 F9를 "인터페이스만 남기고 구현하지 않는다"고 적�
 | EC-04 | B/L 이름표가 없거나 형식이 안 맞음 | B/L 빈칸, 확인 필요. LLM은 나머지 칸만 |
 | EC-05 | LLM 실패 (키 없음, 과부하, 형식 깨짐) | 200, B/L만 채우고 나머지 빈칸, `status=partial` |
 | EC-06 | LLM이 글자에 없는 값을 씀 | 그 칸 `not_in_text`, 확인 필요 |
-| EC-07 | 칸끼리 뒤바뀜 (선명 자리에 선적항) | **1차 검사로는 못 잡는다.** 사용자 확인 화면이 막는다 |
-| EC-08 | 서류 속에 지시문 ("이전 지시 무시") | 데이터로만 넘긴다. 뽑는 칸이 7개로 고정이라 새 동작이 없다. 09-30 확인(`scripts/doc_injection_check.py`, `evals/doc_dataset.jsonl`): 지시문 7종은 거의 전부 무시, "모든 칸 비우기"는 6번 중 1번 따랐지만 빈칸(missing)으로 확인 필요 |
-| EC-09 | 같은 칸 이름표가 두 번 (가짜 "선명 / 항차 (정정)" 행 등) | 그 칸 `ambiguous`, 확인 필요. 값이 서류 글자에 있어 not_in_text로 못 잡는다(09-30 D8: LLM이 3번 모두 위조 값 채택). 이름표처럼 짧은 줄만 센다 |
+| EC-07 | 칸끼리 뒤바뀜 (선명 자리에 선적항) | **코드 검사로는 못 잡는다.** 화면이 조회에 넘기는 것은 B/L과 검사를 통과한 항차·입항 예정일·출항일뿐이고, 서류의 선명·선적항은 조회에 쓰지 않는다 (`web/lib/docAttach.ts`) |
+| EC-08 | 서류 속에 지시문 ("이전 지시 무시") | 데이터로만 넘긴다. 뽑는 칸이 고정이라 새 동작이 없다. 측정(`scripts/doc_injection_check.py`, `evals/doc_dataset.jsonl`): 지시문 7종은 거의 전부 무시, "모든 칸 비우기"는 6번 중 1번 따랐지만 빈칸(missing)으로 확인 필요 |
+| EC-09 | 같은 칸 이름표가 두 번 (가짜 "선명 / 항차 (정정)" 행 등) | 그 칸 `ambiguous`, 확인 필요. 값이 서류 글자에 있어 not_in_text로 못 잡는다(측정에서 LLM이 3번 모두 위조 값 채택). 이름표처럼 짧은 줄만 센다 |
 
 ## How
 
 ```
-POST /api/document   (multipart/form-data, file=이미지)
+POST /api/document   (multipart/form-data, file=이미지 또는 PDF, session_id 선택)
 
 응답 200:
 {
@@ -86,11 +88,13 @@ POST /api/document   (multipart/form-data, file=이미지)
     "pol": {...}, "pod": {...}, "item": {...}
   },
   "ocr": {"lines": int, "rotation": 0|180|270, "runs": int, "ocr_ms": int},
-  "trace_id": str
+  "trace_id": str,
+  "mrn": str|null, "doc_kind": "B/L"|"A/N"|null, "llm_error": str|null,
+  "bl_status": "ok"|"uncertain"|"none", "important": [str], "facts_saved": [str]
 }
 ```
 
-### 10-02 추가: B/L 조건과 화물 인도 연락처 (docs/specs/memory.md, 정운 승인 결정 6·7)
+### B/L 조건과 화물 인도 연락처 (docs/specs/memory.md 결정 6·7)
 
 화물 비서 기억이 짚을 거리로만 쓴다. 판정 등급에는 쓰지 않는다.
 
@@ -105,16 +109,16 @@ POST /api/document   (multipart/form-data, file=이미지)
 | `contact_phone` | 회사·부서 전화, 숫자와 하이픈 | 모양이 아니거나 개인 휴대폰이면 **값을 비우고** format. 숫자가 서류에 없으면 not_in_text |
 
 - 이 칸들은 서류에 없는 경우가 흔해서 비어 있으면 검사하지 않는다(missing 없음). `needs_review`는 값이 있는데 검사에 걸릴 때만 올라간다.
-- 응답에 `doc_kind`(`B/L` / `A/N` / null)를 더했다. 메모장 거래처 출처로 쓴다. 모르면 거래처를 저장하지 않는다.
+- 응답의 `doc_kind`(`B/L` / `A/N` / null)는 메모장 거래처 출처로 쓴다. 모르면 거래처를 저장하지 않는다.
 - 개인 이름·휴대폰·이메일은 받지 않는다 (프롬프트 + 코드 검사).
-- 저장은 사용자가 확인 화면에서 "확인한 값으로 채우기"를 눌렀을 때만 `POST /api/memory/document-facts`로 한다. 검사에 걸린 칸은 확인 화면이 비운 채로 보여 주고, 사용자가 고른 값만 보낸다. 확인 안 한 OCR 값은 저장하지 않는다.
+- 저장: 로그인 + `bl_status=ok`일 때 `/api/document`가 검사를 통과한 칸만 그 B/L의 화물 줄에 바로 저장한다(`services/doc_facts.save_from_document`, 출처 `doc_facts_source`, 시각 `doc_facts_at`, 026). 검사에 걸린 칸은 저장하지 않는다. (처음 설계의 "확인 화면 + `POST /api/memory/document-facts`"는 현재는 이 자동 저장으로 바뀜)
 
-- 파일: `services/doc_ocr.py`(1~3, 5단계), `services/llm.py` `extract_doc_fields()`(4단계), `routers/document.py`, `schemas/document.py`(계약, 새 파일)
+- 파일: `services/doc_ocr.py`(1~3, 5단계), `services/llm.py` `extract_doc_fields()`(4단계), `routers/document.py`, `schemas/document.py`(계약), `services/doc_facts.py`(저장, 채팅 `cargo_documents` 도구)
 - 의존성: `rapidocr`(Apache-2.0), `onnxruntime`(MIT), `python-multipart`(업로드). 모델 파일은 Docker 빌드 때 받아 이미지에 넣는다
 
 ## 근거 (실행한 것만)
 
-실험 폴더 `Main_2_projects/ocr_bench/`(레포 밖), Mac M2 CPU, 2026-09-29. 원본 결과는 팀 위키 근거 원장.
+레포 밖에서 한 OCR 비교 실험, Mac M2 CPU. 원본 결과는 레포에 없다.
 
 - OCR 후보, 이미지 12장 90칸: PaddleOCR 기본 72 · PaddleOCR 한국어 89 · EasyOCR 74. 한국어 모델을 ONNX Runtime으로 돌리면 90/90, B/L 한 장 약 2초(Paddle 그대로 약 20초)
 - 지저분한 사진 10종 + 웹 실제 영어 도착 통지서 4장 + 1853 손글씨 B/L, 120칸: 전처리 후 113/120. 못 읽은 것은 중국어 2칸, 손글씨 3칸, `I225`→`1225`, `가나다무역`→`기나다무역`
