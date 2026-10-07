@@ -18,6 +18,11 @@ AUDIT_LIMIT = 100  # 관리 화면에 보여 줄 이력 수. 오래된 것은 DB
 
 # 흔한 이메일 모양만 받는다. 정확한 RFC 검사는 하지 않는다. 오타(공백, @ 없음)를 막는 게 목적이다
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# 이메일 주소 길이 상한 (RFC 5321 경로 길이 256에서 꺾쇠 2자를 뺀 254). 10-08 QA A9: 상한이 없어 아주 긴 글자도
+# 지문·암호화·이력에 그대로 들어갔다
+EMAIL_MAX = 254
+# 아이디가 이 길이 이하면 첫 글자만 보인다. 3자 아이디에서 2자를 보이면 원문이 거의 드러난다 (10-08 QA A9)
+SHORT_LOCAL_MAX = 3
 
 
 class OperatorError(Exception):
@@ -31,18 +36,19 @@ class OperatorError(Exception):
 def normalize_email(email: str) -> str:
     """앞뒤 공백을 빼고 소문자로. 형식이 아니면 OperatorError(invalid_email). migrations/009의 CHECK(email = lower(email))와 맞춘다."""
     value = (email or "").strip().lower()
-    if not _EMAIL.match(value):
+    if len(value) > EMAIL_MAX or not _EMAIL.match(value):
         raise OperatorError("invalid_email")
     return value
 
 
 def mask_email(email: str | None) -> str | None:
     """ka***@g***.com 모양으로 가린다. 앞 2자, 도메인 첫 글자, 최상위 도메인만 남긴다.
-    짧은 아이디(1~2자)는 첫 글자만 남겨 원문이 그대로 보이지 않게 한다."""
+    짧은 아이디(SHORT_LOCAL_MAX=3자 이하)는 첫 글자만 남겨 원문이 드러나지 않게 한다 (10-08 QA A9).
+    이미 DB에 저장된 가린 값(013 email_masked)은 예전 규칙 그대로이고, 새로 저장하는 값부터 이 규칙이다."""
     if not email or "@" not in email:
         return None
     local, _, domain = email.partition("@")
-    keep = local[:2] if len(local) > 2 else local[:1]
+    keep = local[:2] if len(local) > SHORT_LOCAL_MAX else local[:1]
     host, dot, tld = domain.rpartition(".")
     masked_domain = f"{host[:1]}***{dot}{tld}" if dot else f"{domain[:1]}***"
     return f"{keep}***@{masked_domain}"

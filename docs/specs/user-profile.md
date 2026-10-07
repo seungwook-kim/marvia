@@ -32,6 +32,7 @@
 | EC-04 | 암호화 열쇠 없음 | 503. 원문을 그대로 저장하지 않는다 |
 | EC-05 | 로그인 기능 꺼진 환경 | 사용자가 없으므로 입력 화면 없음, profile_complete true로 본다 |
 | EC-06 | DB 없음 | 503. /api/me는 profile_complete false가 아니라 true로 답해 화면을 막지 않는다 |
+| EC-06b | 입력 전에 LLM 요청을 직접 보냄 (10-08 QA A6) | 로그인 켜짐이면 POST /api/agent, /api/chat, /api/chat/stream, /api/document가 409(auth.PROFILE_REQUIRED). DB를 못 읽으면 EC-06처럼 막지 않는다 |
 | EC-07 | 열쇠가 바뀌어 열 수 없음 | 고객 관리에는 "확인 불가", 본인 화면은 다시 입력 요청 |
 | EC-08 | 탈퇴 | 기록 → 회원 정보 → 계정 순서로 지운다 |
 
@@ -42,5 +43,5 @@
 - **API**: GET /api/profile(본인 원문), PUT /api/profile(저장), GET /api/me에 profile_complete 추가, GET /api/admin/customers에 마스킹한 phone·address·이름(입력값 우선, 없으면 구글 이름)
 - **마스킹 (services/profile.py)**: 이름 첫 글자 + *, 전화 앞 3자리와 뒤 4자리, 주소 앞 두 마디 + ***
 - **동의 문구**: 수집 항목(이름, 전화번호, 주소), 목적(화물 관련 연락과 본인 확인), 보유 기간(탈퇴 시까지), 거부 시 서비스 이용 불가. consent_at에 동의 시각을 남긴다
-- **구현 상태**: 위 동작은 모두 코드에 있다. `routers/profile.py`(GET·PUT /api/profile), `services/profile.py`(검사·마스킹·암호화, 검사값 NAME_MAX 30, ADDRESS 5~200, 전화 `^01[016789]\d{7,8}$`), `routers/admin.py`(GET /api/me의 profile_complete), 화면 `web/components/ProfileForm.tsx`(`mode="required"`면 입력 화면, Shell이 `needProfile`일 때 띄움). 운영자가 고객 정보를 고치는 길도 같은 검사를 쓴다(`save(..., by_operator=True)`).
+- **구현 상태**: 위 동작은 모두 코드에 있다. `routers/profile.py`(GET·PUT /api/profile), `services/profile.py`(검사·마스킹·암호화, 검사값 NAME_MAX 30, ADDRESS 5~200, 전화 `^(?:010\d{8}|01[16789]\d{7,8})$`, 숫자·구분 기호 밖 글자 거절, 제어 문자 거절, 동의 StrictBool), `routers/admin.py`(GET /api/me의 profile_complete), 화면 `web/components/ProfileForm.tsx`(`mode="required"`면 입력 화면, Shell이 `needProfile`일 때 띄움). 운영자가 고객 정보를 고치는 길도 같은 검사를 쓴다(`save(..., by_operator=True)`).
 - **테스트**: backend/tests/test_profile.py. 형식 검사, 동의 없음 400, 잠근 값만 DB에 가는지, 마스킹, 관리 목록에 원문 없음, 탈퇴 순서

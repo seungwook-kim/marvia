@@ -100,6 +100,15 @@ def _db(monkeypatch, steps: list, fail: bool = False):
     monkeypatch.setattr(account_service, "delete_kakao_link", lambda conn, user_id: steps.append(("kakao", user_id)) or 1)
     # 하루 토큰 사용량 줄도 같은 단계에서 지운다
     monkeypatch.setattr(account_service.quota, "forget_user", lambda conn, user_id: steps.append(("quota", user_id)))
+    # 탈퇴 표시·배 지켜보기·자세히 보기 횟수·정지 줄 (10-08 QA A2~A4). 앞선 시도가 표시를 남겼으면 resumed
+    marked: set = set()
+
+    def close(conn, user_id):
+        steps.append(("close", user_id))
+        resumed = user_id in marked
+        marked.add(user_id)
+        return resumed
+    monkeypatch.setattr(account_service, "_close_account", close)
 
 
 def test_withdraw_deletes_records_then_account(monkeypatch):
@@ -110,8 +119,8 @@ def test_withdraw_deletes_records_then_account(monkeypatch):
     with TestClient(app) as client:
         resp = client.delete("/api/account", headers=headers)
 
-    assert resp.status_code == 200 and resp.json() == {"deleted_records": 2, "account_deleted": True}
-    assert steps == [("records", "user-123"), ("profile", "user-123"), ("memory", "user-123"),
+    assert resp.status_code == 200 and resp.json() == {"deleted_records": 2, "account_deleted": True, "resumed": False}
+    assert steps == [("close", "user-123"), ("records", "user-123"), ("profile", "user-123"), ("memory", "user-123"),
                      ("conversations", "user-123"), ("kakao", "user-123"), ("quota", "user-123"),
                      ("account", "user-123")]  # 기록·회원 정보·기억·카카오 토큰 먼저, 계정 나중
 
@@ -139,8 +148,60 @@ def test_account_failure_is_reported_and_retry_finishes(monkeypatch):
 
     monkeypatch.setattr(account_service, "delete_account", delete_account)
     with TestClient(app) as client:
-        assert client.delete("/api/account", headers=headers).status_code == 503
-        assert client.delete("/api/account", headers=headers).status_code == 200
+        first = client.delete("/api/account", headers=headers)
+        assert first.status_code == 503
+        # 문구가 사실과 같다: 기록은 지웠고 계정 삭제만 남았다 (10-08 QA A8)
+        assert "기록은 모두 지웠" in first.json()["detail"] and "다시 누르면" in first.json()["detail"]
+        second = client.delete("/api/account", headers=headers)
+        assert second.status_code == 200
+        # 두 번째는 이어하기라 0건이 맞고, 화면이 그렇게 알 수 있다
+        assert second.json()["resumed"] is True
+
+
+def test_records_failure_message_says_nothing_changed(monkeypatch):
+    """기록 단계 실패는 "아무것도 바뀌지 않음"으로 알린다 (10-08 QA A8)."""
+    headers, steps = _login(monkeypatch), []
+    _db(monkeypatch, steps, fail=True)
+    with TestClient(app) as client:
+        r = client.delete("/api/account", headers=headers)
+    assert r.status_code == 503 and "아무것도 바뀌지 않았" in r.json()["detail"]
+
+
+class RecordingConn:
+    """execute로 온 SQL과 값을 적어 두는 가짜 연결. rowcount는 insert_rowcount로 정한다."""
+
+    def __init__(self, insert_rowcount: int = 1):
+        self.calls, self.insert_rowcount = [], insert_rowcount
+
+    def execute(self, sql, params=()):
+        self.calls.append((" ".join(sql.split()), list(params)))
+
+        class R:
+            rowcount = self.insert_rowcount if sql.startswith("INSERT") else 1
+        return R()
+
+
+def test_close_account_removes_vessel_watch_usage_and_suspension():
+    """탈퇴는 배만 지켜보기(워커가 계속 수집하던 것)와 자세히 보기 횟수, 정지 줄까지 지운다 (10-08 QA A2, A4)."""
+    conn = RecordingConn()
+    assert account_service._close_account(conn, "user-9") is False
+    sql = [c[0] for c in conn.calls]
+    assert sql[0] == "SELECT purge_old_withdrawn_users()"  # 30일 규칙은 DB 함수에만
+    assert sql[1].startswith("INSERT INTO withdrawn_users")  # 탈퇴 표시가 가장 먼저 (10-08 QA A3)
+    assert "DELETE FROM vessel_watch WHERE user_id = %s" in sql
+    assert "DELETE FROM vessel_detail_usage WHERE user_key = %s" in sql
+    assert "DELETE FROM suspended_users WHERE user_id = %s" in sql
+    assert all(c[1] == ["user-9"] for c in conn.calls[1:])
+    # 표시가 이미 있으면(앞선 시도) 이어하기
+    assert account_service._close_account(RecordingConn(insert_rowcount=0), "user-9") is True
+
+
+def test_withdrawn_table_migration_shape():
+    from backend.app.db import MIGRATIONS_DIR
+
+    sql = (MIGRATIONS_DIR / "027_withdrawn_users.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS withdrawn_users" in sql and "ENABLE ROW LEVEL SECURITY" in sql
+    assert "purge_old_withdrawn_users(keep_days integer DEFAULT 30)" in sql
 
 
 def test_withdraw_needs_login(monkeypatch):

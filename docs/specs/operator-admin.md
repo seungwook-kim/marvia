@@ -100,12 +100,14 @@ SDD 5절에 없는 기능이라 Spec을 먼저 쓴다. 로그인(G3) 뒤에 붙�
 | 동작 | API | 규칙 |
 |---|---|---|
 | 정지 | POST /api/admin/customers/{user_id}/suspend {reason} | 사유 10~500자 필수. 운영자 계정은 해지 먼저(409), 자기 자신 불가(400). 이미 정지면 409 |
-| 해제 | POST /api/admin/customers/{user_id}/resume | 정지 중이 아니면 409 |
+| 해제 | POST /api/admin/customers/{user_id}/resume | 정지 중이 아니고 Supabase 차단도 없으면 409 |
 
 - 두 곳을 같이 막는다. (1) Supabase 관리자 API로 계정 차단(ban_duration): 새 로그인·출입증 갱신 불가. (2) suspended_users 표: 이미 발급된 출입증(최대 1시간)으로 와도 auth.current_user가 403. 차단 확인은 요청마다 DB 한 번
-- DB를 못 읽으면 정지 확인을 건너뛴다(서비스를 멈추지 않음, 실패 로그). Supabase 차단은 그대로 유효하다
+- 순서(10-08 QA A7): 우리 표·이력을 먼저 바꾸고, 같은 트랜잭션 안에서 Supabase 차단을 바꾼다. Supabase가 실패하면 DB도 되돌아간다. DB 확정이 실패하면 방금 바꾼 Supabase 차단을 되돌린다. 고객 목록의 supabase_banned 칸이 두 곳의 어긋남을 보여 주고, 정지 표에 없어도 Supabase에만 차단이 남았으면 해제로 푼다
+- DB를 못 읽으면 정지 확인을 건너뛴다(서비스를 멈추지 않음, 실패 로그). Supabase 차단은 그대로 유효하다. 연결 대기는 db.connect 상한(기본 3초)과 실패 기억으로 짧다
+- 정지된 계정도 내 기록 삭제(DELETE /api/history)와 탈퇴(DELETE /api/account)는 할 수 있다 (개인정보 삭제권, auth.DELETION_ROUTES)
 - 정지·해제는 admin_actions에 customer_suspend, customer_resume으로 남는다 (012에서 CHECK 확장)
-- 강제 탈퇴하면 정지 줄도 지운다
+- 강제 탈퇴하면 정지 줄도 지운다. 탈퇴(본인·강제)는 withdrawn_users(027)에 30일 표시를 남겨 남은 출입증을 403으로 막는다. 강제 탈퇴 이력(customer_delete)은 기록 삭제와 같은 트랜잭션에 쓴다
 - 정지된 사람이 화면에 들어오면 "정지된 계정" 안내만 보인다 (GET /api/me가 403 account_suspended)
 
 ## 추가: 운영자 이메일 암호화 (013)

@@ -63,18 +63,25 @@ def test_update_keeps_rules_and_records(db):
 
 def test_delete_guards(db, monkeypatch):
     calls = []
-    monkeypatch.setattr(svc, "withdraw", lambda user_id: calls.append(user_id) or 3)
+    from backend.app.services.account import WithdrawResult
+
+    def withdraw(user_id, in_transaction=None):
+        calls.append(user_id)
+        in_transaction(db)  # 이력은 기록 삭제 트랜잭션 안에서 (10-08 QA A8)
+        return WithdrawResult(deleted_records=3, resumed=False)
+    monkeypatch.setattr(svc, "withdraw", withdraw)
     for user_id, actor, kind in [("op", "x", "is_operator"), ("u1", "u1", "self"), ("ghost", "x", "not_found")]:
         with pytest.raises(svc.CustomerError) as e:
             svc.delete(db, user_id, actor, OPERATOR)
         assert e.value.kind == kind
     assert calls == []
-    assert svc.delete(db, "u1", "actor", OPERATOR) == 3 and calls == ["u1"]
+    assert svc.delete(db, "u1", "actor", OPERATOR).deleted_records == 3 and calls == ["u1"]
     assert db.actions[-1][:3] == ("customer_delete", "u1", "te***@m***.test")
 
 
 def test_api_flow(db, monkeypatch):
-    monkeypatch.setattr(svc, "withdraw", lambda user_id: 0)
+    from backend.app.services.account import WithdrawResult
+    monkeypatch.setattr(svc, "withdraw", lambda user_id, in_transaction=None: in_transaction(db) or WithdrawResult(0, False))
     headers = _login(monkeypatch, OPERATOR)
     with TestClient(app) as client:
         assert client.post("/api/admin/customers/u1/unmask", json={"reason": "짧음"}, headers=headers).status_code == 400
@@ -83,7 +90,7 @@ def test_api_flow(db, monkeypatch):
         assert client.put("/api/admin/customers/u1/profile", headers=headers,
                           json={"name": "수정", "phone": "010-3333-4444", "address": "대구광역시 중구 1"}).status_code == 200
         assert client.delete("/api/admin/customers/op", headers=headers).status_code == 409
-        assert client.delete("/api/admin/customers/u1", headers=headers).json() == {"deleted_records": 0}
+        assert client.delete("/api/admin/customers/u1", headers=headers).json() == {"deleted_records": 0, "resumed": False}
         actions = client.get("/api/admin/actions", headers=headers).json()
         assert [a["action"] for a in actions] == ["customer_delete", "customer_update", "unmask"]
         assert actions[2]["reason"] == REASON
