@@ -37,7 +37,7 @@ from backend.app.db import connect
 from backend.app.observability.langfuse import tool_span
 from backend.app.observability.logging import log_failure
 from backend.app.schemas.agent import VOYAGE_PATTERN, AgentRequest, AgentResponse
-from backend.app.services import bl_parse, cargo, guard, llm, mcp_client, memory, progress, referrals, validate
+from backend.app.services import bl_parse, cargo, doc_facts, guard, llm, mcp_client, memory, progress, referrals, validate
 from backend.app.services import citations as cite
 from backend.app.services.verdict import VERDICT_LABEL
 from backend.app.services.watch import MAX_WATCH
@@ -694,6 +694,11 @@ def _classic(masked: str, refs: dict[str, str], mrn: str | None, session_id: str
              run_agent, user_id: str | None, today: str) -> ChatResult:
     """의도 분류 방식 (10-05 전의 _route 뒷부분 그대로). LLM이 의도 하나와 칸을 고르고 코드가 실행한다.
     에이전트를 못 쓸 때의 대비 경로이고, CHAT_AGENT=off면 이 길만 탄다."""
+    if DOCS_TOPIC.search(masked) and len(set(refs.values())) <= 1:
+        # 서류 정보 질문(운임·인코텀즈·원본 B/L·은행 지시식·화물 인도 연락처)은 의도 분류에 없어 낱말로 고른다 (10-08 사용자 결정).
+        # 답은 코드가 저장된 값으로 쓴다. 대상은 문장의 B/L, 없으면 화면 화물이다 (에이전트 cargo_documents와 같다)
+        bl = next(iter(refs.values()), None) or (context.bl_no if context else None)
+        return ChatResult(kind="message", reply=documents_answer(bl, user_id)[0])
     try:
         route = llm.route_chat(masked, list(refs), context is not None, today).output
     except llm.LLMError as e:  # EC-01: 규칙으로 대신
@@ -885,7 +890,36 @@ AGENT_TOOLS = [
         "name": "send_kakao",
         "description": "Send the CURRENT status of the cargo on screen (or the cargo whose B/L is in this message) to the user's own KakaoTalk right now. Only when the user clearly asks to send it to KakaoTalk now (\"카톡으로 보내 줘\", \"지금 알림 보내 줘\"). Not for \"tell me when it changes\" (that is set_watch). Code refuses it otherwise, writes the message and the reply itself.",
         "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {
+        "name": "cargo_documents",
+        "description": "Read what was saved from the user's B/L or A/N photo for one cargo: freight payment (prepaid or collect), incoterm, whether the original B/L is needed or surrendered, whether it is to the order of a bank, and the contact for cargo release. Call it only when the user asks about one of these. Returns only which items are stored, never the values. Code shows the values to the user itself, so do not state any value.",
+        "parameters": {"type": "object", "properties": {
+            "bl_ref": {"type": ["string", "null"], "description": "A token from bl_refs such as [BL1]. null means the B/L in this message, or the cargo on screen if the message has none."},
+        }, "required": ["bl_ref"]}}},
 ]
+DOCS_TOOL = "cargo_documents"
+# 서류 정보 질문 낱말 (10-08 사용자 결정). 전 방식(_classic)이 LLM 의도 분류 전에 코드로 서류 정보 답을 고르는 데만 쓴다.
+# 에이전트 경로는 LLM이 cargo_documents 도구를 고른다 (프롬프트 marvia-chat-agent)
+DOCS_TOPIC = re.compile(r"운임|선불|착불|인코텀즈|incoterms?|(?<![A-Za-z])(?:FOB|CIF|CFR)(?![A-Za-z])|원본\s*(?:B/?L|비엘)|서렌더|"
+                        r"surrender|은행\s*지시|to\s*order|인도\s*연락처|화물\s*인도|누구(?:한테|에게)\s*연락", re.IGNORECASE)
+
+
+def documents_answer(bl: str | None, user_id: str | None) -> tuple[str, dict]:
+    """서류 정보 질문에 코드가 쓰는 답과 LLM에 돌려줄 결과 (10-08 사용자 결정). (화면 문장, LLM용 결과).
+    값과 연락처는 화면 문장에만 들어간다. LLM용 결과는 칸 이름과 있음/없음뿐이다 (services/doc_facts.llm_view).
+    로그인 안 함 → 로그인 안내, 화물 모름 → B/L을 묻는다, 저장된 것 없음 → 사진을 올려 달라는 고정 문장."""
+    if user_id is None:
+        return doc_facts.NEED_LOGIN, _tool_error("login_required", "Not logged in. Nothing is stored for this user.")
+    if not bl:
+        return doc_facts.NEED_CARGO, _tool_error("need_bl", "Which cargo? No B/L in the message and no cargo on screen.")
+    try:
+        facts = doc_facts.read(user_id, bl)
+    except Exception as e:  # noqa: BLE001 - 저장소 문제가 요청 전체를 죽이지 않게. 종류만 남긴다
+        log_failure("chat_docs", type(e).__name__)
+        return doc_facts.READ_FAILED, _tool_error("unavailable", "The stored document facts could not be read.")
+    if not facts:
+        return doc_facts.NOTHING_STORED, doc_facts.llm_view(None)
+    return "\n".join(doc_facts.reply_lines(facts)), doc_facts.llm_view(facts)
 
 
 # 웹 검색 도구 (10-05 결정, 좁은 범위). Skill 문서가 못 받치는 실무 질문에만 쓴다: B/L 번호를 찾는 곳, 포워더 확인법, A/N 같은 낱말 뜻,
@@ -1373,6 +1407,10 @@ def _agent(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, 
     signals: dict = {}
     result = _agent_turn(masked, refs, mrn, session_id, context, run_agent, user_id, history, run_tool, today, watch, signals, kakao, on_screen)
     result = _with_citations(result, signals)  # 뒤에 붙는 코드 문장(지켜보기·카톡·제안)은 모두 글 끝에 더해지므로 표시 자리는 그대로 맞다
+    done_docs = signals.get("docs") or {}
+    if done_docs.get("msg") and done_docs["msg"] not in result.reply:
+        # 서류 정보 줄은 코드가 쓰고 LLM은 보지 못한다 (10-08 사용자 결정: 연락처를 LLM에 주지 않는다). 답 뒤에 붙인다
+        result = replace(result, reply=f"{result.reply}\n\n{done_docs['msg']}")
     done_kakao = signals.get("kakao") or {}
     if done_kakao.get("msg") and done_kakao["msg"] not in result.reply:
         result = replace(result, reply=f"{result.reply}\n\n{done_kakao['msg']}")  # 화물 답과 같이 말한 경우: 답 뒤에 코드 문장
@@ -1633,6 +1671,23 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
                          set={"bl_no": bl, "on": bool(result.get("on"))})
         return {"ok": True, "watching": bool(result.get("on"))}
 
+    docs_out: dict = signals.setdefault("docs", {})  # {"msg": 코드가 쓴 서류 정보 문장, "bl": 대상 B/L}
+
+    def run_docs(args: dict) -> dict:
+        """서류 정보 도구 (10-08 사용자 결정). 저장된 B/L 조건·화물 인도 연락처를 코드가 읽어 문장을 쓰고(docs_out["msg"]),
+        LLM에는 칸 이름과 있음/없음만 돌려준다. 대상은 bl_ref 토큰, 없으면 이번 문장의 B/L, 그것도 없으면 화면의 화물이다
+        (check_cargo와 같은 규칙). 목록에 없는 토큰이면 번호를 지어낸 것이라 B/L을 묻는다."""
+        token = args.get("bl_ref")
+        if token is not None and not isinstance(token, str):
+            token = None
+        if token and token not in refs:
+            bl = None
+        else:
+            bl = refs.get(token) if token else (message_bls[0] if message_bls else (context.bl_no if context else None))
+        msg, view = documents_answer(bl, user_id)
+        docs_out.update(msg=msg, bl=bl)
+        return view
+
     kakao_out: dict = signals.setdefault("kakao", {})  # {"msg": 코드가 쓴 문장, "done": 보냈다, "refused": 거절됨}
 
     def run_kakao(args: dict) -> dict:
@@ -1856,6 +1911,8 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             return run_watch(args)
         if name == "send_kakao":
             return run_kakao(args)
+        if name == DOCS_TOOL:
+            return run_docs(args)
         if name == "web_search" and web_search_enabled():
             return run_web(args)
         if name in mcp_names:
@@ -2065,13 +2122,16 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         fix_left -= 1
         log_failure("chat_agent_reply", ",".join(v.rule for v in violations))
         feedback = "\n".join(f"{v.rule}: {v.detail}" for v in violations)
-    calls = [c for c in ran if c["name"] not in ("set_watch", "send_kakao")]  # 지켜보기·카카오 보내기 도구는 조회 도구가 아니다. 결과 문장은 watch_out에 있다
+    # 지켜보기·카카오 보내기·서류 정보 도구는 조회 도구가 아니다. 결과 문장은 watch_out·kakao_out·docs_out에 있다
+    calls = [c for c in ran if c["name"] not in ("set_watch", "send_kakao", DOCS_TOOL)]
     signals["watch_cue"] = bool(out is not None and out.watch_cue)
 
     # 문장에 지금 화물과 다른 B/L이 있는데 에이전트가 조회하지 않았으면 코드가 조회한다 (전 방식의 10-01 규칙과 같다:
     # B/L을 넣었는데 다른 화물 답이 나오면 안 된다)
     new_bls = [bl for bl in message_bls if context is None or bl != context.bl_no]
     checked = {r.request.bl_no for r in done if r.kind == "cargo" and r.request}
+    if docs_out.get("bl"):
+        checked.add(docs_out["bl"])  # 서류 정보만 물은 B/L은 화물 조회를 따로 하지 않는다 (UNI-PASS 호출을 아낀다, 10-08)
     if new_bls and not checked.intersection(new_bls):
         if len(set(message_bls)) >= 2:
             look_up_many(list(dict.fromkeys(message_bls)), None, None)  # 여러 B/L도 하나만 보지 않는다 (10-05 결정)
@@ -2093,6 +2153,9 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     if not done and not calls and (watch_out.get("msg") or watch_out.get("refused")):
         # 지켜보기만 한 문장이다. 켠 결과, 못 켠 이유, 또는 낱말이 없어 거절한 안내를 코드 문장으로 낸다
         return ChatResult(kind="message", reply=watch_out.get("msg") or WATCH_HOW, watch_set=watch_out.get("set"))
+    if not done and not calls and docs_out.get("msg"):
+        # 서류 정보만 물은 문장이다. 답은 코드가 쓴 문장뿐이다 (LLM 문장은 값을 모르고 쓴 것이라 쓰지 않는다)
+        return ChatResult(kind="message", reply=docs_out["msg"])
 
     looked_up = [c for c in calls if c["name"] in mcp_names and "error" not in (c["result"] or {})]
     lookups = " ".join(str(c["result"]) for c in looked_up)

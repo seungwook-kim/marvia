@@ -376,7 +376,7 @@ export function AppProvider({children}:{children:ReactNode}) {
    *    서버 단계 이름 목록 lib/progress.ts는 서버와 같아야 해서 따로 둔다)
    * 3. 무엇을 할지는 코드가 정한다 (lib/docAttach.ts decideAttachment, 재료는 서버 코드가 정한 bl_status).
    *    코드 문장(가린 B/L, 읽은 칸 이름)을 먼저 넣고, 보낼 문장이 있으면 채팅으로 보낸다. B/L은 서버가 가린 뒤 조회한다
-   * B/L 조건·연락처 자동 저장(document-facts)은 사용자 확인 없이 하지 않으므로 이 길에서는 부르지 않는다.
+   * B/L 조건·연락처는 /api/document가 로그인 + B/L 검사 통과일 때 서버에서 바로 저장한다 (10-08 사용자 결정). 화면은 저장한 칸 이름만 말한다.
    * 사진 읽기·채팅 실패는 대화 칸에 문장으로 알리고 화면을 깨지 않는다. */
   async function askWithAttachment(text: string, file: File, image: ChatImage) {
     if (!begin()) return false;

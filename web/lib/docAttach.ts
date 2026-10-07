@@ -6,7 +6,9 @@
  *   ok        → 사용자 글 + B/L(+MRN)을 채팅으로 보낸다. 서버가 B/L을 가린 뒤 조회한다(services/chat.mask_bls). 화면에는 가린 번호만 말한다
  *   uncertain → 조회하지 않는다. 직접 입력을 부탁하고, 사용자가 쓴 글이 있으면 B/L 없이 그 글만 보낸다
  *   none      → 쓴 글이 있으면 그 글만 보내고, 없으면 B/L·A/N 사진을 부탁한다
- * 중요한 칸(선명·항차·입항 예정일·출항일)은 값이 아니라 이름만 말한다. B/L 조건·연락처 저장(document-facts)은 확인 없이 하지 않는다.
+ * 중요한 칸(선명·항차·입항 예정일·출항일)은 값이 아니라 이름만 말한다.
+ * B/L 조건·화물 인도 연락처는 10-08 사용자 결정으로 확인 화면 없이 서버가 저장한다(services/doc_facts.py, 로그인 + B/L 검사 통과일 때만).
+ * 화면은 저장한 칸 이름(facts_saved)만 "운임 조건·인코텀즈를 저장해 두었어요"처럼 말하고 값은 말하지 않는다. 값은 채팅에서 물으면 서버 코드가 답한다.
  */
 import {maskBl} from './format';
 import type {ChatDocument, DocumentResponse} from './types';
@@ -45,6 +47,20 @@ function blStatusOf(r: DocumentResponse): 'ok' | 'uncertain' | 'none' {
 function importantOf(r: DocumentResponse): Important[] {
   if (r.important) return r.important;
   return IMPORTANT.filter(k => { const f = r.fields[k]; return !!f?.value && !f.checks.length; });
+}
+
+type Saved = NonNullable<DocumentResponse['facts_saved']>[number];
+// 순서는 서버 응답 순서를 따르지 않고 이 순서로 말한다 (원본 B/L·은행 지시식은 서버 doc_facts.CONDITIONS 순서)
+const SAVED_ORDER: Saved[] = ['freight_term', 'incoterm', 'original_bl', 'to_order_bank', 'contact'];
+const SAVED_NAMES: Record<Saved, string> = {freight_term: '운임 조건', incoterm: '인코텀즈', original_bl: '원본 B/L 여부',
+  to_order_bank: '은행 지시식 여부', contact: '화물 인도 연락처'};
+
+/** "운임 조건·인코텀즈를 저장해 두었어요. 채팅에서 물으면 알려 드려요." 저장한 칸 이름만 말한다 (10-08 사용자 결정). 없으면 null */
+export function savedLine(keys: Saved[] | undefined): string | null {
+  const names = SAVED_ORDER.filter(k => keys?.includes(k)).map(k => SAVED_NAMES[k]);
+  if (!names.length) return null;
+  const last = names[names.length - 1];
+  return `${names.join('·')}${hasFinal(last) ? '을' : '를'} 저장해 두었어요(서류 사진에서 읽은 값, 확인 전). 채팅에서 물으면 알려 드려요.`;
 }
 
 /** 마지막 글자에 받침이 있나 (한글 음절 U+AC00~U+D7A3). "이름과", "항차와"처럼 조사를 고르는 데만 쓴다 */
@@ -86,9 +102,10 @@ export function decideAttachment(r: DocumentResponse, text: string, max: number)
     // 사용자가 같은 B/L을 이미 썼으면 두 번 넣지 않는다(두 번 넣으면 화물 두 개 비교로 읽힌다). 상한을 넘으면 사용자 글 뒤를 자른다
     const message = typed.toUpperCase().includes(bl) ? typed.slice(0, max) : `${head} ${typed.slice(0, Math.max(0, max - head.length - 1))}`.trim();
     const voyage = clean(r, 'voyage'), eta = clean(r, 'eta'), etd = clean(r, 'etd');
+    const saved = savedLine(r.facts_saved);  // 서버는 B/L 검사를 통과했을 때만 저장하므로 ok 줄에만 붙는다
     return {
       message,
-      note: `사진에서 B/L 번호(가린 값 ${maskBl(bl)})를 읽어 조회할게요.`,
+      note: `사진에서 B/L 번호(가린 값 ${maskBl(bl)})를 읽어 조회할게요.${saved ? `\n${saved}` : ''}`,
       hints: voyage || eta || etd ? {voyage_no: voyage, forwarder_eta: eta, bl_no: bl, departed_on: etd} : null,
       document: etd ? {bl_no: bl, departed_on: etd} : null,
     };

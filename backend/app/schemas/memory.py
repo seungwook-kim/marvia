@@ -1,18 +1,18 @@
 """화물 비서 기억 API 계약 (docs/specs/memory.md "API", 10-02 결정 6·7). 계약 C1~C8 밖의 새 파일이다.
 
-책임: GET·DELETE /api/memory, DELETE /api/memory/items/{id}, POST /api/memory/document-facts의 모양을 고정한다.
+책임: GET·DELETE /api/memory, DELETE /api/memory/items/{id}의 모양을 고정한다.
+확인 화면용 POST /api/memory/document-facts(DocumentFactsRequest·Response)는 10-08 사용자 결정으로 없앴다 (services/doc_facts.py가 자동 저장).
 화면(web/lib/types.ts)이 이 모양을 그대로 쓴다. 필드를 바꾸면 프론트가 같이 깨지므로 PR 리뷰를 거친다 (CLAUDE.md 계약 파일 규칙).
 원본 B/L과 화물 지문(cargo_key)은 응답에 넣지 않는다. 화면에는 가린 번호만 간다 (SDD 3.5).
 """
 from __future__ import annotations
 
-import re
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from backend.app.schemas.agent import _BL_PATTERN, Verdict
+from backend.app.schemas.agent import Verdict
 
 # 값 목록은 마이그레이션 015 CHECK, services/memory.py ROLES·SOURCES와 같다 (10-02 결정 5·6)
 Role = Literal["포워더", "관세사", "수출자", "판매처"]
@@ -60,6 +60,10 @@ class CargoSummary(BaseModel):
     last_eta: date | None
     last_stage: str | None
     pending: list[PendingChange]
+    # 10-08 사용자 결정 (additive, 선택): B/L 조건을 서류 사진에서 확인 없이 읽어 저장했으면 그 시각과 서류 종류 (026).
+    # 화면이 조건 옆에 "서류 사진에서 읽음(확인 전)"을 붙인다. 비어 있으면 예전 확인 화면에서 확인한 값이거나 조건이 없다
+    doc_facts_at: datetime | None = None
+    doc_facts_source: Literal["B/L", "A/N", "document"] | None = None
     summary: str | None = Field(description="끝난 화물의 한 줄 요약 (코드가 만든다). 진행 중이면 null")
 
 
@@ -75,39 +79,3 @@ class MemoryResponse(BaseModel):
 
 class MemoryDeleteResponse(BaseModel):
     deleted: int  # 지운 줄 수 (제36조 ②, 결과를 알린다)
-
-
-class DocumentContact(BaseModel):
-    """서류의 화물 인도 연락처 (B/L "Party to contact for cargo release", A/N). 회사 단위만 받는다 (10-02 결정 6)."""
-
-    company: str = Field(min_length=1, max_length=40)
-    role: Role
-    phone: str | None = Field(default=None, max_length=20, description="회사·부서 전화. 숫자와 하이픈")
-
-
-class DocumentFactsRequest(BaseModel):
-    """사용자가 서류 확인 화면에서 "확인한 값으로 채우기"를 눌렀을 때의 값 (10-02 결정 7). 확인 안 한 OCR 값은 오지 않는다."""
-
-    bl_no: str
-    bl_type: Literal["MASTER", "HOUSE"] | None = None
-    source: Literal["B/L", "A/N"] | None = Field(default=None, description="거래처 출처. 서류 종류를 모르면 거래처는 저장하지 않는다")
-    original_bl: OriginalBl | None = None
-    to_order_bank: bool | None = None
-    freight_term: FreightTerm | None = None
-    incoterm: Incoterm | None = None
-    contact: DocumentContact | None = None
-
-    @field_validator("bl_no")
-    @classmethod
-    def _normalize_bl(cls, v: str) -> str:
-        """조회 요청(AgentRequest)과 같은 형식 검사. 공백 제거·대문자 (schemas/agent.py _BL_PATTERN)."""
-        v = re.sub(r"\s+", "", v).upper()
-        if not _BL_PATTERN.match(v):
-            raise ValueError("bl_no는 영문+숫자 8~20자여야 합니다")
-        return v
-
-
-class DocumentFactsResponse(BaseModel):
-    conditions_saved: bool = Field(description="B/L 조건을 화물 표에 적었다")
-    contact: Literal["saved", "unchanged", "rejected", "skipped", "full", "conflict"] = Field(
-        description="거래처 저장 결과. skipped: 거래처나 출처가 없어 저장하지 않음")

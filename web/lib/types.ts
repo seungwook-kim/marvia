@@ -132,6 +132,9 @@ export interface DocumentResponse {
   bl_status?: 'ok' | 'uncertain' | 'none';
   /** 검사를 통과한 중요한 칸의 이름만 (값 없음). 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다 */
   important?: ('vessel' | 'voyage' | 'eta' | 'etd')[];
+  /** 10-08 사용자 결정: 확인 화면 없이 서버가 저장한 B/L 조건·거래처의 칸 이름만 (값 없음, services/doc_facts.py).
+   * 로그인 + B/L 검사 통과일 때만 차고, 화면은 "운임 조건·인코텀즈를 저장해 두었어요"처럼 이름만 말한다. 옛 서버 응답에는 없다 */
+  facts_saved?: ('original_bl' | 'to_order_bank' | 'freight_term' | 'incoterm' | 'contact')[];
 }
 
 /** 화물 비서 기억 (backend/app/schemas/memory.py, docs/specs/memory.md, 10-02). 원본 B/L은 오지 않는다 */
@@ -153,6 +156,8 @@ export interface CargoSummary {
   original_bl: OriginalBl | null; to_order_bank: boolean | null; freight_term: FreightTerm | null; incoterm: Incoterm | null;
   last_verdict: Verdict | null; last_checked_at: string | null; last_days_margin: number | null;
   last_eta: string | null; last_stage: string | null; pending: PendingChange[]; summary: string | null;
+  /** 10-08: 조건을 서류 사진에서 확인 없이 읽어 저장한 시각과 서류 종류 (026). 있으면 "서류 사진에서 읽음(확인 전)"을 붙인다. 옛 응답에는 없다 */
+  doc_facts_at?: string | null; doc_facts_source?: 'B/L' | 'A/N' | 'document' | null;
 }
 export interface MemoryResponse {
   markdown: string; items: MemoryItem[]; cargo: CargoSummary[];
@@ -160,16 +165,6 @@ export interface MemoryResponse {
   full: boolean; available: boolean;
   /** 메모장 글자 수와 상한 (M5). 옛 서버 응답에는 없을 수 있다 */
   used_chars?: number; max_chars?: number;
-}
-/** POST /api/memory/document-facts. 서류 확인 화면에서 사용자가 확인한 값만 보낸다 (10-02 결정 7) */
-export interface DocumentFactsRequest {
-  bl_no: string; bl_type?: 'MASTER' | 'HOUSE' | null; source?: 'B/L' | 'A/N' | null;
-  original_bl?: OriginalBl | null; to_order_bank?: boolean | null; freight_term?: FreightTerm | null; incoterm?: Incoterm | null;
-  contact?: {company: string; role: ContactRole; phone: string | null} | null;
-}
-export interface DocumentFactsResponse {
-  conditions_saved: boolean;
-  contact: 'saved' | 'unchanged' | 'rejected' | 'skipped' | 'full' | 'conflict';
 }
 
 /** 운영자 관리 (backend/app/routers/admin.py, docs/specs/operator-admin.md, 10-01). */

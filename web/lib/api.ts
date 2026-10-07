@@ -6,7 +6,7 @@
  * 화면 컴포넌트는 어느 모드인지 몰라도 된다. 요청·응답 모양은 backend/app/schemas/agent.py(C1, C2) 그대로다.
  * 서버 API 키는 여기에 두지 않는다. NEXT_PUBLIC_* 값은 브라우저에 그대로 보이기 때문이다 (SDD 7절).
  */
-import type { AgentRequest, AgentResponse, CustomersResponse, DocumentFactsRequest, DocumentFactsResponse, DocumentResponse, HistoryResponse, KakaoLinkResult, KakaoStatus, MemoryResponse, MeResponse, OperatorsResponse, WatchChange, WatchState, ProfileData, UnmaskResponse, ActionItem, ChatResponse, ChatHistoryTurn, ChatDocument, ChatOnScreen, VesselDetailResponse, ConversationSummary, ConversationDetail, CargoSheet, CargoSheetRow } from './types';
+import type { AgentRequest, AgentResponse, CustomersResponse, DocumentResponse, HistoryResponse, KakaoLinkResult, KakaoStatus, MemoryResponse, MeResponse, OperatorsResponse, WatchChange, WatchState, ProfileData, UnmaskResponse, ActionItem, ChatResponse, ChatHistoryTurn, ChatDocument, ChatOnScreen, VesselDetailResponse, ConversationSummary, ConversationDetail, CargoSheet, CargoSheetRow } from './types';
 import type {Citation, EvidenceItem} from './evidenceTypes';
 import {accessToken} from './auth';
 import {createSseParser, isStage, type ProgressStage} from './progress';
@@ -522,15 +522,6 @@ export async function deleteAllMemory(): Promise<{deleted: number}> {
 export async function deleteMemoryItem(id: string): Promise<{deleted: number}> {
   if (!isLive) throw new Error('체험 모드에는 지울 실제 기억이 없어요.');
   return liveDelete(`/api/memory/items/${encodeURIComponent(id)}`);
-}
-
-/** POST /api/memory/document-facts. 서류 확인 화면에서 "확인한 값으로 채우기"를 눌렀을 때만 부른다 (10-02 결정 7).
- * 실제 모드 + 로그인 사용자일 때만 보낸다. 아니면 아무것도 하지 않고 null. 부르는 쪽은 실패해도 입력 채우기를 막지 않는다. */
-export async function saveDocumentFacts(facts: DocumentFactsRequest): Promise<DocumentFactsResponse | null> {
-  if (!isLive || !(await accessToken())) return null;
-  const res = await call('/api/memory/document-facts', {method: 'POST', headers: {'content-type': 'application/json'},
-    body: JSON.stringify(facts)}, HISTORY_TIMEOUT_MS);
-  return res.json();
 }
 
 /* ---------- 카카오톡 "나에게 보내기" 알림 (10-02/10-05 결정, backend/app/routers/kakao.py) ---------- */

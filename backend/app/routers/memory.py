@@ -4,13 +4,13 @@
   GET    /api/memory                    내 메모장 보기 (번호 없는 마크다운 + 항목 + 화물 요약, 원본 B/L 없음)
   DELETE /api/memory                    메모장 전부 지우기 (화물 표는 남는다, 10-02 결정 D2)
   DELETE /api/memory/items/{id}         메모장 항목 하나 지우기
-  POST   /api/memory/document-facts     서류 확인 화면에서 확인한 B/L 조건·거래처 저장
+서류 사진의 B/L 조건·거래처는 10-08 사용자 결정으로 확인 화면 없이 POST /api/document가 저장한다 (services/doc_facts.py).
+예전 확인 화면용 POST /api/memory/document-facts는 그 결정으로 없앴다.
 로그인 필수다. 로그인 기능이 꺼진 채점 환경은 사람이 없어 401 (EC-08). 삭제는 실패를 숨기지 않고 503 (routers/history.py와 같다).
 """
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,10 +19,9 @@ from backend.app.auth import current_user_id
 from backend.app.db import connect
 from backend.app.observability.logging import log_failure
 from backend.app.schemas.memory import (
-    CargoSummary, DocumentFactsRequest, DocumentFactsResponse, MemoryDeleteResponse, MemoryItem, MemoryResponse,
+    CargoSummary, MemoryDeleteResponse, MemoryItem, MemoryResponse,
 )
 from backend.app.services import cargo, memory
-from backend.app.services.evidence import KST
 
 router = APIRouter(prefix="/api", tags=["memory"])
 
@@ -105,35 +104,3 @@ def delete_memory_item(item_id: str, user_id: Annotated[str | None, Depends(curr
         log_failure("memory_delete", status)
         raise HTTPException(status_code=503, detail="다른 기기에서 기억을 고치는 중이라 지우지 못했습니다. 잠시 뒤 다시 시도하세요")
     return MemoryDeleteResponse(deleted=1)
-
-
-@router.post("/memory/document-facts", response_model=DocumentFactsResponse)
-def save_document_facts(body: DocumentFactsRequest,
-                        user_id: Annotated[str | None, Depends(current_user_id)] = None) -> DocumentFactsResponse:
-    """서류 확인 화면에서 사용자가 "확인한 값으로 채우기"를 누른 값만 저장한다 (10-02 결정 7).
-
-    - B/L 조건(원본 B/L·은행 지시식·운임·인코텀즈)은 화물 표 줄에. 줄이 없으면 만든다. 모르는 칸(null)은 덮지 않는다
-    - 거래처는 메모장 거래처 항목으로, 출처는 B/L 또는 A/N. 서류 종류(source)를 모르면 저장하지 않는다
-    - B/L 구분을 모르면 빈 칸(NULL, 024)으로 새 줄을 만든다. 나중 조회가 UNI-PASS에서 찾은 구분으로 채운다 (10-08)
-    """
-    user_id = _login_required(user_id)
-    _db_required("memory_document")
-    facts = body.model_dump(include={"original_bl", "to_order_bank", "freight_term", "incoterm"})
-    today = datetime.now(timezone.utc).astimezone(KST).date()
-    try:
-        with connect() as conn:
-            key, saved = None, False
-            if any(v is not None for v in facts.values()):
-                key = cargo.apply_document_facts(conn, user_id, body.bl_no, body.bl_type, facts)
-                saved = key is not None
-            contact = "skipped"
-            if body.contact and body.source:
-                key = key or cargo.cargo_key(body.bl_no)
-                if key and cargo.get_row(conn, user_id, key) is None:
-                    key = None  # 화물 줄이 없으면(조건 없이 거래처만) 이 사람에 대해 칸에 둔다
-                contact = memory.add_contact(conn, user_id, {**body.contact.model_dump(), "source": body.source},
-                                             key, today)
-    except Exception as e:  # noqa: BLE001
-        log_failure("memory_document", type(e).__name__)
-        raise HTTPException(status_code=503, detail=DB_DOWN) from None
-    return DocumentFactsResponse(conditions_saved=saved, contact=contact)

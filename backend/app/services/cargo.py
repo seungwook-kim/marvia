@@ -6,7 +6,7 @@
   active_rows()        진행 중 화물 최대 MAX_ACTIVE건. 판정·후속 LLM의 <user_cargo> 블록 재료 (Spec 읽기 흐름 1)
   previous_line()      "지난 조회(10.01)에서는 '주의'였고, 판매 예정일까지 여유가 3일이었어요." 코드가 쓰는 한 줄 (10-02 결정 4)
   add_pending()        대화에서 나온 화물 값 변경(set_cargo)을 확인 대상으로만 둔다 (Spec 쓰기 흐름 4)
-  apply_document_facts() 서류 사진에서 사용자가 확인한 B/L 조건을 적는다 (10-02 결정 7)
+  apply_document_facts() 서류 사진에서 읽고 검사를 통과한 B/L 조건을 적는다 (10-02 결정 7, 10-08 사용자 결정으로 확인 없이 자동 저장)
   find_by_container()  컨테이너 번호로 그 사용자의 화물 한 건을 찾는다 (채팅 "(컨테이너 번호) 어디쯤이야?", 10-06)
   delete_all()         탈퇴·내 기록 삭제 때 화물 표와 신용장 줄을 지운다 (Spec "개인정보")
   stage_date()         이력에서 입항·입고 날짜를 뽑는다 (내 화물 현황 표, 019). 표 읽기·쓰기는 services/cargo_sheet.py
@@ -44,6 +44,7 @@ COLUMNS = (
     "forwarder_eta", "forwarder_eta_noted_at", "vessel_mmsi", "voyage_no", "vessel_source",
     "last_verdict", "last_checked_at", "last_days_margin", "last_eta", "last_eta_at", "last_stage", "done_at",
     "original_bl", "to_order_bank", "freight_term", "incoterm", "pending", "goods_name",
+    "doc_facts_at", "doc_facts_source",  # 서류 사진에서 읽은 조건의 출처 (026, 10-08 사용자 결정: 확인 전 값임을 밝힌다)
 )
 
 
@@ -314,12 +315,16 @@ def add_pending(conn, user_id: str, key: str, changes: list[dict]) -> int:
     return len(changes) if cur.rowcount else 0
 
 
-def apply_document_facts(conn, user_id: str, bl_no: str, bl_type: str | None, facts: dict) -> str | None:
-    """서류 사진에서 사용자가 확인한 B/L 조건을 화물 줄에 적는다 (10-02 결정 7). 화물 지문을 돌려준다(열쇠 없으면 None).
+def apply_document_facts(conn, user_id: str, bl_no: str, bl_type: str | None, facts: dict,
+                         source: str | None = None) -> str | None:
+    """서류 사진에서 읽은 B/L 조건을 화물 줄에 적는다 (10-02 결정 7). 화물 지문을 돌려준다(열쇠 없으면 None).
 
     facts: original_bl, to_order_bank, freight_term, incoterm. None인 칸은 "모름"이라 기존 값을 지우지 않는다.
     줄이 없으면 만든다(아직 조회 전인 화물). 이때 마지막 판정 칸은 비어 있다.
-    허용 값 검사는 계약(schemas/memory.py)이 이미 했다. DB CHECK(마이그레이션 015)가 한 번 더 막는다.
+    source: 10-08 사용자 결정으로 확인 화면 없이 자동 저장한다(services/doc_facts.save_from_document). 그때 서류 종류
+    ('B/L', 'A/N', 모르면 'document')를 넘기면, 적은 칸이 하나라도 있을 때 doc_facts_at·doc_facts_source(026)를 남긴다.
+    답과 화면이 "서류 사진에서 읽은 값(확인 전)"이라고 밝히는 재료다. 허용 값 검사는 doc_ocr.check_conditions가 이미 했고
+    DB CHECK(마이그레이션 015·026)가 한 번 더 막는다.
     """
     key = cargo_key(bl_no)
     if not key:
@@ -335,6 +340,10 @@ def apply_document_facts(conn, user_id: str, bl_no: str, bl_type: str | None, fa
               updated_at = now()""",
         [user_id, key, mask_bl(bl_no), crypto.encrypt(bl_no), bl_type, *values],
     )
+    if source and any(v is not None for v in values):
+        # 출처는 값을 실제로 적었을 때만 남긴다. 연락처만 저장하려고 줄을 만든 경우는 조건이 없으니 표시하지 않는다
+        conn.execute("""UPDATE user_cargo SET doc_facts_at = now(), doc_facts_source = %s
+                        WHERE user_id = %s AND cargo_key = %s""", [source, user_id, key])
     return key
 
 

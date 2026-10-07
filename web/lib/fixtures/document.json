@@ -80,5 +80,6 @@
   "doc_kind": "B/L",
   "llm_error": null,
   "bl_status": "none",
-  "important": []
+  "important": [],
+  "facts_saved": []
 }
