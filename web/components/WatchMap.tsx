@@ -111,7 +111,8 @@ export function WatchMap() {
   // 데모 둘러보기: 배 위치가 10초마다 움직인다 (lib/tour.ts). 실제 모드는 들어올 때 한 번 읽는다
   useEffect(() => {
     if (!tour) return;
-    const id = setInterval(() => { void getWatchList().then(setList); }, TOUR_TICK_MS);
+    // 화물 목록과 함께, 데모에서 지켜보기로 추가한 배의 가상 위치도 다시 읽는다
+    const id = setInterval(() => { void getWatchList().then(setList); void listWatchedVessels().then(setVessels).catch(() => {}); }, TOUR_TICK_MS);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {

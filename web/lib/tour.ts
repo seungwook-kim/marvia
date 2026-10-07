@@ -155,3 +155,39 @@ export function tourChanges(tick = tourTick()): WatchChange[] {
   }
   return out.slice(0, 6);
 }
+
+// ---------- 데모에서 사용자가 지켜보기로 추가한 배 (10-07) ----------
+// 실제 위치를 모르므로 데모답게 새 출발 위치(항로의 출발지)에서 시작해 다른 배처럼 10초마다 움직이게 한다.
+// 목적지·출발지 글에 항구 이름이 있으면 그 항로를, 없으면 배 번호로 항로를 고른다. 해제하면 지도에서도 빠진다 (이 페이지 메모리만)
+const PORT_WORDS: [RegExp, string][] = [
+  [/칭다오|QINGDAO|CNTAO/i, '칭다오'], [/상하이|SHANGHAI|CNSHA/i, '상하이'], [/닝보|NINGBO|CNNGB/i, '닝보'], [/다롄|DALIAN|CNDLC/i, '다롄'],
+  [/가오슝|KAOHSIUNG|TWKHH/i, '가오슝'], [/샤먼|XIAMEN|CNXMN/i, '샤먼'], [/오사카|OSAKA|JPOSA/i, '오사카'], [/블라디보스토크|VLADIVOSTOK|RUVVO/i, '블라디보스토크'],
+  [/톈진|TIANJIN|CNTSN|CNTXG/i, '톈진'], [/도쿄|TOKYO|JPTYO/i, '도쿄'],
+];
+const extras = new Map<number, {route: number; kn: number; addedTick: number}>();
+
+export function tourAddVessel(mmsi: number, hint: string) {
+  if (extras.has(mmsi)) return;
+  const byWord = PORT_WORDS.find(([re]) => re.test(hint))?.[1];
+  const route = byWord ? ROUTES.findIndex(r => r.from === byWord) : mmsi % ROUTES.length;
+  extras.set(mmsi, {route, kn: ROUTES[route].kn + ((mmsi % 5) - 2), addedTick: tourTick()});
+}
+export function tourRemoveVessel(mmsi: number) { extras.delete(mmsi); }
+
+/** 추가한 배의 지금 위치와 지나온 길. 추가한 칸을 출발로 보고, 도착 → 정박 → 다시 출발을 되풀이한다 */
+export function tourVesselPosition(mmsi: number, tick = tourTick()) {
+  const e = extras.get(mmsi);
+  if (!e) return null;
+  const r = ROUTES[e.route];
+  const berth = BERTHS[(mmsi + 3) % BERTHS.length];
+  const path = [...r.way, {lat: berth.lat + .02, lng: berth.lng - .03}];
+  const total = path.slice(1).reduce((sum, p, k) => sum + distNm(path[k], p), 0);
+  const leg = Math.max(3, Math.ceil(total / (e.kn * TOUR_TICK_HOURS)));
+  const t = Math.max(0, tick - e.addedTick) % (leg + DWELL);
+  const pos = (k: number) => along(path, Math.min(total, k * e.kn * TOUR_TICK_HOURS));
+  const now = tourClock(tick);
+  const here = pos(Math.min(t, leg));
+  const track = Array.from({length: 5}, (_, j) => Math.min(t, leg) - (4 - j)).filter(k => k >= 0)
+    .map(k => ({...pos(k), at: new Date(now.getTime() - (Math.min(t, leg) - k) * TOUR_TICK_HOURS * 3600_000).toISOString(), sog: e.kn}));
+  return {lat: here.lat, lng: here.lng, sog: t < leg ? e.kn : 0, cog: 60, position_at: now.toISOString(), track, from: r.from};
+}

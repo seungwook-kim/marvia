@@ -6,6 +6,7 @@
  */
 import {accessToken} from './auth';
 import {tour} from './api';
+import {tourAddVessel, tourRemoveVessel, tourVesselPosition} from './tour';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '').trim().replace(/\/+$/, '');
 /** 서버가 없으면(체험 모드) 계정이 없어 지켜볼 수 없다 */
@@ -56,7 +57,8 @@ const tourVessels = new Map<number, WatchedVessel>();
 let tourNextMmsi = 990000001;  // 호출부호만 있는 배(입항 예정 목록)에 데모용 번호를 붙인다
 
 export async function listWatchedVessels(): Promise<WatchedVessel[]> {
-  if (tour) return [...tourVessels.values()];
+  // 데모: 추가한 배는 시뮬레이터가 정한 가상 위치·지나온 길로 지도에 나온다 (lib/tour.ts tourVesselPosition)
+  if (tour) return [...tourVessels.values()].map(v => { const p = tourVesselPosition(v.mmsi); return p ? {...v, lat: p.lat, lng: p.lng, sog: p.sog, cog: p.cog, position_at: p.position_at, track: p.track} : v; });
   if (!vesselWatchEnabled) return [];
   return ((await (await request('/api/watch/vessels')).json()) as {items: WatchedVessel[]}).items;
 }
@@ -69,6 +71,7 @@ export async function watchVessel(v: VesselRef): Promise<number> {
     const mmsi = v.mmsi ?? tourNextMmsi++;
     tourVessels.set(mmsi, {mmsi, name: v.name, flag: v.flag ?? null, dest: v.dest ?? null, eta: v.eta ?? null, created_at: new Date().toISOString(),
       lat: null, lng: null, cog: null, sog: null, position_at: null, track: []});
+    tourAddVessel(mmsi, [v.dest, v.name, v.flag].filter(Boolean).join(' '));
     notify();
     return mmsi;
   }
@@ -82,7 +85,7 @@ export async function watchVessel(v: VesselRef): Promise<number> {
 
 /** DELETE /api/watch/vessels/{mmsi}. 켜져 있지 않아도 오류가 아니다 */
 export async function unwatchVessel(mmsi: number): Promise<void> {
-  if (tour) { tourVessels.delete(mmsi); notify(); return; }
+  if (tour) { tourVessels.delete(mmsi); tourRemoveVessel(mmsi); notify(); return; }
   if (!vesselWatchEnabled) return;
   await request(`/api/watch/vessels/${mmsi}`, {method: 'DELETE'});
   notify();
