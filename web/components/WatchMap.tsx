@@ -1,6 +1,7 @@
 'use client';
 /** 지켜보는 화물 (docs/specs/cargo-watch.md, 10-02). 내 화물 B/L마다 그 배의 마지막 위치를 한 지도에 서로 다른 마커로 보여 준다.
- * - 위치는 worker가 6시간마다 모은 마지막 값을 쓸 예정이다 (watch_positions, 017). 지금은 위치 수집이 꺼져 있어(ShipFinder 호출 한도) 예시 데이터다
+ * - 위치는 watch_positions(017)의 점이다. 수집 워커는 ShipFinder 한도 때문에 꺼져 있어, 조회할 때(services/cargo._keep_position)와
+ *   지켜보기를 켤 때(services/watch.seed_position, 10-08) 쌓인 점이 나온다. 서버가 없는 체험 모드만 예시 데이터다
  * - 반출이 끝난 화물(status done)은 지도에서 빼고 목록 아래에 개수만 알린다
  * - 마커에 마우스를 올리면 선명, 가린 B/L, 운송 화물 이름표, 판정, 통관 단계, 도착 예정, 위치 수신 시각이 뜬다.
  *   운송 화물은 사용자가 붙인 이름표만 쓴다. UNI-PASS 품명은 저장·표시하지 않는다 (SDD 3.5)
@@ -9,12 +10,13 @@
  *   클러스터를 누르면 상세 창에 그 안의 배와 말풍선 내용 전부가 뜬다. 새 라이브러리(leaflet.markercluster) 없이 직접 묶는다
  * - B/L 없이 배만 지켜보는 줄(GET /api/watch/vessels, lib/watchVessel.ts)도 같은 지도·목록에 올린다 (10-08). 배만 지켜보기로만 켠 사람은
  *   지도가 아예 안 나오고 "지켜보는 화물이 없어요"만 보였다. B/L이 없으니 판정·통관·여유 칸은 비우고, 등급 없는 회색 점(VESSEL_COLOR)으로 그린다
+ *   해제 버튼도 이 목록 줄 옆에 있다. 지도 아래 따로 그리던 목록(WatchedVessels)은 같은 배를 두 번 보여 줘서 지웠다 (10-08)
  * 판정은 하지 않는다. 표시만 한다. */
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
-import {LocateFixed, Maximize2, X} from 'lucide-react';
+import {EyeOff, LocateFixed, Maximize2, X} from 'lucide-react';
 import {addBasemap, drawLocalGeography} from '@/lib/basemap';
 import {getPresentationData, getWatchList, type WatchItem, type WatchList} from '@/lib/api';
-import {listWatchedVessels, onVesselWatchChange, type WatchedVessel} from '@/lib/watchVessel';
+import {listWatchedVessels, onVesselWatchChange, unwatchVessel, type WatchedVessel} from '@/lib/watchVessel';
 import {dateTime, verdictLabels} from '@/lib/format';
 import {VerdictBadge} from '@/components/Shared';
 
@@ -89,6 +91,19 @@ export function WatchMap() {
   const fitAll = useRef<() => void>(() => {});
   // 배만 지켜보는 줄 (10-08). 못 읽으면 빈 목록으로 두고 화물 지도는 그대로 그린다. 체험 모드는 늘 빈 목록이다
   const [vessels, setVessels] = useState<WatchedVessel[]>([]);
+  // 배만 지켜보는 줄의 해제 (10-08). 지도 아래 따로 있던 목록(WatchedVessels)을 지우면서 해제 버튼을 이 목록으로 옮겼다
+  const [unwatching, setUnwatching] = useState<number | null>(null);
+  const [unwatchError, setUnwatchError] = useState('');
+  async function unwatch(mmsi: number) {
+    setUnwatching(mmsi); setUnwatchError('');
+    try { await unwatchVessel(mmsi); }  // 성공하면 onVesselWatchChange가 목록을 다시 읽는다
+    catch (e) { setUnwatchError(e instanceof Error ? e.message : '지켜보기를 해제하지 못했어요.'); }
+    finally { setUnwatching(null); }
+  }
+  /** 배만 지켜보는 줄 옆 해제 버튼. 줄 전체가 버튼이라 안에 넣지 못하고 옆에 둔다 */
+  const unwatchButton = (item: MapItem) => item.vesselOnly && item.mmsi ?
+    <button type="button" className="wm-unwatch icon-button" onClick={() => void unwatch(item.mmsi!)} disabled={unwatching === item.mmsi}
+      aria-label={`${item.ship_name} 지켜보기 해제`} title="지켜보기 해제"><EyeOff size={16}/></button> : null;
   useEffect(() => { let alive = true; void getWatchList().then(l => { if (alive) setList(l); }); return () => { alive = false; }; }, []);
   useEffect(() => {
     let alive = true;
@@ -310,13 +325,15 @@ export function WatchMap() {
                   <span className="watch-stage">통관 {item.stage ?? '확인 안 됨'}</span>
                   {selected === i && <span className="sr-only">지도에서 선택됨</span>}
                 </span>}
-                {/* 배만 지켜보는 줄은 판정·B/L이 없어 배지 자리를 비운다 */}
+                {/* 배만 지켜보는 줄은 판정·B/L이 없어 배지 자리를 비운다. 그 자리에 해제 버튼이 겹쳐 온다(wm-unwatch) */}
                 {item.vesselOnly ? <span className="watch-side"/> : <span className="watch-side"><VerdictBadge verdict={item.verdict}/><small className="watch-bl">{item.bl_masked}</small></span>}
               </button>
+              {unwatchButton(item)}
             </li>)}
           </ol>
+          <p role="alert" className="request-error wm-unwatch-error">{unwatchError}</p>
           {waiting.length > 0 && <div className="wm-waiting"><strong>아직 위치를 받지 못했어요</strong>
-            <ul>{waiting.map(i => <li key={keyOf(i)}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small></li>)}</ul>
+            <ul>{waiting.map(i => <li key={keyOf(i)} className={i.vesselOnly ? 'wm-waiting-vessel' : undefined}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small>{unwatchButton(i)}</li>)}</ul>
             <p>다음 조회나 위치 확인 뒤 지도에 나와요.</p></div>}
           {done > 0 && <p className="watch-done">반출이 끝난 화물 {done}건은 지도에서 뺐어요.</p>}
         </aside>

@@ -47,15 +47,14 @@
 .vl-name{display:flex;align-items:center;gap:6px}
 .cmp-watch{display:inline-flex;margin-left:6px}
 
-/* ---------- 지켜보는 배 목록 (/watch, WatchedVessels) ---------- */
-.watched-vessels{margin-top:24px;padding:16px;border:1px solid var(--border);border-radius:var(--card-radius);background:var(--surface)}
-.watched-vessels h3{margin:0 0 8px;font-size:var(--text-lg)}
-.watched-vessels .request-error:empty{display:none}
-.watched-vessels ul{display:grid;gap:10px;margin:0;padding:0;list-style:none}
-.watched-vessels li{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--small-radius)}
-.wv-main{display:grid;gap:4px}
-.wv-line{color:var(--text-2);font-size:var(--text-sm)}
-.watched-vessels .subtle-badge{justify-self:start;padding:2px 8px;border-radius:999px;background:var(--neutral-bg);color:var(--text-2);font-size:12px}
+/* ---------- 감시 지도 목록의 배만 지켜보기 해제 버튼 (/watch, WatchMap, 10-08) ---------- */
+/* 줄 전체가 버튼이라 해제 버튼은 줄 오른쪽 위(비어 있는 판정 배지 자리)에 겹쳐 둔다. .watch-list button의 큰 카드 모양을 되돌린다 */
+.watch-list li{position:relative}
+.watch-list .wm-unwatch{position:absolute;top:12px;right:12px;display:inline-flex;width:32px;height:32px;padding:0;align-items:center;justify-content:center;border-radius:var(--small-radius)}
+.wm-waiting-vessel{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.wm-waiting-vessel span{flex:1 1 auto}
+.wm-waiting-vessel small{order:3;flex-basis:100%}
+.wm-unwatch-error:empty{display:none}
 
 /* ---------- 답 아래 "N단계 · M초" 요약 (StepsSummary) ---------- */
 .steps-summary{margin-top:6px}
