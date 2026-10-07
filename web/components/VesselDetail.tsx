@@ -17,6 +17,8 @@ export type DetailEntry = {status: 'loading'} | {status: 'error'; message: strin
 const SOURCE_LABEL: Record<string, string> = {mof: '해수부 입항 일정', shipfinder: '선박 위치', searoute: '남은 거리 계산'};
 // 출처별 실패 안내. 서버 message에는 엔드포인트·키 이름·예외명이 섞여 있어 화면에 내지 않고 고정 문구만 쓴다 (10-02 화면 용어 점검)
 const SOURCE_FAIL: Record<string, string> = {mof: '지금 받지 못했어요', shipfinder: '지금 받지 못했어요', searoute: '계산하지 못했어요'};
+// 출처보다 구체적인 실패 이유가 있을 때의 문장 (서버 errors[].code). ambiguous: 같은 호출부호를 쓴 최근 배가 여럿이라 고르지 않았다 (10-08, services/vessel_pick.py)
+const ERROR_TEXT: Record<string, string> = {ambiguous: '같은 호출부호를 쓰는 배가 여러 척이라 어느 배인지 정하지 못했어요', not_found: 'AIS에서 이 배를 찾지 못했어요'};
 
 // 펼쳐 보기의 출처 표기. 모르는 이름은 서버가 준 글자 그대로 보인다
 const SOURCE_NAME: Record<string, string> = {mof: '해수부', shipfinder: 'ShipFinder', searoute: '바닷길 계산'};
@@ -82,7 +84,9 @@ export function VesselDetail({vessel, entry}: {vessel: VesselItem; entry: Detail
           </dl>
         </section>
       </div>
-      {data!.errors.length > 0 && <div className="info-note"><TriangleAlert size={16} strokeWidth={1.75}/><span>{data!.errors.map(e => `${SOURCE_LABEL[e.source] ?? '일부 정보'}: ${SOURCE_FAIL[e.source] ?? '지금 받지 못했어요'}`).join(', ')}</span></div>}
+      {/* 호출부호 없이 이름만으로 고른 배는 다른 배일 수 있다고 알린다 (10-08, services/vessel_detail.py match) */}
+      {v?.match === 'name_similar' && <div className="info-note"><TriangleAlert size={16} strokeWidth={1.75}/><span>호출부호가 없어 이름이 가장 비슷한 배를 보여 줘요. 같은 배인지는 확인하지 못했어요.</span></div>}
+      {data!.errors.length > 0 && <div className="info-note"><TriangleAlert size={16} strokeWidth={1.75}/><span>{data!.errors.map(e => `${SOURCE_LABEL[e.source] ?? '일부 정보'}: ${ERROR_TEXT[e.code ?? ''] ?? SOURCE_FAIL[e.source] ?? '지금 받지 못했어요'}`).join(', ')}</span></div>}
       <p className="vd-caveat">예상 도착은 지금 속력을 끝까지 유지한다는 가정이에요. 화물 판정은 아니고, 내 화물은 B/L 번호로 조회해 주세요.</p>
       <details className="vd-more"><summary><span className="vd-more-label">자세한 정보 펼쳐 보기<small>호출부호, 선박 종류, 출처, 조회 시각</small></span></summary>
         {more.length > 0 && <dl>{more.map(([k, val]) => <Row key={k} k={k} v={val}/>)}</dl>}

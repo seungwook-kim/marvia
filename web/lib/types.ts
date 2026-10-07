@@ -229,7 +229,9 @@ export interface VesselDetailResponse {
   call_sign: string | null; ship_name: string | null;
   /** imo·similarity·source·fetched_at·cached_at는 MCP 도구 응답이 그대로 온다(10-06). 없으면 쓰지 않는다. similarity는 선명이 비슷한 정도일 뿐 내 배라는 뜻이 아니다 */
   vessel: {mmsi: number; name: string; flag: string | null; call_sign: string | null; ship_type: number | null;
-    imo?: number | null; similarity?: number | null; source?: string | null; fetched_at?: string | null; cached_at?: string | null} | null;
+    imo?: number | null; similarity?: number | null; source?: string | null; fetched_at?: string | null; cached_at?: string | null;
+    /** 어떻게 정한 배인가 (10-08, services/vessel_detail.py). call_sign: 호출부호가 같은 배 하나. name_similar: 호출부호가 없어 이름이 비슷한 첫 후보 */
+    match?: 'call_sign' | 'name_similar' | null} | null;
   position: {lat: number; lng: number; sog: number | null; cog: number | null; navistat: number | null; dest: string | null;
     ais_eta: string | null; last_time: string | null; freshness: Freshness;
     /** 배 → 부산 남은 예상 바닷길 [위도, 경도] (searoute 계산, 실제 항적 아님) */
