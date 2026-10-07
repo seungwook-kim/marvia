@@ -17,6 +17,7 @@ import './styles/watch.css';
 import './styles/settings.css';
 import './styles/admin.css';
 import './styles/entry.css';
+import './styles/landing.css';
 import {AppProvider} from '@/components/AppProvider';
 import {Shell} from '@/components/Shell';
 export const metadata:Metadata={title:'Marvia',description:'B/L 하나로 내 화물이 제때 오는지 판정하고, 왜 그런지 근거까지 보여 드려요. 예시 데이터로 체험해 볼 수 있어요.'};
