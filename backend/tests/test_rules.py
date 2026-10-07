@@ -35,7 +35,12 @@ def test_each_rules_file_has_its_own_keys():
         "customs-stages": {"customs_hold_words", "customs_stages", "customs_subject_words", "customs_assessment_words",
                            "customs_done_words", "customs_done_stages", "customs_done_except_words"},
         "port-busan": {"busan_ref", "busan_radius_nm", "busan_port_code", "port_schedule_lookback_days",
-                       "port_schedule_lookahead_days", "port_schedule_name_match_ratio"},
+                       "port_schedule_lookahead_days", "port_schedule_name_match_ratio",
+                       # 입항 추세(IMF PortWatch)와 aisstream 시험 수집 (10-08)
+                       "portwatch_port_id", "port_traffic_recent_days", "port_traffic_base_days",
+                       "port_traffic_busy_ratio", "port_traffic_quiet_ratio", "port_traffic_cache_hours",
+                       "port_traffic_retry_minutes", "aisstream_bbox_busan", "aisstream_bbox_wide",
+                       "aisstream_max_mmsi", "aisstream_refresh_minutes"},
         "cargo-verdict": {"margin_act_days", "act_signals", "gray_signals", "ignore_signals", "ignore_dest_values",
                           "sale_date_words", "sale_passed_words", "plan_compare_words", "sale_compare_words"},
         "referrals": {"signal_referrals", "referral_order", "referral_max", "referral_prefix", "signal_referral_links",

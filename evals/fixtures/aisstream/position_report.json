@@ -1,0 +1,33 @@
+{
+ "_comment": "가공 fixture. aisstream.io PositionReport 메시지와 형식만 같은 값이다 (실제 수신값 아님, 10-08). MMSI 999000001은 가상 번호",
+ "MessageType": "PositionReport",
+ "MetaData": {
+  "MMSI": 999000001,
+  "MMSI_String": 999000001,
+  "ShipName": "MOCK VESSEL ONE    ",
+  "latitude": 35.0512,
+  "longitude": 129.0844,
+  "time_utc": "2026-10-07 01:23:45.123456789 +0000 UTC"
+ },
+ "Message": {
+  "PositionReport": {
+   "Cog": 312.4,
+   "CommunicationState": 59916,
+   "Latitude": 35.0512,
+   "Longitude": 129.0844,
+   "MessageID": 1,
+   "NavigationalStatus": 0,
+   "PositionAccuracy": true,
+   "Raim": false,
+   "RateOfTurn": 0,
+   "RepeatIndicator": 0,
+   "Sog": 11.6,
+   "Spare": 0,
+   "SpecialManoeuvreIndicator": 0,
+   "Timestamp": 45,
+   "TrueHeading": 311,
+   "UserID": 999000001,
+   "Valid": true
+  }
+ }
+}

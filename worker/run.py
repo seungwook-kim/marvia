@@ -4,6 +4,7 @@
     python -m worker.run --once --shipfinder-calls 0 # 해수부만 받고 ShipFinder는 안 부른다
     python -m worker.run                             # WORKER_SCHEDULE=on일 때만 주기 실행
     WATCH_ENABLED=on python -m worker.run --once     # 수집 뒤에 지켜보는 화물도 다시 판정 (python -m worker.watch --once는 그것만)
+    AISSTREAM_ENABLED=true AISSTREAM_KEY=... python -m worker.run  # 주기 실행에 aisstream 시험 수집 스레드를 같이 띄운다 (worker/aisstream.py)
 
 스케줄러는 기본 꺼져 있다 (09-23 결정). ShipFinder 스타터 키가 하루 50회라서 개발 중에 계속 돌면
 테스트할 몫이 남지 않는다. 켜면 WORKER_INTERVAL_HOURS마다 돈다.
@@ -24,6 +25,7 @@ from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.db import (apply_migrations, connect, purge_done_cargo, purge_old_conversations, purge_old_queries,
                             purge_watch_positions)
 from backend.app.services.watch import RUN_LIMIT, SHIPFINDER_CALLS_PER_KNOWN_VESSEL, known_vessel_due_count, run_watch
+from worker import aisstream
 from worker.collector import Budget, collect_port, collect_positions, collect_watch_positions, purge_positions, select_targets
 
 DEFAULT_INTERVAL_HOURS = 6.0  # 09-23 결정. SDD 5.10의 3시간에서 바꿨다 (위키 "문서와 달라진 점")
@@ -119,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
 
     interval = float(os.environ.get("WORKER_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS)) * 3600
     _log("schedule_on", interval_hours=interval / 3600, shipfinder_calls=args.shipfinder_calls)
+    # aisstream 시험 수집 (worker/aisstream.py, 10-08). AISSTREAM_KEY가 있고 AISSTREAM_ENABLED=true일 때만 뒤 스레드로 돈다.
+    # 약관·부산 수신 범위를 확인하지 않은 파일럿이라 기본은 꺼짐. 실패해도 이 주기 수집에는 영향이 없다
+    aisstream.start_in_thread()
     while True:
         try:
             _log("run_done", **run_once(args.shipfinder_calls))

@@ -1,0 +1,258 @@
+{
+ "_comment": "가공 fixture. IMF PortWatch Daily_Ports_Data 응답과 형식만 같은 값이다 (실제 응답 아님, 10-08). 부산(port1065) 2026-09-03~09-30 가상 28일, 최근 7일 컨테이너선 입항 평균 40척",
+ "objectIdFieldName": "ObjectId",
+ "features": [
+  {
+   "attributes": {
+    "date": 1790726400000,
+    "portcalls": 61,
+    "portcalls_container": 41,
+    "import_container": 41123,
+    "export_container": 41456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790640000000,
+    "portcalls": 59,
+    "portcalls_container": 39,
+    "import_container": 39123,
+    "export_container": 39456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790553600000,
+    "portcalls": 64,
+    "portcalls_container": 44,
+    "import_container": 44123,
+    "export_container": 44456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790467200000,
+    "portcalls": 60,
+    "portcalls_container": 40,
+    "import_container": 40123,
+    "export_container": 40456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790380800000,
+    "portcalls": 58,
+    "portcalls_container": 38,
+    "import_container": 38123,
+    "export_container": 38456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790294400000,
+    "portcalls": 62,
+    "portcalls_container": 42,
+    "import_container": 42123,
+    "export_container": 42456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790208000000,
+    "portcalls": 56,
+    "portcalls_container": 36,
+    "import_container": 36123,
+    "export_container": 36456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790121600000,
+    "portcalls": 53,
+    "portcalls_container": 33,
+    "import_container": 33123,
+    "export_container": 33456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1790035200000,
+    "portcalls": 55,
+    "portcalls_container": 35,
+    "import_container": 35123,
+    "export_container": 35456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789948800000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789862400000,
+    "portcalls": 56,
+    "portcalls_container": 36,
+    "import_container": 36123,
+    "export_container": 36456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789776000000,
+    "portcalls": 52,
+    "portcalls_container": 32,
+    "import_container": 32123,
+    "export_container": 32456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789689600000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789603200000,
+    "portcalls": 55,
+    "portcalls_container": 35,
+    "import_container": 35123,
+    "export_container": 35456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789516800000,
+    "portcalls": 53,
+    "portcalls_container": 33,
+    "import_container": 33123,
+    "export_container": 33456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789430400000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789344000000,
+    "portcalls": 56,
+    "portcalls_container": 36,
+    "import_container": 36123,
+    "export_container": 36456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789257600000,
+    "portcalls": 55,
+    "portcalls_container": 35,
+    "import_container": 35123,
+    "export_container": 35456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789171200000,
+    "portcalls": 53,
+    "portcalls_container": 33,
+    "import_container": 33123,
+    "export_container": 33456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1789084800000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788998400000,
+    "portcalls": 55,
+    "portcalls_container": 35,
+    "import_container": 35123,
+    "export_container": 35456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788912000000,
+    "portcalls": 52,
+    "portcalls_container": 32,
+    "import_container": 32123,
+    "export_container": 32456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788825600000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788739200000,
+    "portcalls": 56,
+    "portcalls_container": 36,
+    "import_container": 36123,
+    "export_container": 36456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788652800000,
+    "portcalls": 53,
+    "portcalls_container": 33,
+    "import_container": 33123,
+    "export_container": 33456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788566400000,
+    "portcalls": 55,
+    "portcalls_container": 35,
+    "import_container": 35123,
+    "export_container": 35456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788480000000,
+    "portcalls": 54,
+    "portcalls_container": 34,
+    "import_container": 34123,
+    "export_container": 34456
+   }
+  },
+  {
+   "attributes": {
+    "date": 1788393600000,
+    "portcalls": 53,
+    "portcalls_container": 33,
+    "import_container": 33123,
+    "export_container": 33456
+   }
+  }
+ ]
+}

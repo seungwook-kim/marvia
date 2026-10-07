@@ -8,6 +8,19 @@ busan_port_code: KRPUS
 port_schedule_lookback_days: 3
 port_schedule_lookahead_days: 7
 port_schedule_name_match_ratio: 0.85
+# 부산항 입항 추세 (IMF PortWatch, services/port_traffic.py, 10-08). 판정에는 안 쓰는 참고 맥락이다
+portwatch_port_id: port1065
+port_traffic_recent_days: 7
+port_traffic_base_days: 28
+port_traffic_busy_ratio: 1.15
+port_traffic_quiet_ratio: 0.85
+port_traffic_cache_hours: 12
+port_traffic_retry_minutes: 30
+# aisstream.io 시험 수집 (worker/aisstream.py, 10-08). 약관·부산 수신 범위 미확인이라 AISSTREAM_KEY가 있을 때만 돈다
+aisstream_bbox_busan: [[34.70, 128.40], [35.35, 129.60]]
+aisstream_bbox_wide: [[20.0, 110.0], [46.0, 150.0]]
+aisstream_max_mmsi: 200
+aisstream_refresh_minutes: 10
 ---
 
 # 부산항 기준값
@@ -20,3 +33,14 @@ port_schedule_name_match_ratio: 0.85
 | port_schedule_lookback_days | 해수부 관제 실적(실제 입항·접안)을 오늘부터 며칠 전까지 볼지. get_port_schedule 기본값 | mcp_server/tools/port_schedule.py |
 | port_schedule_lookahead_days | 해수부 입항 신고(입항 예정)를 오늘부터 며칠 뒤까지 볼지. 부산은 신고가 1주 앞까지 나온다 (09-23 실측). get_port_schedule 기본값 | mcp_server/tools/port_schedule.py |
 | port_schedule_name_match_ratio | 선명으로만 찾을 때 이 비율 이상 닮은 이름을 같은 배로 본다 (difflib 유사도, 정확·부분 일치가 없을 때만) | mcp_server/tools/port_schedule.py |
+| portwatch_port_id | IMF PortWatch에서 부산항의 항구 ID | backend/app/clients/portwatch.py |
+| port_traffic_recent_days | 입항 추세에서 "최근" 평균을 낼 날 수 | services/port_traffic.py |
+| port_traffic_base_days | 입항 추세의 비교 기준 평균을 낼 날 수 (최근 날을 포함한다) | services/port_traffic.py |
+| port_traffic_busy_ratio | 최근 평균 / 기준 평균이 이 값 이상이면 "평소보다 많음"(busy). 판정에는 안 쓴다 | services/port_traffic.py |
+| port_traffic_quiet_ratio | 같은 비율이 이 값 이하이면 "평소보다 적음"(quiet). 판정에는 안 쓴다 | services/port_traffic.py |
+| port_traffic_cache_hours | PortWatch 결과를 프로세스 안에 이 시간 동안 들고 있는다. 자료가 주 단위로 갱신돼 12시간이면 충분하다 | services/port_traffic.py |
+| port_traffic_retry_minutes | PortWatch 호출이 실패하면 이 시간 동안은 다시 부르지 않고 마지막 성공값을 준다 | services/port_traffic.py |
+| aisstream_bbox_busan | aisstream 구독 범위(부산 접근 수역). [[남서 위도, 경도], [북동 위도, 경도]] | worker/aisstream.py |
+| aisstream_bbox_wide | aisstream 넓은 구독 범위(동아시아). AISSTREAM_BBOX=wide일 때 쓴다 | worker/aisstream.py |
+| aisstream_max_mmsi | aisstream 구독에 넣는 지켜보는 배 MMSI 상한 | worker/aisstream.py |
+| aisstream_refresh_minutes | 지켜보는 배 목록을 다시 읽어 구독을 갱신하는 간격(분) | worker/aisstream.py |
