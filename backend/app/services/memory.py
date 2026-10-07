@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
+from backend.app import crypto
 from backend.app.db import atomic, connect
 from backend.app.observability.logging import log_failure
 from backend.app.schemas.agent import AgentRequest, AgentResponse
@@ -124,20 +125,27 @@ def _noted(value: str | None) -> str:
     return f"{day.month}/{day.day}"
 
 
-def _body(item: dict) -> str:
-    """항목 한 줄의 본문. 종류마다 정해진 칸만 정해진 순서로."""
+# LLM에 가는 글에서 전화번호 자리에 쓰는 말 (10-08). 번호는 화면(view)에서만 보인다
+PHONE_HIDDEN = "전화 있음"
+
+
+def _body(item: dict, show_phone: bool = False) -> str:
+    """항목 한 줄의 본문. 종류마다 정해진 칸만 정해진 순서로.
+    거래처 전화번호는 show_phone일 때(사용자 화면, 글자 수 세기)만 넣는다. LLM에 가는 글(판정·후속·채팅의 <user_memory>,
+    기억 뽑기 입력)에는 "전화 있음"만 둔다 (10-08: 개인정보를 LLM에 넘기지 않는다)."""
     f, kind = item.get("fields") or {}, item["kind"]
     if kind == "schedule":
         return f"{f.get('cycle')} · {f.get('task')}"
     if kind == "contact":
-        parts = [f.get("company"), f.get("role"), f.get("duty"), f.get("phone")]
+        phone = f.get("phone") if show_phone else (PHONE_HIDDEN if f.get("phone") else None)
+        parts = [f.get("company"), f.get("role"), f.get("duty"), phone]
         return " · ".join(p for p in parts if p)
     if kind == "todo":
         return f"{f.get('text')} [{'x' if f.get('done') else ' '}]"
     return str(f.get("text"))
 
 
-def _line(item: dict, with_ids: bool, prefix: str = "") -> str:
+def _line(item: dict, with_ids: bool, prefix: str = "", show_phone: bool = False) -> str:
     """"- [c2] 할 일: 은행에서 원본 B/L 받기 [ ] (9/28)". with_ids=False면 번호를 뺀다."""
     tag = f"[{item['id']}] " if with_ids else ""
     noted = _noted(item.get("noted_at"))
@@ -147,7 +155,7 @@ def _line(item: dict, with_ids: bool, prefix: str = "") -> str:
         when = f"({origin}, {noted})" if noted else f"({origin})"
     else:
         when = f"({noted})" if noted else ""
-    return f"- {tag}{prefix}{_body(item)} {when}".rstrip()
+    return f"- {tag}{prefix}{_body(item, show_phone)} {when}".rstrip()
 
 
 def cargo_name(row: dict | None) -> str:
@@ -157,8 +165,10 @@ def cargo_name(row: dict | None) -> str:
     return f"{row['label']} ({row['bl_masked']})" if row.get("label") else row["bl_masked"]
 
 
-def render(items: list[dict], cargo_rows: dict[str, dict] | None = None, with_ids: bool = False) -> str:
-    """메모장 마크다운 (Spec 템플릿). with_ids=True는 기억 뽑기 LLM에게만 준다. 사용자에게 말하는 LLM과 화면은 번호 없이."""
+def render(items: list[dict], cargo_rows: dict[str, dict] | None = None, with_ids: bool = False,
+           show_phone: bool = False) -> str:
+    """메모장 마크다운 (Spec 템플릿). with_ids=True는 기억 뽑기 LLM에게만 준다. 사용자에게 말하는 LLM과 화면은 번호 없이.
+    show_phone=True는 사용자 화면(view)과 상한 세기(fit)만 쓴다. 기본(False)은 LLM에 가는 모양이라 전화번호가 없다 (10-08)."""
     cargo_rows = cargo_rows or {}
     lines: list[str] = []
     about = [i for i in items if i["section"] == ABOUT]
@@ -168,13 +178,13 @@ def render(items: list[dict], cargo_rows: dict[str, dict] | None = None, with_id
             chosen = [i for i in about if i["kind"] == kind]
             if chosen:
                 lines.append(f"## {KIND_LABEL[kind]}")
-                lines += [_line(i, with_ids) for i in chosen]
+                lines += [_line(i, with_ids, show_phone=show_phone) for i in chosen]
     per_cargo = [i for i in items if i["section"] == CARGO]
     if per_cargo:
         lines.append("# 화물별")
         for key in dict.fromkeys(i.get("cargo_key") for i in per_cargo):
             lines.append(f"## {cargo_name(cargo_rows.get(key))}")
-            lines += [_line(i, with_ids, f"{KIND_LABEL[i['kind']]}: ") for i in per_cargo if i.get("cargo_key") == key]
+            lines += [_line(i, with_ids, f"{KIND_LABEL[i['kind']]}: ", show_phone) for i in per_cargo if i.get("cargo_key") == key]
     return "\n".join(lines)
 
 
@@ -361,7 +371,7 @@ def fit(items: list[dict], cargo_rows: dict[str, dict], max_chars: int = MAX_CHA
     끝난 화물: 화물 줄 status가 done이거나, 줄이 없는 화물(지웠거나 정리됨). 기준은 종류·상태뿐이다 (Spec "RAG 판정" 규칙 2).
     """
     def size(xs):
-        return len(render(xs, cargo_rows))
+        return len(render(xs, cargo_rows, show_phone=True))  # 상한은 사용자가 보는 글(전화번호 포함) 기준이다
 
     if size(items) <= max_chars:
         return items
@@ -417,12 +427,58 @@ def forgotten_since(conn, user_id: str, scope: str, since: datetime | None) -> b
 
 # ── 저장 (버전 확인, EC-03·EC-04) ──
 
+# ── 개인정보 칸 잠그기 (10-08) ──
+# 메모장은 user_memory.items(JSONB) 한 덩어리라 통째로 잠그면 DB 정리 함수(015)가 JSON을 못 다룬다. 그래서 개인정보 칸만
+# 칸 단위로 PII 열쇠(crypto.encrypt_pii)로 잠근다. 거래처 전화번호가 그 칸이다 (회사·직무는 사업 정보라 그대로 둔다).
+# 잠근 값은 "<칸>_enc"에 두고 원래 칸은 지운다. 잠그기·풀기는 DB를 읽고 쓰는 곳(load·save)에서만 한다. 나머지 코드는 늘 풀린 값을 본다.
+SEALED_FIELDS = {"contact": ("phone",)}
+SEALED_SUFFIX = "_enc"
+
+
+def seal_items(items: list[dict]) -> list[dict]:
+    """DB에 쓰기 전: 개인정보 칸을 잠근다. 열쇠가 없거나 잠그지 못하면 그 값은 저장하지 않는다(평문으로 두지 않는다).
+    이미 잠긴 값(<칸>_enc)은 그대로 둔다. 원본 목록은 바꾸지 않는다."""
+    out = copy.deepcopy(items)
+    for item in out:
+        fields = item.get("fields") or {}
+        for name in SEALED_FIELDS.get(item.get("kind"), ()):
+            value = fields.pop(name, None)
+            if not value:
+                continue
+            token = crypto.encrypt_pii(value)
+            if token:
+                fields[name + SEALED_SUFFIX] = token
+            else:
+                log_failure("memory_seal", "no_pii_key")  # 값은 버린다. 다음에 다시 알려 주면 그때 저장된다
+    return out
+
+
+def unseal_items(items: list[dict]) -> list[dict]:
+    """DB에서 읽은 뒤: 잠긴 칸을 풀어 원래 칸 이름으로 돌린다. 못 풀면(열쇠가 바뀜) 그 칸은 None.
+    잠그기 전에 저장된 옛 평문 값은 그대로 읽힌다. 다음에 저장할 때 seal_items가 잠근다."""
+    out = copy.deepcopy(items)
+    for item in out:
+        fields = item.get("fields") or {}
+        for name in SEALED_FIELDS.get(item.get("kind"), ()):
+            token = fields.pop(name + SEALED_SUFFIX, None)
+            if token is not None:
+                fields[name] = crypto.decrypt_pii(token)
+                if fields[name] is None:
+                    log_failure("memory_unseal", "decrypt_failed")
+    return out
+
+
+def has_plain_pii(items: list[dict]) -> bool:
+    """아직 잠기지 않은 개인정보 칸이 있나. 옛 줄을 한 번에 잠그는 스크립트(scripts/encrypt_memo_phones.py)가 쓴다."""
+    return any((i.get("fields") or {}).get(name) for i in items for name in SEALED_FIELDS.get(i.get("kind"), ()))
+
+
 def load(conn, user_id: str) -> tuple[list[dict], int, bool, bool]:
-    """(항목, 버전, 줄이 있나, 가득 참 표시가 있나). 줄이 없으면 빈 메모장."""
+    """(항목, 버전, 줄이 있나, 가득 참 표시가 있나). 줄이 없으면 빈 메모장. 개인정보 칸은 풀린 값으로 돌려준다 (10-08)."""
     row = conn.execute("SELECT items, version, full_at FROM user_memory WHERE user_id = %s", [user_id]).fetchone()
     if not row:
         return [], 0, False, False
-    return list(row[0] or []), row[1], True, row[2] is not None
+    return unseal_items(list(row[0] or [])), row[1], True, row[2] is not None
 
 
 def save(conn, user_id: str, change: Callable[[list[dict]], list[dict] | None], since: datetime | None = None) -> str:
@@ -449,7 +505,9 @@ def save(conn, user_id: str, change: Callable[[list[dict]], list[dict] | None], 
                 conn.execute("INSERT INTO user_memory (user_id, full_at) VALUES (%s, now()) ON CONFLICT (user_id) DO "
                              "UPDATE SET full_at = now()", [user_id])
             return "full"
-        payload, before = json.dumps(new, ensure_ascii=False), json.dumps(items, ensure_ascii=False)
+        # 개인정보 칸은 잠가서 쓴다. 되돌리기 재료(previous)도 같다 (10-08)
+        payload = json.dumps(seal_items(new), ensure_ascii=False)
+        before = json.dumps(seal_items(items), ensure_ascii=False)
         if exists:
             cur = conn.execute(
                 """UPDATE user_memory SET items = %s::jsonb, previous = %s::jsonb, version = version + 1,
@@ -634,7 +692,7 @@ def view(conn, user_id: str) -> dict:
     """GET /api/memory 재료: 번호 없는 마크다운, 항목 목록(지우기용 번호 포함), 화물 요약(원본 B/L 없음)."""
     every = _cargo_rows(conn, user_id)
     items, _, _, full = load(conn, user_id)
-    return {"markdown": render(items, every), "items": items, "cargo": list(every.values()), "full": full}
+    return {"markdown": render(items, every, show_phone=True), "items": items, "cargo": list(every.values()), "full": full}
 
 
 # ── 쓰기 흐름 (Spec "쓰기 흐름", 응답 뒤) ──

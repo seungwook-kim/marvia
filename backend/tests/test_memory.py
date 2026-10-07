@@ -118,7 +118,10 @@ def test_render_with_and_without_ids():
     numbered = memory.render(items, rows, with_ids=True)
     plain = memory.render(items, rows)
     assert "- [u1] 판매일 3일 전엔 알려 달라 (9/30)" in numbered
-    assert "- [u2] 가나다물류 · 포워더 · 수입담당 · 051-000-0000 (B/L에서, 9/28)" in numbered
+    # LLM에 가는 글(기억 뽑기·판정)에는 전화번호 대신 "전화 있음"만 (10-08). 화면 모양(show_phone)에만 번호가 보인다
+    assert "- [u2] 가나다물류 · 포워더 · 수입담당 · 전화 있음 (B/L에서, 9/28)" in numbered
+    assert "051-000-0000" not in numbered and "051-000-0000" not in plain
+    assert "- 가나다물류 · 포워더 · 수입담당 · 051-000-0000 (B/L에서, 9/28)" in memory.render(items, rows, show_phone=True)
     assert "## 고추 (MOC*******1002)" in numbered and "- [c1] 할 일: 은행에서 원본 B/L 받기 [ ] (9/28)" in numbered
     assert "[u1]" not in plain and "[c1]" not in plain and "- 할 일: 은행에서 원본 B/L 받기 [ ] (9/28)" in plain
 
@@ -217,6 +220,7 @@ def test_delete_one_item():
 
 def test_document_contact_is_added_once(monkeypatch):
     """서류에서 확인한 거래처는 출처 B/L로 한 번만 들어간다 (10-02 결정 7). 휴대폰은 거절."""
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())  # 전화번호는 잠가서 저장한다 (10-08)
     db = FakeMemoryDB(items=[])
     contact = {"company": "가나다물류", "role": "포워더", "phone": "051-000-0000", "source": "B/L"}
     assert memory.add_contact(db, "u1", contact, KEY, TODAY) == "saved"
@@ -224,6 +228,52 @@ def test_document_contact_is_added_once(monkeypatch):
     assert db.items[0]["fields"]["source"] == "B/L" and db.items[0]["section"] == "cargo"
     assert memory.add_contact(db, "u1", {**contact, "phone": "010-1234-5678"}, KEY, TODAY) == "rejected"
     assert memory.add_contact(db, "u1", {**contact, "source": "사용자"}, KEY, TODAY) == "rejected"
+
+
+# ── 개인정보 칸 잠그기 (10-08) ──
+
+def _contact(phone="051-000-0000"):
+    return {"id": "u2", "section": "about", "kind": "contact", "noted_at": "2026-09-28",
+            "fields": {"company": "가나다물류", "role": "포워더", "phone": phone, "source": "B/L"}}
+
+
+def test_phone_is_stored_sealed_and_read_back_open(monkeypatch):
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    db = FakeMemoryDB(items=[])
+    assert memory.save(db, "u1", lambda items: items + [_contact()]) == "saved"
+    stored = db.items[0]["fields"]
+    assert "phone" not in stored and stored["phone_enc"] and "051" not in json.dumps(db.items)  # DB에는 잠긴 값만
+    items, *_ = memory.load(db, "u1")
+    assert items[0]["fields"]["phone"] == "051-000-0000" and "phone_enc" not in items[0]["fields"]  # 코드에는 풀린 값
+
+
+def test_legacy_plain_phone_is_read_and_sealed_on_next_save(monkeypatch):
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    db = FakeMemoryDB(items=[_contact()])  # 잠그기 전에 저장된 옛 줄
+    assert memory.has_plain_pii(db.items)
+    assert memory.load(db, "u1")[0][0]["fields"]["phone"] == "051-000-0000"
+    assert memory.save(db, "u1", lambda items: items + [_todo("c1", "은행 가기")]) == "saved"
+    assert not memory.has_plain_pii(db.items) and "051" not in json.dumps(db.items) + json.dumps(db.previous)
+
+
+def test_without_pii_key_phone_is_dropped_not_stored_plain(monkeypatch):
+    monkeypatch.delenv("PII_ENCRYPTION_KEY", raising=False)
+    db = FakeMemoryDB(items=[])
+    assert memory.save(db, "u1", lambda items: items + [_contact()]) == "saved"
+    assert "051" not in json.dumps(db.items) and db.items[0]["fields"]["company"] == "가나다물류"
+
+
+def test_wrong_key_reads_phone_as_none(monkeypatch):
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    sealed = memory.seal_items([_contact()])
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())  # 열쇠가 바뀌었다
+    assert memory.unseal_items(sealed)[0]["fields"]["phone"] is None
+
+
+def test_llm_blocks_never_carry_phone(monkeypatch):
+    monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    block = memory.compose_blocks([], [_contact()], {})
+    assert "051-000-0000" not in block and "전화 있음" in block
 
 
 # ── 쓰기 흐름 전체 (remember) ──
