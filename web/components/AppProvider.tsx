@@ -9,6 +9,7 @@ import {deleteConversation, errorStatus, getAgentResponse, getConversation, getM
 import {verdictLabels} from '@/lib/format';
 import type {ProgressStage} from '@/lib/progress';
 import {authEnabled, currentUser, onAuthChange, type AuthUser} from '@/lib/auth';
+import {readMe, saveMe} from '@/lib/meCache';
 import type {EvidenceItem, Citation} from '@/lib/evidenceTypes';
 import type {AgentRequest, AgentResponse, ChatCargo, ChatDocument, ChatMap, ChatOnScreen, ChatResponse, ConversationMessage, ConversationSummary, DocumentResponse, WatchChange, WatchOffer} from '@/lib/types';
 import {decideAttachment} from '@/lib/docAttach';
@@ -205,8 +206,12 @@ export function AppProvider({children}:{children:ReactNode}) {
   useEffect(() => {
     if (!authReady || (authEnabled && !user)) { setIsOperator(false); setMeReady(!authEnabled); return; }
     let alive = true;
-    setMeReady(false);
-    void getMe().then(me => { if (alive) { setIsOperator(me.is_operator); setProfileComplete(me.profile_complete); setSuspended(!!me.suspended); setMeReady(true); } });
+    // 지난번에 받은 값이 있으면 그것으로 먼저 그린다: 새로고침 때 운영자 메뉴가 사라졌다 나타나지 않게 (lib/meCache.ts, 10-07)
+    const cached = user ? readMe(user.id) : null;
+    if (cached) { setIsOperator(cached.is_operator); setProfileComplete(cached.profile_complete); setSuspended(cached.suspended); setMeReady(true); }
+    else setMeReady(false);
+    void getMe().then(me => { if (alive) { setIsOperator(me.is_operator); setProfileComplete(me.profile_complete); setSuspended(!!me.suspended); setMeReady(true);
+      if (user) saveMe(user.id, {is_operator: me.is_operator, profile_complete: me.profile_complete, suspended: !!me.suspended}); } });
     refreshUsage();
     return () => { alive = false; };
   }, [authReady, user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
