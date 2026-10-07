@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marvia · 오늘의 화물 (B 모노크롬 미니멀)</title>
+<style>
+:root{
+  --ink:#0a0a0a;--t2:#4a4a4a;--t3:#8a8a8a;--line:#e4e4e4;--line2:#cfcfcf;--bg:#fff;--soft:#f7f7f7;
+  --red:#d92d20;--amb:#c88a04;--grn:#2f8a4a;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink)}
+body{font:13px/1.5 "Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;min-width:0}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+.app{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:100vh}
+
+/* sidebar */
+.side{border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.logo{height:56px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--line);font-weight:700;font-size:15px;letter-spacing:.02em}
+.logo i{display:inline-block;width:10px;height:10px;background:var(--ink);margin-right:10px}
+.nav{padding:16px 0;flex:1}
+.nav .grp{font-size:11px;color:var(--t3);padding:12px 20px 6px;letter-spacing:.04em}
+.nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 18px;border-left:2px solid transparent;color:var(--t2)}
+.nav a:hover{color:var(--ink)}
+.nav a.on{border-left-color:var(--ink);color:var(--ink);font-weight:700}
+.nav a .n{margin-left:auto;font-size:11px;color:var(--t3);font-weight:400}
+.user{border-top:1px solid var(--line);padding:14px 20px;font-size:12px}
+.user b{display:block;font-weight:600}
+.user span{color:var(--t3)}
+
+/* main */
+.main{min-width:0}
+.top{height:56px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 32px;gap:12px;font-size:12px;color:var(--t3)}
+.top .crumb b{color:var(--ink);font-weight:500}
+.top .sp{flex:1}
+.wrap{padding:28px 32px 40px}
+
+.head{display:flex;align-items:flex-end;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--ink)}
+.head h1{font-size:22px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.head .ts{font-size:12px;color:var(--t3);margin-top:6px}
+.head .sp{flex:1}
+.btn{height:32px;padding:0 14px;border:1px solid var(--line2);border-radius:2px;font-size:12px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:var(--ink)}
+.btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn.sm{height:26px;padding:0 10px;font-size:11px}
+
+/* KPI */
+.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--line)}
+.kpi div{padding:18px 20px 18px 0;border-right:1px solid var(--line)}
+.kpi div+div{padding-left:20px}
+.kpi div:last-child{border-right:0}
+.kpi .l{font-size:11px;color:var(--t3);letter-spacing:.04em;display:flex;align-items:center;gap:6px}
+.kpi .v{font-size:30px;font-weight:600;line-height:1.1;margin-top:8px;letter-spacing:-.02em}
+.kpi .v small{font-size:13px;font-weight:400;color:var(--t3);margin-left:4px}
+.kpi .d{font-size:11px;color:var(--t2);margin-top:4px}
+
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;flex:none}
+.d-r{background:var(--red)}.d-a{background:var(--amb)}.d-g{background:var(--grn)}.d-n{background:var(--line2)}
+
+/* layout grid */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 272px;gap:0 32px;margin-top:28px}
+@media (max-width:1279px){.grid{grid-template-columns:minmax(0,1fr)}.aside{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 24px;margin-top:8px}}
+
+.sec{margin-bottom:32px}
+.sh{display:flex;align-items:baseline;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line2)}
+.sh h2{font-size:13px;font-weight:700}
+.sh .c{font-size:11px;color:var(--t3)}
+.sh .sp{flex:1}
+.sh a{font-size:11px;color:var(--t2);border-bottom:1px solid var(--line2)}
+
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;font-weight:500;color:var(--t3);text-align:left;height:32px;padding:0 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{height:38px;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+th:first-child,td:first-child{padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+tr:hover td{background:var(--soft)}
+.r{text-align:right}
+.mut{color:var(--t3)}
+.sub{display:block;font-size:11px;color:var(--t3)}
+.nw{white-space:nowrap}
+.mono{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:12px;letter-spacing:.01em}
+.st{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px}
+.chg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px}
+.chg .to{color:var(--t3)}
+.chg .was{color:var(--t3)}
+.neg{color:var(--red);font-weight:600}
+.act{font-size:12px}
+.t-act td{font-size:12.5px}
+.t-act td:nth-child(2){min-width:130px}
+@media (max-width:1279px){.wrap,.top{padding-left:24px;padding-right:24px}.t-act th,.t-act td{padding-left:6px;padding-right:6px}.t-act td.nw{white-space:normal}.t-act td:nth-child(2){min-width:0}.t-act th{white-space:normal;line-height:1.3}}
+
+/* aside */
+.box{border-top:1px solid var(--ink);padding-top:12px;margin-bottom:28px}
+.box h3{font-size:12px;font-weight:700;margin-bottom:12px;display:flex;align-items:center}
+.box h3 span{margin-left:auto;font-size:11px;font-weight:400;color:var(--t3)}
+.fld{margin-bottom:10px}
+.fld label{display:block;font-size:11px;color:var(--t3);margin-bottom:4px}
+.fld .in{height:32px;border:1px solid var(--line2);border-radius:2px;padding:0 10px;display:flex;align-items:center;font-size:12px;color:var(--t3)}
+.fld .in.v{color:var(--ink)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:0 12px;font-size:12px}
+.kv dt,.kv dd{padding:8px 0;border-bottom:1px solid var(--line)}
+.kv dt{color:var(--t2);display:flex;align-items:center;gap:6px}
+.kv dd{text-align:right;white-space:nowrap}
+.kv dd.mut{color:var(--t3)}
+.note{font-size:11px;color:var(--t3);margin-top:8px;line-height:1.6}
+.lnk{font-size:11px;border-bottom:1px solid var(--ink);margin-top:10px;display:inline-block}
+
+.foot{font-size:11px;color:var(--t3);border-top:1px solid var(--line);padding-top:12px;display:flex;gap:24px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside class="side">
+  <div class="logo"><i></i>Marvia</div>
+  <nav class="nav">
+    <a class="on" href="#"><svg viewBox="0 0 16 16"><path d="M2.5 7.5 8 3l5.5 4.5V13H2.5z"/><path d="M6.5 13V9.5h3V13"/></svg>홈</a>
+    <a href="#"><svg viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>물어보기</a>
+    <a href="#"><svg viewBox="0 0 16 16"><path d="M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11z"/><path d="M2.5 5 8 7.5 13.5 5M8 7.5v6"/></svg>내 화물<span class="n">9</span></a>
+    <a href="#"><svg viewBox="0 0 16 16"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1.5H3z"/><path d="M6.5 14h3"/></svg>알림·설정</a>
+    <div class="grp">운영자</div>
+    <a href="#"><svg viewBox="0 0 16 16"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h11"/><path d="M5 2v3M10 6.5v3M7 11v3"/></svg>관리</a>
+  </nav>
+  <div class="user"><b>김승욱</b><span>운영자 · 데모포워딩</span></div>
+</aside>
+
+<main class="main">
+  <div class="top">
+    <span class="crumb">Marvia / <b>홈</b></span>
+    <span class="sp"></span>
+    <span>데이터 정상 수신 2/3</span>
+    <span>·</span>
+    <span>자동 갱신 15분</span>
+  </div>
+
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <h1>오늘의 화물</h1>
+        <div class="ts">2026-10-07 (수) 14:30 기준</div>
+      </div>
+      <span class="sp"></span>
+      <button class="btn"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5v3h-3"/></svg>전체 다시 조회</button>
+      <button class="btn pri"><svg viewBox="0 0 16 16"><path d="M8 2.5v8M5 7.5l3 3 3-3M3 13.5h10"/></svg>내보내기</button>
+    </div>
+
+    <div class="kpi">
+      <div><div class="l">지켜보는 화물</div><div class="v">9<small>건</small></div><div class="d">전일 대비 0</div></div>
+      <div><div class="l"><span class="dot d-r"></span>긴급</div><div class="v">2<small>건</small></div><div class="d">전일 대비 +1</div></div>
+      <div><div class="l"><span class="dot d-a"></span>주의</div><div class="v">3<small>건</small></div><div class="d">전일 대비 0</div></div>
+      <div><div class="l"><span class="dot d-g"></span>순항</div><div class="v">4<small>건</small></div><div class="d">전일 대비 −1</div></div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <section class="sec">
+          <div class="sh"><h2>변동 내역</h2><span class="c">최근 24시간 · 3건</span><span class="sp"></span><a href="#">전체 기록</a></div>
+          <table>
+            <thead><tr><th style="width:64px">시각</th><th>화물</th><th>판정 변경</th><th>사유</th><th class="r" style="width:60px"></th></tr></thead>
+            <tbody>
+              <tr><td class="nw">14:12</td><td>냉동 새우<span class="sub mono">MRVD****0001</span></td><td><span class="chg"><span class="was">주의</span><span class="to">→</span><span class="dot d-r"></span>긴급</span></td><td>입항 지연 예상 (+2일), 판매 예정일 초과</td><td class="r"><button class="btn sm">확인</button></td></tr>
+              <tr><td class="nw">11:40</td><td>커피 생두<span class="sub mono">MRVD****0004</span></td><td><span class="chg"><span class="was">순항</span><span class="to">→</span><span class="dot d-a"></span>주의</span></td><td>검사 대상 지정, 통관 1일 추가 예상</td><td class="r"><button class="btn sm">확인</button></td></tr>
+              <tr><td class="nw">09:05</td><td>올리브유<span class="sub mono">MRVD****0007</span></td><td><span class="chg"><span class="was">주의</span><span class="to">→</span><span class="dot d-g"></span>순항</span></td><td>선박 정시 입항 확인</td><td class="r"><button class="btn sm">확인</button></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="sec">
+          <div class="sh"><h2>조치 필요 화물</h2><span class="c">긴급 2 · 주의 3 · 여유 오름차순</span><span class="sp"></span><a href="#">내 화물 전체</a></div>
+          <table class="t-act">
+            <thead><tr><th>판정</th><th>화물 · B/L</th><th>선박</th><th>도착 예정</th><th>판매 예정일</th><th class="r">여유(일)</th><th>통관 단계</th><th>조치 사항</th><th>담당 포워더</th></tr></thead>
+            <tbody>
+              <tr><td><span class="st"><span class="dot d-r"></span>긴급</span></td><td>냉동 새우<span class="sub mono">MRVD****0001</span></td><td class="nw">DEMO STAR</td><td class="nw">10-11</td><td class="nw">10-10</td><td class="r neg">−1</td><td class="nw">입항 전</td><td class="act">판매처 일정 조정 협의</td><td class="nw">데모포워딩</td></tr>
+              <tr><td><span class="st"><span class="dot d-r"></span>긴급</span></td><td>소고기 냉장<span class="sub mono">MRVD****0002</span></td><td class="nw">TEST OCEAN</td><td class="nw">10-08</td><td class="nw">10-09</td><td class="r neg">1</td><td class="nw">수입신고 접수</td><td class="act">검역 서류 보완 제출</td><td class="nw">데모포워딩</td></tr>
+              <tr><td><span class="st"><span class="dot d-a"></span>주의</span></td><td>커피 생두<span class="sub mono">MRVD****0004</span></td><td class="nw">DEMO PACIFIC</td><td class="nw">10-09</td><td class="nw">10-13</td><td class="r">4</td><td class="nw">검사 대상</td><td class="act">검사 일정 확인</td><td class="nw">데모포워딩</td></tr>
+              <tr><td><span class="st"><span class="dot d-a"></span>주의</span></td><td>와인<span class="sub mono">MRVD****0005</span></td><td class="nw">TEST BRIDGE</td><td class="nw">10-12</td><td class="nw">10-16</td><td class="r">4</td><td class="nw">입항 전</td><td class="act">환적항 체류 모니터링</td><td class="nw">데모포워딩</td></tr>
+              <tr><td><span class="st"><span class="dot d-a"></span>주의</span></td><td>견과류<span class="sub mono">MRVD****0006</span></td><td class="nw">DEMO HARBOR</td><td class="nw">10-10</td><td class="nw">10-15</td><td class="r">5</td><td class="nw">하선 대기</td><td class="act">반출 일정 확인</td><td class="nw">데모포워딩</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="aside">
+        <div class="box">
+          <h3>빠른 조회</h3>
+          <div class="fld"><label>B/L 번호</label><div class="in v mono">MRVD****0003</div></div>
+          <div class="fld"><label>판매 예정일</label><div class="in">YYYY-MM-DD</div></div>
+          <button class="btn pri" style="width:100%;justify-content:center">조회</button>
+        </div>
+
+        <div class="box">
+          <h3>알림 연결<span>1/2</span></h3>
+          <dl class="kv">
+            <dt><span class="dot d-g"></span>이메일</dt><dd>연결됨</dd>
+            <dt><span class="dot d-n"></span>카카오</dt><dd class="mut">미연결</dd>
+          </dl>
+          <a class="lnk" href="#">카카오 연결</a>
+        </div>
+
+        <div class="box">
+          <h3>데이터 출처<span>마지막 수신</span></h3>
+          <dl class="kv">
+            <dt><span class="dot d-g"></span>AIS</dt><dd>14:28</dd>
+            <dt><span class="dot d-g"></span>해수부</dt><dd>14:15</dd>
+            <dt><span class="dot d-a"></span>UNI-PASS</dt><dd>13:02</dd>
+          </dl>
+          <p class="note">UNI-PASS 수신 지연 88분. 통관 단계 정보가 최신이 아닐 수 있음.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot"><span>판정 기준: 여유 ≤1일 긴급 · ≤5일 주의</span><span>데이터는 데모용 가공값</span></div>
+  </div>
+</main>
+
+</div>
+</body>
+</html>

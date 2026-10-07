@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marvia 오늘의 화물 보고서</title>
+<style>
+:root{
+  --ink:#16191f; --ink2:#3d434d; --mute:#6b7280; --faint:#9aa0a8;
+  --rule:#d9dce1; --rule2:#eceef1; --paper:#ffffff; --bg:#f6f6f4;
+  --accent:#1f3a5f;
+  --red:#b42318; --amb:#a15c07; --grn:#2f6b46;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.6 "Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.num{font-variant-numeric:tabular-nums}
+
+/* top bar */
+.top{background:var(--paper);border-bottom:1px solid var(--rule)}
+.top .in{max-width:1080px;margin:0 auto;padding:0 24px;height:44px;display:flex;align-items:center;gap:28px}
+.logo{font-weight:700;font-size:14px;letter-spacing:.02em;color:var(--accent)}
+.nav{display:flex;gap:22px;font-size:13px;color:var(--mute)}
+.nav a{padding:12px 0;border-bottom:1px solid transparent}
+.nav a.on{color:var(--ink);border-bottom-color:var(--ink)}
+.user{margin-left:auto;font-size:12px;color:var(--mute)}
+
+/* document */
+.doc{max-width:1080px;margin:0 auto;padding:0 24px}
+.sheet{background:var(--paper);border-left:1px solid var(--rule2);border-right:1px solid var(--rule2);padding:40px 56px 48px}
+.meta{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;color:var(--mute);letter-spacing:.04em;border-bottom:2px solid var(--ink);padding-bottom:8px}
+.meta b{color:var(--ink);font-weight:600}
+.head{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end;padding:28px 0 20px;border-bottom:1px solid var(--rule)}
+h1{font-size:34px;line-height:1.2;font-weight:700;letter-spacing:-.02em}
+.asof{margin-top:6px;font-size:13px;color:var(--mute)}
+.btns{display:flex;gap:6px}
+.btn{font:inherit;font-size:12px;height:30px;padding:0 12px;border:1px solid var(--rule);background:var(--paper);color:var(--ink);border-radius:2px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.5}
+
+.abstract{display:grid;grid-template-columns:120px 1fr;gap:24px;padding:20px 0 24px;border-bottom:1px solid var(--rule)}
+.lbl{font-size:11px;color:var(--mute);letter-spacing:.06em;padding-top:4px}
+.abstract p{font-size:17px;line-height:1.7;color:var(--ink);max-width:760px}
+.abstract p .x{font-weight:600}
+.abstract ul{margin-top:10px;list-style:none;font-size:13px;color:var(--ink2)}
+.abstract li{padding-left:14px;position:relative}
+.abstract li:before{content:"";position:absolute;left:0;top:10px;width:6px;height:1px;background:var(--ink2)}
+
+/* sections */
+section{display:grid;grid-template-columns:120px 1fr;gap:24px;padding:28px 0 8px}
+.sno{font-size:11px;color:var(--mute);letter-spacing:.06em;padding-top:5px}
+.sno b{display:block;font-size:22px;color:var(--ink);font-weight:300;letter-spacing:0;line-height:1}
+h2{font-size:18px;font-weight:700;letter-spacing:-.01em;display:flex;align-items:baseline;gap:10px}
+h2 small{font-size:12px;color:var(--mute);font-weight:400}
+.lead{font-size:13px;color:var(--ink2);margin:4px 0 12px}
+sup{font-size:9px;color:var(--accent);margin-left:1px}
+
+/* kpi */
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--ink);border-bottom:1px solid var(--rule)}
+.kpi div{padding:12px 16px 14px;border-left:1px solid var(--rule2)}
+.kpi div:first-child{border-left:0;padding-left:0}
+.kpi dt{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.kpi dd{font-size:30px;font-weight:600;line-height:1.25;color:var(--ink);margin-top:2px}
+.kpi dd span{font-size:12px;font-weight:400;color:var(--mute);margin-left:6px}
+.kpi dd span.up{color:var(--red)}
+.kpi .sub{font-size:11px;color:var(--faint)}
+
+/* verdict mark: dot + text only */
+.v{display:inline-flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap}
+.v:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.v.r{color:var(--red)} .v.a{color:var(--amb)} .v.g{color:var(--grn)} .v.n{color:var(--mute)}
+.d{width:6px;height:6px;border-radius:50%;display:inline-block}
+.d.r{background:var(--red)} .d.a{background:var(--amb)} .d.g{background:var(--grn)} .d.n{background:var(--faint)}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px}
+caption{caption-side:bottom;text-align:left;font-size:11px;color:var(--mute);padding-top:8px}
+thead th{font-size:11px;font-weight:600;color:var(--mute);text-align:left;padding:0 8px 6px;border-bottom:1px solid var(--ink);white-space:nowrap;letter-spacing:.02em}
+tbody td{padding:0 8px;height:40px;border-bottom:1px solid var(--rule2);vertical-align:middle}
+tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+th:first-child,td:first-child{padding-left:0}
+th:last-child,td:last-child{padding-right:0}
+.r{text-align:right}
+.t2{line-height:1.35}
+.t2 small{display:block;font-size:11px;color:var(--mute)}
+.arrow{color:var(--faint);margin:0 6px}
+.why{color:var(--ink2)}
+.over{color:var(--red);font-weight:600}
+.lnk{font-size:12px;color:var(--accent);border-bottom:1px solid currentColor;padding-bottom:1px;cursor:pointer;background:none;border-top:0;border-left:0;border-right:0;font-family:inherit}
+.act td{height:48px}
+.act td.todo{font-size:12px;color:var(--ink2);max-width:180px}
+
+/* section 4 */
+.two{display:grid;grid-template-columns:1.4fr 1fr;gap:32px}
+.kv{font-size:13px}
+.kv div{display:grid;grid-template-columns:110px 1fr auto;gap:8px;align-items:center;height:36px;border-bottom:1px solid var(--rule2)}
+.kv div:first-child{border-top:1px solid var(--ink)}
+.kv .k{color:var(--mute);font-size:12px}
+.h3{font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px;letter-spacing:.02em}
+form{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;border-top:1px solid var(--ink);padding-top:10px}
+label{font-size:11px;color:var(--mute);display:block}
+input{font:inherit;font-size:13px;width:100%;height:30px;border:1px solid var(--rule);border-radius:2px;padding:0 8px;color:var(--ink);background:#fff;margin-top:2px}
+input::placeholder{color:var(--faint)}
+.mt{margin-top:22px}
+
+/* notes */
+.notes{margin-top:32px;border-top:1px solid var(--ink);padding-top:10px;display:grid;grid-template-columns:120px 1fr;gap:24px}
+.notes ol{font-size:11px;color:var(--mute);padding-left:16px;line-height:1.8}
+.foot{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);padding:14px 0 40px}
+
+@media (max-width:1180px){
+  .sheet{padding:32px 32px 40px}
+  section,.abstract,.notes{grid-template-columns:72px 1fr;gap:16px}
+  table{font-size:12.5px}
+  thead th,tbody td{padding-left:6px;padding-right:6px}
+}
+</style>
+</head>
+<body>
+
+<header class="top"><div class="in">
+  <span class="logo">Marvia</span>
+  <nav class="nav">
+    <a class="on" href="#">홈</a><a href="#">물어보기</a><a href="#">내 화물</a><a href="#">알림·설정</a><a href="#">관리</a>
+  </nav>
+  <span class="user">김승욱 · 운영자</span>
+</div></header>
+
+<main class="doc"><div class="sheet">
+
+  <div class="meta">
+    <span>일일 화물 현황 보고 · <b>No. 2026-280</b></span>
+    <span>작성 Marvia 자동 집계 · 배포 대상 운영팀</span>
+  </div>
+
+  <div class="head">
+    <div>
+      <h1>오늘의 화물</h1>
+      <div class="asof num">2026-10-07 (수) 14:30 기준</div>
+    </div>
+    <div class="btns">
+      <button class="btn" type="button"><svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>전체 다시 조회</button>
+      <button class="btn pri" type="button"><svg viewBox="0 0 16 16"><path d="M8 2.5v8"/><path d="M4.5 7 8 10.5 11.5 7"/><path d="M2.5 13.5h11"/></svg>내보내기</button>
+    </div>
+  </div>
+
+  <div class="abstract">
+    <div class="lbl">요약</div>
+    <div>
+      <p><span class="x">긴급 2건, 주의 3건.</span> 판매 예정일 초과 1건. 지켜보는 화물 9건 중 5건이 조치 대상이며, 긴급은 전일 대비 1건 증가. 주요 원인은 부산 신항 입항 지연과 통관 서류 보완 요청.</p>
+      <ul>
+        <li>MRVD****0001 판매 예정일 2일 초과, 대체 출고 검토 필요</li>
+        <li>DEMO STAR 입항 지연 예상(+3일), 관련 화물 2건 영향</li>
+        <li>카카오 알림 미연결, 긴급 판정 알림 미발송 상태</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 1 -->
+  <section>
+    <div class="sno"><b>01</b>섹션</div>
+    <div>
+      <h2>요약 지표 <small>전일 14:30 대비</small></h2>
+      <p class="lead">판정 기준은 판매 예정일 대비 도착 예정일 여유일수.<sup>1</sup></p>
+      <dl class="kpi">
+        <div><dt><span class="d n"></span>지켜보는 화물</dt><dd class="num">9<span>±0</span></dd><div class="sub">등록 화물 전체</div></div>
+        <div><dt><span class="d r"></span>긴급</dt><dd class="num">2<span class="up">+1</span></dd><div class="sub">여유 0일 이하</div></div>
+        <div><dt><span class="d a"></span>주의</dt><dd class="num">3<span>±0</span></dd><div class="sub">여유 1~5일</div></div>
+        <div><dt><span class="d g"></span>순항</dt><dd class="num">4<span>−1</span></dd><div class="sub">여유 6일 이상</div></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sno"><b>02</b>섹션</div>
+    <div>
+      <h2>변동 내역 <small>최근 24시간 · 3건</small></h2>
+      <p class="lead">판정이 바뀐 화물. 확인 처리 시 목록에서 제외.</p>
+      <table>
+        <thead><tr><th>시각</th><th>화물</th><th>판정 변경</th><th>사유</th><th class="r">처리</th></tr></thead>
+        <tbody>
+          <tr><td class="num">13:52</td><td class="t2">냉동 새우 20FT<small class="num">MRVD****0001</small></td><td><span class="v a">주의</span><span class="arrow">→</span><span class="v r">긴급</span></td><td class="why">판매 예정일 2일 초과</td><td class="r"><button class="lnk" type="button">확인</button></td></tr>
+          <tr><td class="num">11:20</td><td class="t2">원두 커피 40FT<small class="num">MRVD****0004</small></td><td><span class="v g">순항</span><span class="arrow">→</span><span class="v a">주의</span></td><td class="why">입항 지연 예상(+3일)</td><td class="r"><button class="lnk" type="button">확인</button></td></tr>
+          <tr><td class="num">09:05</td><td class="t2">가구 부품 40HC<small class="num">MRVD****0007</small></td><td><span class="v a">주의</span><span class="arrow">→</span><span class="v g">순항</span></td><td class="why">수입 신고 수리 완료</td><td class="r"><button class="lnk" type="button">확인</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sno"><b>03</b>섹션</div>
+    <div>
+      <h2>조치 필요 화물 <small>긴급 2 · 주의 3</small></h2>
+      <p class="lead">여유일수 오름차순. 음수는 판매 예정일 초과 일수.<sup>2</sup></p>
+      <table class="act">
+        <thead><tr><th>판정</th><th>화물 · B/L</th><th>선박</th><th>도착 예정</th><th>판매 예정일</th><th class="r">여유(일)</th><th>통관 단계<sup>3</sup></th><th>조치 사항</th><th>담당 포워더</th></tr></thead>
+        <tbody>
+          <tr><td><span class="v r">긴급</span></td><td class="t2">냉동 새우 20FT<small class="num">MRVD****0001</small></td><td>DEMO STAR</td><td class="num">10-09</td><td class="num">10-07</td><td class="r num over">−2</td><td>입항 대기</td><td class="todo">대체 출고·판매 일정 조정</td><td>데모포워딩</td></tr>
+          <tr><td><span class="v r">긴급</span></td><td class="t2">건조 과일 20FT<small class="num">MRVD****0002</small></td><td>TEST OCEAN</td><td class="num">10-10</td><td class="num">10-10</td><td class="r num">0</td><td>서류 보완</td><td class="todo">원산지 증명서 재제출</td><td>데모포워딩</td></tr>
+          <tr><td><span class="v a">주의</span></td><td class="t2">원두 커피 40FT<small class="num">MRVD****0004</small></td><td>DEMO STAR</td><td class="num">10-12</td><td class="num">10-14</td><td class="r num">2</td><td>입항 대기</td><td class="todo">입항 일정 재확인</td><td>데모포워딩</td></tr>
+          <tr><td><span class="v a">주의</span></td><td class="t2">주방 소형가전 40HC<small class="num">MRVD****0005</small></td><td>TEST BRIDGE</td><td class="num">10-11</td><td class="num">10-15</td><td class="r num">4</td><td>수입 신고</td><td class="todo">검사 대상 여부 확인</td><td>데모포워딩</td></tr>
+          <tr><td><span class="v a">주의</span></td><td class="t2">면 원단 20FT<small class="num">MRVD****0006</small></td><td>DEMO HARBOR</td><td class="num">10-13</td><td class="num">10-18</td><td class="r num">5</td><td>운항 중</td><td class="todo">창고 입고 예약</td><td>데모포워딩</td></tr>
+        </tbody>
+        <caption>순항 4건은 생략. 전체 목록은 내 화물 메뉴 참조.</caption>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sno"><b>04</b>섹션</div>
+    <div>
+      <h2>데이터 출처 <small>수신 상태 · 알림 · 조회</small></h2>
+      <p class="lead">각 판정은 아래 출처의 마지막 수신값으로 계산.<sup>4</sup></p>
+      <div class="two">
+        <div>
+          <table>
+            <thead><tr><th>출처</th><th>항목</th><th>마지막 수신</th><th class="r">상태</th></tr></thead>
+            <tbody>
+              <tr><td>AIS</td><td class="why">선박 위치·속도</td><td class="num">14:28</td><td class="r"><span class="v g">정상</span></td></tr>
+              <tr><td>해수부</td><td class="why">입출항·선석 계획</td><td class="num">14:10</td><td class="r"><span class="v g">정상</span></td></tr>
+              <tr><td>UNI-PASS</td><td class="why">통관 진행 단계</td><td class="num">13:45</td><td class="r"><span class="v a">지연 45분</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <div class="h3">알림 연결</div>
+          <div class="kv">
+            <div><span class="k">카카오 알림톡</span><span class="v r">미연결</span><button class="lnk" type="button">연결</button></div>
+            <div><span class="k">이메일</span><span class="v g">연결됨</span><span class="k">kim***@demo</span></div>
+          </div>
+          <div class="h3 mt">빠른 조회</div>
+          <form>
+            <div><label for="bl">B/L 번호</label><input id="bl" placeholder="MRVD****0000"></div>
+            <div><label for="sd">판매 예정일</label><input id="sd" placeholder="2026-10-20"></div>
+            <button class="btn" type="button"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>조회</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="notes">
+    <div class="lbl">주</div>
+    <ol>
+      <li>여유일수 = 판매 예정일 − 도착 예정일. 0일 이하 긴급, 1~5일 주의, 6일 이상 순항.</li>
+      <li>도착 예정은 AIS 항적과 해수부 선석 계획을 결합한 추정값. 실제 입항일과 차이 발생 가능.</li>
+      <li>통관 단계는 UNI-PASS 화물 진행 정보 기준. 수신 지연 시 직전 단계 표시.</li>
+      <li>본 문서의 화물·선박·포워더 정보는 모두 시연용 가공 데이터.</li>
+    </ol>
+  </div>
+
+</div>
+<div class="foot"><span>Marvia · 일일 화물 현황 보고</span><span class="num">1 / 1</span></div>
+</main>
+
+</body>
+</html>
