@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from backend.app.clients.mof import MofClient, MofError
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.db import (apply_migrations, connect, purge_done_cargo, purge_old_conversations, purge_old_queries,
-                            purge_watch_positions)
+                            purge_vessel_detail_usage, purge_watch_positions)
 from backend.app.services.watch import RUN_LIMIT, SHIPFINDER_CALLS_PER_KNOWN_VESSEL, known_vessel_due_count, run_watch
 from worker import aisstream
 from worker.collector import Budget, collect_port, collect_positions, collect_watch_positions, purge_positions, select_targets
@@ -93,6 +93,7 @@ def run_once(shipfinder_calls: int) -> dict:
     summary["done_cargo_purged"] = purge_done_cargo(conn)  # 반출 3년 지난 끝난 화물과 그 메모 삭제 (migrations/015)
     summary["conversations_purged"] = purge_old_conversations(conn)  # 90일 지난 대화 목록 삭제 (migrations/018)
     summary["watch_positions_purged"] = purge_watch_positions(conn)  # 안 지켜보는 배의 30일 지난 감시 위치 삭제 (migrations/021)
+    summary["vessel_detail_usage_purged"] = purge_vessel_detail_usage(conn)  # 7일 지난 선박 자세히 보기 횟수 줄 삭제 (migrations/025)
     if watch_enabled():
         try:
             # 지켜보는 화물 재판정 (services/watch.py). 떼어 둔 예산만큼, 배를 아는 화물만

@@ -107,8 +107,32 @@ def _extra_of(reply: dict) -> dict | None:
     return extra if set(extra) - {"kind"} else None
 
 
-def save_turn(conn, user_id: str, conv_id: str, user_text: str, reply: dict) -> bool:
+# 사진만 보내고 글을 안 쓴 턴의 제목 재료 (10-08 사진 첨부). 빈 글로 지으면 제목이 "새 대화"로 남는다
+ATTACHMENT_TITLE_TEXT = "서류 사진으로 조회"
+ATTACHMENT_NAME_MAX = 120  # 첨부 파일 이름 저장 상한 (routers/chat.py ChatShown과 같은 값)
+ATTACHMENT_NOTE_MAX = 300  # 사진을 읽고 화면이 쓴 안내 한 줄의 저장 상한
+
+
+def user_extra_of(attachment_name: str | None, note: str | None) -> dict | None:
+    """사용자 말풍선에 같이 잠가 둘 화면 자료 (10-08 사진 첨부): 첨부 파일 이름과, 화면이 그 사진을 읽고 쓴 안내 한 줄.
+    사진 자체는 저장하지 않는다(이름만). 다시 연 대화가 처음 화면과 같게 보이려는 것이다. 둘 다 없으면 None."""
+    extra = {k: v.strip()[:limit] for k, v, limit in (("attachment", attachment_name, ATTACHMENT_NAME_MAX),
+                                                      ("attachment_note", note, ATTACHMENT_NOTE_MAX)) if v and v.strip()}
+    return extra or None
+
+
+def title_source(user_text: str, user_extra: dict | None) -> str:
+    """제목을 지을 글. 사진만 보낸 턴(글 없음)은 ATTACHMENT_TITLE_TEXT로 짓는다 (10-08)."""
+    if (user_text or "").strip() or not (user_extra or {}).get("attachment"):
+        return user_text
+    return ATTACHMENT_TITLE_TEXT
+
+
+def save_turn(conn, user_id: str, conv_id: str, user_text: str, reply: dict, user_extra: dict | None = None) -> bool:
     """사용자 말 + 답 한 쌍을 저장한다. 새 대화면 True. 잠그지 못하면 아무것도 저장하지 않고 False.
+
+    user_text는 화면에 보인 사용자 글이다. 사진 첨부 턴은 서버가 처리한 문장(사진에서 읽은 B/L이 붙은 글)이 아니라
+    사용자가 쓴 글만 온다. 첨부 이름·안내 줄은 user_extra로 사용자 줄의 extra_enc에 잠가 둔다 (10-08, 다시 연 대화 = 처음 화면).
 
     reply는 ChatResponse를 model_dump(mode="json")한 dict다. 마지막 판정 덩어리(agent·request)는 이번 답에 있을 때만
     conversations.context·result를 바꾼다. 선박 검색 답처럼 없으면 앞의 값을 그대로 둔다 (오른쪽 칸을 마지막 화물로 복원).
@@ -117,11 +141,13 @@ def save_turn(conn, user_id: str, conv_id: str, user_text: str, reply: dict) -> 
     extra = _extra_of(reply)
     user_enc, reply_enc = _lock(user_text), _lock(reply.get("reply") or "")
     extra_enc = _lock(extra) if extra else None
+    user_extra_enc = _lock(user_extra) if user_extra else None
     context_enc = _lock(reply["request"]) if reply.get("request") else None
     result_enc = _lock(reply["agent"]) if reply.get("agent") else None
     # 첫 턴이 인사면 제목은 일단 "새 대화". 진짜 질문이 오면 _save_job이 다시 짓는다 (10-06)
-    title_enc = _lock(NO_TITLE if is_small_talk(user_text, reply) else fallback_title(user_text))
-    if None in (user_enc, reply_enc, title_enc) or (extra and extra_enc is None) \
+    title_text = title_source(user_text, user_extra)
+    title_enc = _lock(NO_TITLE if is_small_talk(title_text, reply) else fallback_title(title_text))
+    if None in (user_enc, reply_enc, title_enc) or (extra and extra_enc is None) or (user_extra and user_extra_enc is None) \
             or (reply.get("request") and context_enc is None) or (reply.get("agent") and result_enc is None):
         log_failure("conversation_save", "encrypt_failed")
         return False
@@ -138,7 +164,7 @@ def save_turn(conn, user_id: str, conv_id: str, user_text: str, reply: dict) -> 
             [conv_id, user_id, title_enc, context_enc, result_enc])
         last = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM conversation_messages "
                             "WHERE user_id = %s AND conversation_id = %s", [user_id, conv_id]).fetchone()[0]
-        for seq, role, text_enc, e_enc in ((last + 1, "user", user_enc, None), (last + 2, "assistant", reply_enc, extra_enc)):
+        for seq, role, text_enc, e_enc in ((last + 1, "user", user_enc, user_extra_enc), (last + 2, "assistant", reply_enc, extra_enc)):
             conn.execute("INSERT INTO conversation_messages (user_id, conversation_id, seq, role, text_enc, extra_enc) "
                          "VALUES (%s, %s, %s, %s, %s, %s)", [user_id, conv_id, seq, role, text_enc, e_enc])
         # 대화당 마지막 200줄만 둔다 (10-06 결정). seq가 KEEP_MESSAGES 이하로 밀려난 줄을 지운다
@@ -155,16 +181,17 @@ def set_title(conn, user_id: str, conv_id: str, title: str) -> None:
     conn.execute("UPDATE conversations SET title_enc = %s WHERE user_id = %s AND id = %s", [title_enc, user_id, conv_id])
 
 
-def _save_job(user_id: str, conv_id: str, user_text: str, reply: dict) -> None:
+def _save_job(user_id: str, conv_id: str, user_text: str, reply: dict, user_extra: dict | None = None) -> None:
     """뒤 작업 본체: 저장하고, 새 대화면 제목을 지어 바꾼다. 예외는 memory._guarded가 로그로 받는다.
     제목 LLM이 느려도 저장은 이미 끝났고, 채팅 답은 벌써 나갔다."""
+    title_text = title_source(user_text, user_extra)
     with connect() as conn:
-        is_new = save_turn(conn, user_id, conv_id, user_text, reply)
-        if is_small_talk(user_text, reply):
+        is_new = save_turn(conn, user_id, conv_id, user_text, reply, user_extra)
+        if is_small_talk(title_text, reply):
             return  # 인사·사용법 턴으로는 제목을 짓지 않는다
         if is_new or is_placeholder_title(current_title(conn, user_id, conv_id)):
             # 새 대화이거나, 인사로 시작해 아직 임시 제목("새 대화"·"인사" 등)인 대화의 첫 진짜 질문 (10-06)
-            set_title(conn, user_id, conv_id, make_title(user_text))
+            set_title(conn, user_id, conv_id, make_title(title_text))
 
 
 def current_title(conn, user_id: str, conv_id: str) -> str | None:
@@ -173,7 +200,7 @@ def current_title(conn, user_id: str, conv_id: str) -> str | None:
     return _open(row[0]) if row else None
 
 
-def save_later(user_id: str | None, conv_id: str | None, user_text: str, reply: dict) -> None:
+def save_later(user_id: str | None, conv_id: str | None, user_text: str, reply: dict, user_extra: dict | None = None) -> None:
     """답을 만든 뒤에 부른다. 로그인하지 않았거나 저장 환경이 아니면 아무것도 하지 않는다 (종류만 로그).
     저장은 기억 쓰기와 같은 뒤 일꾼(memory.run_later)에서 돈다. 요청의 문맥을 복사해 넘기고, 대기가 가득 차면 버린다."""
     if not user_id or not conv_id:
@@ -181,7 +208,7 @@ def save_later(user_id: str | None, conv_id: str | None, user_text: str, reply: 
     if not ready():
         log_failure("conversation_save", "not_configured")
         return
-    memory.run_later(_save_job, user_id, conv_id, user_text, reply)
+    memory.run_later(_save_job, user_id, conv_id, user_text, reply, user_extra)
 
 
 # ── 읽기·삭제 ──

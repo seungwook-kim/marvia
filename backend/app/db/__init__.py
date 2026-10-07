@@ -204,6 +204,15 @@ def purge_watch_positions(conn) -> int:
     return conn.execute("SELECT purge_old_watch_positions()").fetchall()[0][0]
 
 
+def purge_vessel_detail_usage(conn) -> int:
+    """선박 자세히 보기 하루 횟수(vessel_detail_usage)에서 7일 지난 날짜 줄을 지우고 지운 줄 수를 돌려준다 (10-08 점검).
+
+    규칙(7일)은 DB 함수 purge_old_vessel_detail_usage()에만 있다 (migrations/025). 다른 정리와 같이 pg_cron이 하루 한 번,
+    pg_cron이 없는 로컬·채점용 DB는 워커가 실행마다 부른다. 여러 번 불러도 결과는 같다.
+    """
+    return conn.execute("SELECT purge_old_vessel_detail_usage()").fetchall()[0][0]
+
+
 def recent_positions(conn, mmsi: int, limit: int = 20) -> list[dict]:
     """워커가 모은 같은 배의 위치 이력을 오래된 순으로 읽는다. anchor_wait 정지 시간 계산용 (services/signals.py).
 

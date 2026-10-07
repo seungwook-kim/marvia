@@ -5,7 +5,7 @@
  */
 import {createContext, useContext, useEffect, useRef, useState, type ReactNode} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
-import {deleteConversation, errorStatus, getAgentResponse, getConversation, getMe, getPresentationData, getReplaySnapshot, getUsage, getWatchChanges, isLive, listConversations, markWatchChangesSeen, newSessionId, readDocument, sendChatStream, setActiveSession, currentSessionId, watchKey, type UsageInfo} from '@/lib/api';
+import {deleteConversation, errorStatus, getAgentResponse, getConversation, getMe, getPresentationData, getReplaySnapshot, getUsage, getWatchChanges, isLive, listConversations, markWatchChangesSeen, newSessionId, readDocument, saveAttachmentTurn, sendChatStream, setActiveSession, currentSessionId, watchKey, type ChatShown, type UsageInfo} from '@/lib/api';
 import {verdictLabels} from '@/lib/format';
 import type {ProgressStage} from '@/lib/progress';
 import {authEnabled, currentUser, onAuthChange, type AuthUser} from '@/lib/auth';
@@ -49,7 +49,16 @@ const presentation = getPresentationData();
 // 실제 모드는 빈 폼으로 시작한다. 세션 ID는 lib/api.ts가 요청 때 브라우저 값으로 채운다
 const emptyRequest: AgentRequest = {bl_no: '', bl_type: null, sale_due_date: null, session_id: ''};  // 구분 모름이 기본 (10-08)
 
-/** 서버에 저장된 대화 한 줄을 말풍선으로. extra에는 그 턴이 처음 왔을 때의 화면용 값이 있어 지도·표·지켜보기 버튼이 같게 다시 그려진다 (10-06 결정) */
+/** 서버에 저장된 대화 한 줄을 말풍선으로. 사진 첨부 턴의 사용자 줄은 첨부 칩(이름만, 사진은 저장하지 않는다)과,
+ * 화면이 그 사진을 읽고 쓴 안내 한 줄을 처음 화면처럼 되살린다 (10-08). 그래서 한 줄이 말풍선 둘이 될 수 있다 */
+function toTurns(m: ConversationMessage): ChatTurn[] {
+  if (m.role !== 'user') return [toTurn(m)];
+  const x = m.extra as {attachment?: string; attachment_note?: string} | null;
+  const user: ChatTurn = {role: 'user', text: m.text, ...(x?.attachment ? {image: {url: '', name: x.attachment, pdf: /\.pdf$/i.test(x.attachment)}} : {})};
+  return x?.attachment_note ? [user, {role: 'assistant', text: x.attachment_note, kind: 'message'}] : [user];
+}
+
+/** 서버에 저장된 답 한 줄을 말풍선으로. extra에는 그 턴이 처음 왔을 때의 화면용 값이 있어 지도·표·지켜보기 버튼이 같게 다시 그려진다 (10-06 결정) */
 function toTurn(m: ConversationMessage): ChatTurn {
   const x = m.extra;
   return {role: m.role, text: m.text, kind: x?.kind, map: x?.map ?? null, cargos: x?.cargos ?? [], watchOffer: x?.watch_offer ?? null, ...pickable(x?.agent, x?.request),
@@ -285,7 +294,7 @@ export function AppProvider({children}:{children:ReactNode}) {
       if (mine !== epoch.current) return false;
       startSession(id);
       clearScreen();
-      setThread(c.messages.slice(-50).map(toTurn));  // 화면에는 최근 50줄만 (ask와 같다)
+      setThread(c.messages.slice(-50).flatMap(toTurns));  // 화면에는 최근 50줄만 (ask와 같다)
       if (c.context && c.result) { setRequest({...c.context, session_id: id}); setResult(c.result); setCargoKey(c.result.trace_id); }
       // 마지막 답의 종류가 결과 칸을 정한다. ask()가 답마다 하는 것과 같다
       const last = [...c.messages].reverse().find(m => m.role === 'assistant');
@@ -382,14 +391,22 @@ export function AppProvider({children}:{children:ReactNode}) {
       // 검사를 통과한 항차·입항일·출항일만 남긴다. 나머지 경우는 지난 서류 값이 이번 화물에 섞이지 않게 비운다
       setDocHints(plan.hints);
       if (plan.note) setThread(t => [...t, {role: 'assistant', text: plan.note!, kind: 'message'}]);
-      if (!plan.message) return true;
-      return await chatTurn(plan.message, history, plan.document);
+      // 대화 기록은 화면에 보인 그대로 남긴다 (10-08): 쓴 글 + 첨부 이름 + 안내 줄. 처리용 문장(사진에서 읽은 B/L이 붙은 글)은 남기지 않는다
+      const shown: ChatShown = {text: text.trim(), attachment_name: file.name, note: plan.note ?? null};
+      if (!plan.message) {
+        // 채팅을 부르지 않은 턴(B/L 없음·불확실, 쓴 글 없음)은 채팅이 저장해 주지 않아 따로 남긴다
+        if (conversationsOn && plan.note && await saveAttachmentTurn(shown.text, file.name, plan.note)) {
+          syncUrl(currentSessionId()); void refreshConversations();
+        }
+        return true;
+      }
+      return await chatTurn(plan.message, history, plan.document, shown);
     } catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); return false; }
     finally { finish(); }
   }
 
   /** 문장 하나를 채팅 에이전트로 보내고 답을 대화·결과 칸에 반영한다. 시작·끝 처리(begin/finish)와 사용자 말풍선은 부르는 쪽이 한다 */
-  async function chatTurn(message: string, history: ChatTurn[], document: ChatDocument | null) {
+  async function chatTurn(message: string, history: ChatTurn[], document: ChatDocument | null, shown: ChatShown | null = null) {
     // 화면에 화물 카드가 실제로 보일 때만 그 화물을 함께 보낸다(후속 질문, "마스터로 다시"). B/L은 서버 안에서만 쓰인다.
     // 카드를 숨긴 상태(선박 표·안내 문장)에서 보낸 문장이 보이지 않는 화물의 후속 질문이 되지 않게 한다 (10-02 UI 점검 F5)
     const context = view === 'cargo' && result && request.bl_no ? request : null;
@@ -399,7 +416,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     // 서버가 단계에 들어갈 때마다 목록에 더한다. 같은 단계가 두 번 오면(후속 질문이 재조회할 때 등) 한 번만 둔다
     const res = await sendChatStream(message, context,
       s => { seen.push(s); if (!stepLog.some(x => x.stage === s)) stepLog.push({stage: s, at: Date.now()}); setStages(list => list.includes(s) ? list : [...list, s]); },
-      history, document, onScreenOf(view, result, vessels));
+      history, document, onScreenOf(view, result, vessels), shown);
     setThread(t => [...t, {role: 'assistant', text: res.reply, kind: res.kind, map: res.map ?? null, cargos: res.cargos ?? [], watchOffer: res.watch_offer ?? null, ...pickable(res.agent, res.request),
       ...(res.evidence_items?.length ? {evidence: res.evidence_items, citations: res.citations ?? []} : {}), ...(stepLog.length ? {steps: stepLog, tookMs: Date.now() - startedAt} : {})}]);
     // 대화로 지켜보기를 켜고 껐으면 결과 칸의 버튼·말풍선 버튼이 같은 상태를 보게 한다

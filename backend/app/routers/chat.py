@@ -107,8 +107,18 @@ class ChatScreen(BaseModel):
     arrivals: list[ChatScreenArrival] = Field(default_factory=list, max_length=svc.SCREEN_ARRIVALS_MAX)
 
 
+class ChatShown(BaseModel):
+    """사진 첨부 턴에서 화면에 실제로 보인 사용자 말풍선 (10-08). message는 처리용(사진에서 읽은 B/L이 붙은 글)이라
+    대화 기록에는 이 값을 저장한다. 그래야 다시 연 대화가 처음 화면과 같다 (services/conversations.save_turn)."""
+    text: str = Field(default="", max_length=svc.MESSAGE_MAX)  # 사용자가 쓴 글. 사진만 보냈으면 빈 글
+    attachment_name: str | None = Field(default=None, max_length=conversations_service.ATTACHMENT_NAME_MAX)
+    note: str | None = Field(default=None, max_length=conversations_service.ATTACHMENT_NOTE_MAX)  # 화면이 사진을 읽고 쓴 안내 한 줄
+
+
 class ChatRequest(BaseModel):
     message: str = Field(max_length=svc.MESSAGE_MAX)
+    # 사진 첨부 턴의 보인 글·첨부 이름 (10-08). 없으면 message를 그대로 기록한다 (전 화면·평가 스크립트)
+    shown: ChatShown | None = None
     session_id: str = Field(max_length=SESSION_ID_MAX)  # /api/agent와 같은 상한 (schemas/agent.py, 10-06 점검)
     context: ChatContext | None = None
     # 서류 사진에서 확인한 출항일 (10-06). 없어도 된다(전 화면·평가 스크립트)
@@ -323,7 +333,11 @@ def _save_conversation(body: ChatRequest, user_id: str | None, response: ChatRes
         # 다시 연 대화에서는 이 표가 비고, 화물을 다시 조회하면 채워진다
         saved = response.model_dump(mode="json", exclude={"agent": {"customs_detail"},
                                                           "cargos": {"__all__": {"agent": {"customs_detail"}}}})
-        conversations_service.save_later(user_id, body.session_id, body.message, saved)
+        # 사진 첨부 턴은 화면에 보인 글과 첨부 이름·안내 줄을 기록한다 (10-08). 처리용 문장(B/L이 붙은 글)은 기록하지 않는다
+        shown = body.shown
+        user_text = shown.text if shown else body.message
+        user_extra = conversations_service.user_extra_of(shown.attachment_name, shown.note) if shown else None
+        conversations_service.save_later(user_id, body.session_id, user_text, saved, user_extra)
     except Exception as e:  # noqa: BLE001
         log_failure("conversation_save", type(e).__name__)
 

@@ -124,7 +124,7 @@ def test_save_later_hands_job_to_background(keys, monkeypatch):
     jobs = []
     monkeypatch.setattr(conv.memory, "run_later", lambda fn, *a, **k: jobs.append((fn, a)))
     conv.save_later("u1", "s1", "q", REPLY)
-    assert jobs == [(conv._save_job, ("u1", "s1", "q", REPLY))]
+    assert jobs == [(conv._save_job, ("u1", "s1", "q", REPLY, None))]  # 마지막은 사진 첨부 자료(user_extra, 10-08). 없으면 None
 
 
 def test_job_sets_title_only_for_new_conversation(keys, monkeypatch):
@@ -349,6 +349,60 @@ def test_chat_logged_out_saves_nothing(monkeypatch):
     monkeypatch.setattr(conv.memory, "run_later", lambda *a, **k: pytest.fail("로그아웃이면 저장하지 않는다"))
     with TestClient(app) as client:
         assert client.post("/api/chat", json={"message": "안녕", "session_id": "s1"}).status_code == 200
+
+
+# ── 사진 첨부 턴 (10-08): 다시 연 대화가 처음 화면과 같아야 한다 ──
+
+def test_chat_with_attachment_saves_shown_text_not_processing_message(monkeypatch):
+    """처리용 message에는 사진에서 읽은 B/L이 붙지만, 기록은 사용자가 쓴 글 + 첨부 이름 + 안내 줄이다."""
+    from backend.app.services import chat as svc
+
+    headers = _login(monkeypatch)
+    monkeypatch.setattr(svc, "handle", lambda *a, **k: _result(svc))
+    saved = []
+    monkeypatch.setattr(chat_router.conversations_service, "save_later", lambda *a: saved.append(a))
+    shown = {"text": "언제 와?", "attachment_name": "bl.jpg", "note": "사진에서 B/L 번호(가린 값 MOC*****1006)를 읽어 조회할게요."}
+    with TestClient(app) as client:
+        r = client.post("/api/chat", json={"message": f"{BL} 언제 와?", "session_id": "s1", "shown": shown}, headers=headers)
+    assert r.status_code == 200
+    user_id, conv_id, text, _reply, extra = saved[0]
+    assert (user_id, conv_id, text) == ("user-123", "s1", "언제 와?") and BL not in text
+    assert extra == {"attachment": "bl.jpg", "attachment_note": shown["note"]}
+
+
+def test_attachment_extra_is_locked_on_user_row_and_photo_only_gets_title(keys):
+    conn = FakeConn(results=[("SELECT COALESCE(MAX(seq)", Cur([(0,)]))])
+    extra = conv.user_extra_of("  scan.pdf ", "사진에서 B/L 번호를 찾지 못했어요.")
+    assert conv.save_turn(conn, "u1", "s1", "", REPLY, extra) is True
+    user_row = conn.sqls("INSERT INTO conversation_messages")[0][1]
+    assert json.loads(crypto.decrypt_pii(user_row[5])) == {"attachment": "scan.pdf", "attachment_note": "사진에서 B/L 번호를 찾지 못했어요."}
+    title = conn.sqls("INSERT INTO conversations")[0][1][2]
+    assert crypto.decrypt_pii(title) == conv.ATTACHMENT_TITLE_TEXT  # 글 없이 사진만 보내도 "새 대화"로 남지 않는다
+    assert conv.user_extra_of(None, "  ") is None and conv.title_source("질문", extra) == "질문"
+
+
+def test_attachment_turn_endpoint_saves_without_chat(monkeypatch, db):
+    headers = _login(monkeypatch)
+    db.results.append(("SELECT COALESCE(MAX(seq)", Cur([(0,)])))
+    body = {"text": "", "attachment_name": "photo.png", "note": "사진에서 B/L 번호를 찾지 못했어요."}
+    with TestClient(app) as client:
+        r = client.post("/api/conversations/s1/attachment-turns", json=body, headers=headers)
+        assert r.status_code == 200 and r.json() == {"saved": True}
+        assert client.post("/api/conversations/s1/attachment-turns", json=body).status_code == 401
+        assert client.post("/api/conversations/s1/attachment-turns", json={**body, "note": ""}, headers=headers).status_code == 422
+    rows = db.sqls("INSERT INTO conversation_messages")
+    assert [p[3] for _, p in rows] == ["user", "assistant"] and all(p[0] == "user-123" for _, p in rows)
+    assert crypto.decrypt_pii(rows[1][1][4]) == body["note"]
+    assert json.loads(crypto.decrypt_pii(rows[0][1][5])) == {"attachment": "photo.png"}
+
+
+def test_attachment_turn_without_pii_key_is_not_saved(monkeypatch, db):
+    headers = _login(monkeypatch)
+    monkeypatch.delenv("PII_ENCRYPTION_KEY", raising=False)
+    with TestClient(app) as client:
+        r = client.post("/api/conversations/s1/attachment-turns",
+                        json={"text": "", "attachment_name": "a.jpg", "note": "안내"}, headers=headers)
+    assert r.json() == {"saved": False} and db.calls == []
 
 
 def _result(svc):

@@ -8,7 +8,7 @@ export type Verdict = 'fine' | 'watch' | 'act';
 export type Status = 'ok' | 'partial' | 'insufficient' | 'failed' | 'unsupported';
 export type VesselMatch = 'confirmed' | 'uncertain' | 'none';
 export type Freshness = 'fresh' | 'stale' | 'unknown';
-/** 서류 사진에서 확인한 출항일을 /api/chat에 실어 보내는 칸 (10-06). 서버가 같은 B/L 조회에만 departed_on으로 싣는다 */
+/** 첨부한 서류 사진에서 읽고 서버 검사를 통과한 출항일을 /api/chat에 실어 보내는 칸 (10-06, 10-08 첨부 방식). 서버가 같은 B/L 조회에만 departed_on으로 싣는다 */
 export interface ChatDocument { bl_no: string; departed_on: string }
 /** 화면에 지금 떠 있는 배들. /api/chat 요청의 선택 칸 on_screen (백엔드 routers/chat.py ChatScreen, 10-08 정운 실사용 36번).
  * 서버는 이 값을 자료로만 LLM에 준다. B/L·컨테이너 번호 칸은 없다. 글자는 80자(시각 40자), 목록은 10줄까지 */
@@ -245,7 +245,10 @@ export interface ChatHistoryTurn { role: 'user' | 'assistant'; text: string }
 export interface ConversationSummary { id: string; title: string; updated_at: string }
 /** GET /api/conversations/{id}의 메시지 한 줄. extra는 서버가 저장해 둔 그 턴의 화면용 값(ChatResponse의 kind, vessels, map, cargos, watch_offer, watch_set)이라
  * 말풍선을 처음 답이 왔을 때와 같게 다시 그린다. 사용자 턴과 옛 대화에는 null이다 */
-export interface ConversationMessage { role: 'user' | 'assistant'; text: string; created_at: string; extra: Partial<ChatResponse> | null }
+/** 사진 첨부 턴의 사용자 줄 자료 (10-08): 첨부 파일 이름(사진은 저장하지 않는다)과 화면이 그 사진을 읽고 쓴 안내 한 줄 */
+export type ConversationUserExtra = {attachment?: string; attachment_note?: string};
+/** 다시 연 대화의 한 줄. extra는 답 줄이면 그 턴의 화면 자료, 사용자 줄이면 사진 첨부 이름과 안내 한 줄이다 (10-08, services/conversations.user_extra_of) */
+export interface ConversationMessage { role: 'user' | 'assistant'; text: string; created_at: string; extra: (Partial<ChatResponse> & ConversationUserExtra) | null }
 /** GET /api/conversations/{id}. context·result는 아래 결과 칸에 되살릴 마지막 화물(단일 화물 답을 받았을 때와 같은 값). 없으면 null */
 export interface ConversationDetail { id: string; title: string; messages: ConversationMessage[]; context: AgentRequest | null; result: AgentResponse | null }
 

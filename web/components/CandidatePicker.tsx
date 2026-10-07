@@ -13,7 +13,7 @@ import {useApp} from './AppProvider';
 import {isLive} from '@/lib/api';
 export function CandidatePicker({response:r,request,onResolve,busy}:{response:AgentResponse;request:AgentRequest;onResolve:(req:AgentRequest)=>void;busy:boolean}) {
  const {docHints}=useApp();
- // 서류 사진에서 확인한 항차·입항 예정일이 있으면 미리 채운다 (DocumentPanel). 사용자가 고칠 수 있다
+ // 첨부한 서류 사진에서 읽고 서버 검사를 통과한 항차·입항 예정일이 있으면 미리 채운다 (lib/docAttach.ts, 10-08). 사용자가 고칠 수 있다
  const [selected,setSelected]=useState<number|null>(null),[voyage,setVoyage]=useState(docHints?.voyage_no??''),[eta,setEta]=useState(docHints?.forwarder_eta??''),[error,setError]=useState('');
  function submit(e:FormEvent){e.preventDefault();if(!selected&&!voyage.trim()&&!eta){setError('후보를 고르거나 필요한 추가 정보를 입력해 주세요.');return;}setError('');onResolve({...request,follow_up_question:null,resolved_mmsi:selected,voyage_no:voyage.trim()||null,forwarder_eta:eta||null});}
  const known=['voyage_no','forwarder_eta'];
@@ -42,7 +42,7 @@ export function CandidatePicker({response:r,request,onResolve,busy}:{response:Ag
    </div>}
    {error&&<p role="alert" className="field-error">{error}</p>}
    <div className="cand-actions"><button className="button primary" disabled={busy}>확인하고 판정하기 <ArrowRight size={16} strokeWidth={2}/></button></div>
-   {docHints&&<small className="demo-caption">서류 사진에서 확인한 값을 채워 두었어요.</small>}
+   {docHints&&<small className="demo-caption">첨부한 서류 사진에서 읽은 값을 채워 두었어요. 다르면 고쳐 주세요.</small>}
    {!isLive&&<small className="demo-caption">체험 모드: 첫 후보를 고르거나 추가 정보를 입력하면 예시 결과로 이어져요.</small>}
   </form>
  </section>;

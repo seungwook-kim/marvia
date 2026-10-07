@@ -44,5 +44,10 @@
   "berth": null,
   "evidence": [],
   "answer": "같은 이름의 선박이 여러 척입니다. 내 화물의 배를 확정한 뒤 판정할 수 있습니다. 후보를 선택하거나 포워더의 항차 번호·입항 예정일을 알려주세요.",
-  "trace_id": "fixture-insufficient-20261020"
+  "trace_id": "fixture-insufficient-20261020",
+  "customs_detail": [],
+  "anchorage": null,
+  "customs_timing": null,
+  "eta_change": null,
+  "bl_type_used": null
 }

@@ -149,5 +149,10 @@
     }
   ],
   "answer": "해수부 입항 예정일이 판매 예정일보다 1일 늦습니다. 판매 일정 조정이 필요합니다. 입항 이후 하선과 통관 소요 시간은 이 결과만으로 확정할 수 없습니다.",
-  "trace_id": "fixture-act-20261020"
+  "trace_id": "fixture-act-20261020",
+  "customs_detail": [],
+  "anchorage": null,
+  "customs_timing": null,
+  "eta_change": null,
+  "bl_type_used": null
 }

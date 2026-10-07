@@ -55,33 +55,7 @@
 .doc-hint button{margin-left:auto;border:0;background:transparent;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center}
 .icon-button{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer}
 .icon-button:hover{background:var(--soft)}
-.document-panel{border-top:1px solid var(--border);margin:0 -24px;padding:22px 24px 22px;background:var(--surface)}
-.document-head{display:flex;justify-content:space-between;gap:16px;margin-bottom:16px}
-.document-head h2{font-size:16px}
-.document-head p{font-size:14px;color:var(--muted);margin-top:4px}
-.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:150px;border:1.5px dashed var(--map-coast);color:var(--ink);cursor:pointer;text-align:center;padding:24px;transition:background .15s,border-color .15s}
-.dropzone.busy{cursor:progress}
-.dropzone strong{font-size:14px;margin-top:6px}
-.dropzone span{font-size:14px;color:var(--muted)}
-.dropzone:focus-within{outline:2px solid var(--accent-dark);outline-offset:2px}
-.document-status{display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:var(--small-radius);margin-bottom:14px}
-.document-status.review{background:var(--warning-bg);color:var(--warning)}
-.document-status.clear{background:var(--success-bg);color:var(--success)}
-.document-status strong{display:block;font-size:14px}
-.document-status span{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
-.document-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;border-top:1px solid var(--border)}
-.document-field{display:grid;grid-template-columns:110px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
-.document-field label{font-size:14px;font-weight:600;display:flex;flex-direction:column;line-height:1.4}
-.document-field label small{font-weight:400;font-size:14px;color:var(--quiet)}
-.document-field input,.document-field output{min-width:0;font-family:var(--mono);font-size:14px;min-height:36px;padding:7px 10px;border-radius:var(--small-radius);border:1px solid var(--border);background:var(--surface);display:flex;align-items:center}
-.document-field output{border-color:transparent;background:transparent;color:var(--body);overflow-wrap:anywhere}
-.document-field.flagged input{border-color:var(--warning);background:var(--warning-bg)}
-.document-checks{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
-.check-chip{font-size:14px;padding:2px 7px;border-radius:4px;background:var(--warning-bg);color:var(--warning);font-weight:600;white-space:nowrap}
-.check-ok{display:inline-flex;align-items:center;gap:3px;font-size:14px;color:var(--success);white-space:nowrap}
-.document-result .help-text{font-size:14px;color:var(--muted);margin-top:12px}
-@media(max-width:900px){.document-fields{grid-template-columns:1fr}}
-@media(max-width:700px){.document-panel{margin:0 -16px;padding:18px 16px}.document-field{grid-template-columns:1fr auto}.document-field label{grid-column:1/-1}.query-foot-actions{flex-wrap:wrap;gap:8px}}
+@media(max-width:700px){.query-foot-actions{flex-wrap:wrap;gap:8px}}
 
 /* Sign in (G3): the same rail colour and editorial type as the cargo desk, one action only. */
 .login-page{display:grid;place-items:center;min-height:calc(100vh - 160px);padding:40px 16px}
@@ -218,11 +192,10 @@ tr.action-row>td{padding:0!important;background:var(--canvas)}
 .chat-send{min-height:36px;width:36px;padding:0;border-radius:50%}
 .chat-examples button{cursor:pointer}
 .chat-section .progress-steps{margin-top:12px;padding-bottom:0}
-.chat-section .document-panel{margin:14px -22px 0;padding:20px 22px}
 .vessel-results{margin-top:24px}
 .vessel-results .table-toolbar{flex-direction:column;align-items:stretch}
 .port-chips{display:flex;flex-wrap:wrap;gap:6px}
-@media(max-width:700px){.chat-section{padding:14px}.chat-turn{max-width:100%}.chat-section .document-panel{margin:14px -14px 0}}
+@media(max-width:700px){.chat-section{padding:14px}.chat-turn{max-width:100%}}
 .cargo-page .bottom-grid{grid-template-columns:1fr}
 /* Vessel table pager: size box (10/30/50) on the left, page numbers on the right. */
 .pager{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 20px;border-top:1px solid var(--border)}
@@ -549,10 +522,6 @@ th{background:var(--soft);color:var(--text-2)}
 .drawer-head p{font-size:14px;color:var(--muted);margin-top:5px}
 .drawer-close{flex:none;display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--border);border-radius:50%;background:var(--surface)}
 .drawer-close:hover{background:var(--soft)}
-.document-panel.in-drawer{margin:0;padding:0;border:0;background:none}
-.document-panel.in-drawer .document-fields{grid-template-columns:1fr}
-.dropzone{border-radius:4px;border-color:var(--border-strong);background:var(--soft)}
-.dropzone:hover,.dropzone.dragging{background:var(--hover);border-color:var(--blue)}
 .drawer .vessel-detail{padding:0;border:0}
 .drawer .vessel-detail-grid{grid-template-columns:1fr}
 .drawer .vessel-detail-info dl{grid-template-columns:1fr 1fr}
@@ -654,10 +623,6 @@ th{background:var(--soft);color:var(--text-2)}
 .memory-full{margin-top:12px;padding:12px;border-radius:4px;background:var(--warning-bg);color:var(--warning);font-size:14px}
 @media (max-width:720px){.memory-item{flex-direction:column;align-items:flex-start}}
 
-/* 서류 확인 화면의 B/L 조건·연락처 칸 (DocumentPanel, 10-02 결정 6). 고르기 칸도 입력 칸과 같은 모양 */
-.document-field select{min-width:0;font-size:14px;min-height:36px;padding:7px 10px;border-radius:var(--small-radius);border:1px solid var(--border);background:var(--surface)}
-.document-field.flagged select{border-color:var(--warning);background:var(--warning-bg)}
-.document-subhead{margin:16px 0 4px;font-size:14px}
 
 /* 화물 지켜보기 (WatchToggle·WatchOfferAction, G5 10-05·10-06 결정). 새 값 없이 기존 토큰과 .button/.subtle-badge를 쓴다 */
 .watch-toggle{margin:-8px 0 24px;padding:16px 20px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
@@ -983,7 +948,6 @@ td small,th small{font-size:14px}
 
 /* F7 하루 사용량을 다 썼을 때 막힌 예시·카드·사진 칸 */
 .chat-examples button:disabled,.feature-tiles button:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
-.dropzone.disabled{opacity:.55;cursor:not-allowed}
 
 /* F8 신호 칩: 감지된 신호만 체크와 주황, 해당 없음은 회색 줄표 */
 .signal-summary details.clear{background:var(--soft);color:var(--muted)}
@@ -1156,8 +1120,6 @@ button.avatar:hover{background:var(--border)}
 .drawer{padding:28px 32px 36px;border-radius:var(--radius) 0 0 var(--radius);box-shadow:0 8px 24px #191f2820}
 .drawer-head h2{font-size:var(--text-lg)}
 .drawer-head p{font-size:var(--text-sm)}
-.dropzone{background:var(--soft);border-color:var(--border-strong)}
-.dropzone:hover,.dropzone.dragging{background:var(--brand-soft);border-color:var(--brand)}
 
 /* 휴대폰: 위쪽 가로 메뉴는 칸이 많아도 글자가 줄바꿈되지 않게 옆으로 밀어 본다 */
 @media(max-width:700px){

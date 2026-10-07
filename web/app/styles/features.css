@@ -61,8 +61,6 @@
 .steps-toggle{display:inline-flex;align-items:center;gap:6px;padding:2px 0;border:0;background:none;color:var(--muted);font-size:12px;cursor:pointer}
 .steps-toggle:hover{color:var(--text-2)}
 
-/* ---------- 서류 읽는 중 경과 초 (DocumentPanel) ---------- */
-.doc-wait{color:var(--muted);font-size:var(--text-sm)}
 
 /* ---------- 부산항 최근 입항 추세 참고 카드 (PortTrafficCard, /watch, IMF PortWatch, 10-08) ---------- */
 /* 참고 맥락이라 판정 색을 쓰지 않고 조용한 회색 글자로 둔다 */

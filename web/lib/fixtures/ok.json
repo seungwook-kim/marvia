@@ -159,5 +159,10 @@
     }
   ],
   "answer": "해수부 입항 예정일 기준으로 판매 예정일까지 4일의 여유가 있습니다. 현재 확인된 근거에서는 이상 신호가 없습니다. 입항 예정 시각은 상품 수령 시각과 다르므로 통관 진행을 함께 확인하세요.",
-  "trace_id": "fixture-ok-20261020"
+  "trace_id": "fixture-ok-20261020",
+  "customs_detail": [],
+  "anchorage": null,
+  "customs_timing": null,
+  "eta_change": null,
+  "bl_type_used": null
 }

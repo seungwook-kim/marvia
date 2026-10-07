@@ -239,6 +239,23 @@ def test_watch_positions_purge_calls_db_function_and_returns_count():
     assert "cron.schedule('marvia-purge-watch-positions'" in sql
 
 
+def test_vessel_detail_usage_purge_calls_db_function_and_returns_count():
+    """선박 자세히 보기 횟수 표 정리도 규칙(7일)은 DB 함수에만 있다 (migrations/025, 10-08 점검). 파이썬은 부르기만 한다."""
+    from backend.app.db import MIGRATIONS_DIR, purge_vessel_detail_usage
+
+    class Conn:
+        def execute(self, sql, params=()):
+            self.sql = sql
+            return type("Cur", (), {"fetchall": lambda self: [(3,)]})()
+
+    conn = Conn()
+    assert purge_vessel_detail_usage(conn) == 3 and "purge_old_vessel_detail_usage()" in conn.sql
+    sql = (MIGRATIONS_DIR / "025_vessel_detail_usage_purge.sql").read_text(encoding="utf-8")
+    assert "keep_days integer DEFAULT 7" in sql and "DELETE FROM vessel_detail_usage" in sql
+    assert "Asia/Seoul" in sql  # 하루 단위가 한국 날짜다 (services/vessel_detail.take_daily_slot과 같다)
+    assert "cron.schedule('marvia-purge-vessel-detail-usage'" in sql
+
+
 def test_migration_015_has_allowed_values_and_schedule():
     """B/L 조건 세 칸은 정해진 값만 받고(CHECK), 정리 함수는 008과 같은 방식으로 pg_cron에 예약된다 (10-02 결정 5·9)."""
     from backend.app.db import MIGRATIONS_DIR

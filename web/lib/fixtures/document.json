@@ -77,5 +77,8 @@
   },
   "trace_id": "demo-document-trace",
   "mrn": "26MRVD0001I",
-  "doc_kind": "B/L"
+  "doc_kind": "B/L",
+  "llm_error": null,
+  "bl_status": "none",
+  "important": []
 }
