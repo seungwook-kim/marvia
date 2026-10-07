@@ -25,6 +25,10 @@ LC_NO_MAX = 35
 # 한 번에 읽는 화물 줄 상한. 화면에 한꺼번에 그릴 수 있는 크기로 정했다 (화물 표 all_rows는 100)
 SHEET_MAX = 500
 SOURCES = ("manual", "document")
+# 사용자가 넣는 화물 날짜의 허용 범위: 오늘(한국 날짜) 앞뒤 2년 (10-08 QA F10, 출항일 2099가 그대로 저장됐다).
+# 판정 임계값이 아니라 입력 형식 검사라 rules.md가 아니라 여기 둔다. 수입 화물 한 건이 2년을 넘는 일은 없다고 본다
+DATE_WINDOW_DAYS = 730
+DATE_WINDOW_MESSAGE = "날짜는 오늘 기준 앞뒤 2년 안이어야 합니다"
 
 # 엑셀의 B/L 번호 칸에 원본을 적는다. 수입자가 그 번호로 다른 곳에서 화물을 조회하는데 가린 값으로는 안 되고,
 # 로그인한 본인이 자기 화물을 내려받는 파일이기 때문이다. SDD 3.5의 유일한 예외다
@@ -135,12 +139,26 @@ def set_lc(conn, user_id: str, key: str, lc_no: str | None, opened_on: date | No
                         AND NOT EXISTS (SELECT 1 FROM user_cargo WHERE user_cargo.lc_id = user_lc.id)""", [user_id])
 
 
+def kst_today() -> date:
+    """한국 날짜 오늘. 날짜 범위 검사의 기준이다 (화면과 사용자는 한국 날짜로 말한다)."""
+    return datetime.now(timezone.utc).astimezone(KST).date()
+
+
+def date_in_window(value: date, today: date) -> bool:
+    """사용자가 넣는 화물 날짜(출항일, 확인 대기 판매일·입항일)가 오늘 기준 앞뒤 DATE_WINDOW_DAYS 안인가 (10-08 QA F10).
+    2099년 같은 오타·장난 값이 표와 엑셀에 그대로 남지 않게 한다."""
+    return abs((value - today).days) <= DATE_WINDOW_DAYS
+
+
 def set_departed(conn, user_id: str, key: str, departed_on: date | None, source: str = "manual") -> None:
     """출항일을 쓴다 (PUT .../departed). 날짜를 비우면(None) 출처도 같이 비운다.
     source: manual은 사용자가 직접 넣은 값, document는 도착 통지서 사진에서 읽은 값.
-    출항은 UNI-PASS·해수부에 없어서 이 두 길뿐이다."""
+    출항은 UNI-PASS·해수부에 없어서 이 두 길뿐이다.
+    날짜는 오늘 앞뒤 DATE_WINDOW_DAYS 안이어야 한다. 밖이면 ValueError (창구 DepartedBody가 먼저 422로 막는다, F10)."""
     if source not in SOURCES:
         raise ValueError(f"source는 {SOURCES} 중 하나여야 합니다")
+    if departed_on is not None and not date_in_window(departed_on, kst_today()):
+        raise ValueError(DATE_WINDOW_MESSAGE)
     _owned(conn, user_id, key)
     conn.execute("UPDATE user_cargo SET departed_on = %s, departed_source = %s, updated_at = now() "
                  "WHERE user_id = %s AND cargo_key = %s",

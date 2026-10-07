@@ -24,6 +24,8 @@ T0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("BL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    # 날짜 범위 검사(오늘 앞뒤 2년, 10-08 QA F10)의 오늘을 고정한다. 테스트 날짜(2026-08~10)가 해가 지나도 범위 안에 있게
+    monkeypatch.setattr(cargo_sheet, "kst_today", lambda: date(2026, 10, 8))
 
 
 class _Cur:
@@ -502,6 +504,23 @@ def test_put_departed(db, me):
     r = _call("put", f"/api/cargo/sheet/{row['cargo_key']}/departed", {"departed_on": None, "source": "manual"}, me)
     assert r.json()["groups"][0]["rows"][0]["departed_source"] is None
     assert _call("put", f"/api/cargo/sheet/{row['cargo_key']}/departed", {"departed_on": "2026-09-13", "source": "guess"}, me).status_code == 422
+
+
+@pytest.mark.parametrize("day", ["2099-01-01", "1999-12-31", "2028-10-09", "2024-10-07"])
+def test_put_departed_out_of_range_is_422(db, me, day):
+    """10-08 QA F10: 출항일 2099가 그대로 저장됐다. 오늘(2026-10-08 고정) 앞뒤 2년(730일) 밖은 422이고 표는 그대로다."""
+    row = db.add()
+    r = _call("put", f"/api/cargo/sheet/{row['cargo_key']}/departed", {"departed_on": day}, me)
+    assert r.status_code == 422 and row["departed_on"] is None
+
+
+def test_departed_window_edges_and_service_guard(db, me):
+    """경계(정확히 730일 앞뒤)는 받는다. 서비스를 직접 불러도 범위 밖은 ValueError (창구를 거치지 않는 길 대비)."""
+    row = db.add()
+    for day in ("2028-10-07", "2024-10-08"):
+        assert _call("put", f"/api/cargo/sheet/{row['cargo_key']}/departed", {"departed_on": day}, me).status_code == 200
+    with pytest.raises(ValueError):
+        cargo_sheet.set_departed(db, USER, row["cargo_key"], date(2099, 1, 1))
 
 
 def test_xlsx_download(db, me):

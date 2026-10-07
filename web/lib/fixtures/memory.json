@@ -73,7 +73,8 @@
       ],
       "summary": null,
       "doc_facts_at": null,
-      "doc_facts_source": null
+      "doc_facts_source": null,
+      "cargo_ref": null
     },
     {
       "bl_masked": "MRV*****105",
@@ -94,11 +95,15 @@
       "pending": [],
       "summary": "09.22 MRV*****105 반출 완료",
       "doc_facts_at": null,
-      "doc_facts_source": null
+      "doc_facts_source": null,
+      "cargo_ref": null
     }
   ],
   "full": false,
   "available": true,
   "used_chars": 197,
-  "max_chars": 3000
+  "max_chars": 3000,
+  "pruned_count": 0,
+  "pruned_at": null,
+  "can_undo": false
 }

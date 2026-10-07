@@ -161,6 +161,8 @@ export interface CargoSummary {
   last_eta: string | null; last_stage: string | null; pending: PendingChange[]; summary: string | null;
   /** 조건을 서류 사진에서 확인 없이 읽어 저장한 시각과 서류 종류. 있으면 "서류 사진에서 읽음(확인 전)"을 붙인다. 옛 응답에는 없다 */
   doc_facts_at?: string | null; doc_facts_source?: 'B/L' | 'A/N' | 'document' | null;
+  /** 확인 대기 적용·무시 주소에 쓰는 화물 지문(HMAC, 원본 B/L 아님). 옛 응답·체험 예시에는 없거나 null (10-08 QA F5) */
+  cargo_ref?: string | null;
 }
 export interface MemoryResponse {
   markdown: string; items: MemoryItem[]; cargo: CargoSummary[];
@@ -168,6 +170,8 @@ export interface MemoryResponse {
   full: boolean; available: boolean;
   /** 메모장 글자 수와 상한. 옛 서버 응답에는 없을 수 있다 */
   used_chars?: number; max_chars?: number;
+  /** 상한 때문에 코드가 마지막으로 자동 정리한 메모 수와 그 시각, 직전 버전으로 되돌릴 수 있나 (10-08 QA F11·F12). 옛 응답에는 없다 */
+  pruned_count?: number; pruned_at?: string | null; can_undo?: boolean;
 }
 
 /** 운영자 관리 (backend/app/routers/admin.py, docs/specs/operator-admin.md). */
@@ -241,6 +245,8 @@ export interface ChatHistoryTurn { role: 'user' | 'assistant'; text: string }
 /* ---------- 대화 목록 (GET/DELETE /api/conversations) ---------- */
 /** GET /api/conversations 한 줄. id는 그 대화의 chat session_id와 같다. 새 대화는 새 session_id다 */
 export interface ConversationSummary { id: string; title: string; updated_at: string }
+/** GET /api/conversations 한 쪽. next_before가 있으면 더 오래된 대화가 있다 (10-08 QA F9) */
+export interface ConversationPage { conversations: ConversationSummary[]; next_before: string | null }
 /** 사진 첨부 턴의 사용자 줄 자료: 첨부 파일 이름(사진은 저장하지 않는다)과 화면이 그 사진을 읽고 쓴 안내 한 줄 */
 export type ConversationUserExtra = {attachment?: string; attachment_note?: string};
 /** 다시 연 대화의 한 줄 (GET /api/conversations/{id}). extra는 답 줄이면 서버가 저장해 둔 그 턴의 화면 자료(kind, vessels, map, cargos 등)라

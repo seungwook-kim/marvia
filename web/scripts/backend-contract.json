@@ -614,6 +614,16 @@
        "type": "null"
       }
      ]
+    },
+    "cargo_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ]
     }
    },
    "required": [
@@ -635,7 +645,8 @@
     "pending",
     "doc_facts_at",
     "doc_facts_source",
-    "summary"
+    "summary",
+    "cargo_ref"
    ]
   },
   "Conflict": {
@@ -1558,6 +1569,23 @@
     },
     "max_chars": {
      "type": "integer"
+    },
+    "pruned_count": {
+     "type": "integer"
+    },
+    "pruned_at": {
+     "anyOf": [
+      {
+       "type": "string",
+       "format": "datetime"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "can_undo": {
+     "type": "boolean"
     }
    },
    "required": [
@@ -1567,7 +1595,10 @@
     "full",
     "available",
     "used_chars",
-    "max_chars"
+    "max_chars",
+    "pruned_count",
+    "pruned_at",
+    "can_undo"
    ]
   },
   "OcrInfo": {

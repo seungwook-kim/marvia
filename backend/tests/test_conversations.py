@@ -256,9 +256,40 @@ def test_list_shape_and_title_fallback(monkeypatch, db):
     with TestClient(app) as client:
         body = client.get("/api/conversations", headers=headers).json()
     assert body == {"conversations": [{"id": "s1", "title": "고추 입항", "updated_at": at.isoformat()},
-                                      {"id": "s2", "title": "새 대화", "updated_at": at.isoformat()}]}
+                                      {"id": "s2", "title": "새 대화", "updated_at": at.isoformat()}],
+                    "next_before": None}
     sql, params = db.calls[0]
-    assert "ORDER BY updated_at DESC LIMIT" in sql and params == ["user-123", 50]
+    # 한 줄 더(51) 읽어 다음 쪽이 있는지 본다. 같은 시각이면 번호로 순서를 정한다 (10-08 QA F9)
+    assert "ORDER BY updated_at DESC, id DESC LIMIT" in sql and params == ["user-123", 51]
+
+
+def test_list_pages_with_before_cursor(monkeypatch, db):
+    """10-08 QA F9: 50건을 넘으면 next_before 커서를 주고, 그 커서로 그보다 오래된 줄을 받는다. 51번째에도 닿는다."""
+    headers = _login(monkeypatch)
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime(2026, 10, 6, tzinfo=timezone.utc)
+    rows = [(f"s{i:02d}", None, base - timedelta(minutes=i)) for i in range(51)]  # 51줄: 다음 쪽이 있다
+    db.results.append(("FROM conversations WHERE user_id", Cur(rows)))
+    with TestClient(app) as client:
+        first = client.get("/api/conversations", headers=headers).json()
+        assert len(first["conversations"]) == 50 and first["conversations"][-1]["id"] == "s49"
+        cursor = first["next_before"]
+        assert cursor == f"{(base - timedelta(minutes=49)).isoformat()}|s49"
+        db.results[-1] = ("FROM conversations WHERE user_id", Cur([rows[50]]))
+        second = client.get("/api/conversations", params={"before": cursor}, headers=headers).json()
+    assert [c["id"] for c in second["conversations"]] == ["s50"] and second["next_before"] is None
+    sql, params = db.calls[-1]
+    assert "(updated_at, id) < (%s, %s)" in sql and params == ["user-123", base - timedelta(minutes=49), "s49", 51]
+
+
+@pytest.mark.parametrize("cursor", ["nonsense", "2026-10-06T00:00:00|", "2026-10-06T00:00:00|s1", "x" * 400])
+def test_bad_cursor_is_422(monkeypatch, db, cursor):
+    """모양이 틀린 커서(구분자 없음, 번호 없음, 시간대 없음, 너무 김)는 DB에 가지 않고 422."""
+    headers = _login(monkeypatch)
+    with TestClient(app) as client:
+        assert client.get("/api/conversations", params={"before": cursor}, headers=headers).status_code == 422
+    assert not [s for s, _ in db.calls if "FROM conversations" in s]
 
 
 def test_get_decrypts_and_filters_by_owner(monkeypatch, db):

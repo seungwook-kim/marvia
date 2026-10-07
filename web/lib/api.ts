@@ -6,7 +6,7 @@
  * 화면 컴포넌트는 어느 모드인지 몰라도 된다. 요청·응답 모양은 backend/app/schemas/agent.py(C1, C2) 그대로다.
  * 서버 API 키는 여기에 두지 않는다. NEXT_PUBLIC_* 값은 브라우저에 그대로 보이기 때문이다 (SDD 7절).
  */
-import type { AgentRequest, AgentResponse, CustomersResponse, DocumentResponse, HistoryResponse, KakaoLinkResult, KakaoStatus, MemoryResponse, MeResponse, OperatorsResponse, WatchChange, WatchState, ProfileData, UnmaskResponse, ActionItem, ChatResponse, ChatHistoryTurn, ChatDocument, ChatOnScreen, VesselDetailResponse, ConversationSummary, ConversationDetail, CargoSheet, CargoSheetRow } from './types';
+import type { AgentRequest, AgentResponse, CustomersResponse, DocumentResponse, HistoryResponse, KakaoLinkResult, KakaoStatus, MemoryResponse, MeResponse, OperatorsResponse, WatchChange, WatchState, ProfileData, UnmaskResponse, ActionItem, ChatResponse, ChatHistoryTurn, ChatDocument, ChatOnScreen, VesselDetailResponse, ConversationSummary, ConversationDetail, ConversationPage, CargoSheet, CargoSheetRow, PendingChange } from './types';
 import type {Citation, EvidenceItem} from './evidenceTypes';
 import {accessToken} from './auth';
 import {createSseParser, isStage, type ProgressStage} from './progress';
@@ -216,10 +216,18 @@ export function errorStatus(e: unknown): number | undefined {
 /* ---------- 대화 목록 ---------- */
 // 로그인해야 쓸 수 있다(401). DB가 없으면 503. 호출하는 쪽이 이 둘을 "목록 없음"으로 본다. 데모 모드에는 저장된 대화가 없다.
 
-/** GET /api/conversations. 최근 순, 서버가 최대 50개까지 준다 */
+/** GET /api/conversations. 최근 순 첫 쪽(서버가 한 쪽에 50개). 더 오래된 대화는 listConversationsPage로 이어 받는다 */
 export async function listConversations(): Promise<ConversationSummary[]> {
-  if (!isLive) return [];
-  return ((await (await call('/api/conversations', {}, HISTORY_TIMEOUT_MS)).json()).conversations ?? []) as ConversationSummary[];
+  return (await listConversationsPage()).conversations;
+}
+
+/** GET /api/conversations?before=커서. 한 쪽(50개)과 다음 쪽 커서(next_before, 없으면 null).
+ * 첫 쪽은 before 없이 부른다. 사이드바 "더 보기"가 받은 next_before를 그대로 돌려보낸다 (10-08 QA F9) */
+export async function listConversationsPage(before?: string | null): Promise<ConversationPage> {
+  if (!isLive) return {conversations: [], next_before: null};
+  const path = before ? `/api/conversations?before=${encodeURIComponent(before)}` : '/api/conversations';
+  const body = await (await call(path, {}, HISTORY_TIMEOUT_MS)).json();
+  return {conversations: (body.conversations ?? []) as ConversationSummary[], next_before: body.next_before ?? null};
 }
 
 /** GET /api/conversations/{id}. 없으면 404 */
@@ -533,7 +541,8 @@ export async function getMemory(): Promise<MemoryResponse> {
   return (await call('/api/memory', {}, HISTORY_TIMEOUT_MS)).json();
 }
 
-/** DELETE /api/memory. 메모장과 기억한 화물을 모두 지운다. 실패를 숨기지 않는다(503). 데모 모드에는 지울 실제 기억이 없다. */
+/** DELETE /api/memory. 메모장(메모 항목)만 모두 지운다. 기억한 화물 목록(화물 표)은 남는다(그것은 "내 조회 기록 지우기"와 탈퇴가 지운다).
+ * deleted는 지운 메모 항목 수. 실패를 숨기지 않는다(503). 데모 모드에는 지울 실제 기억이 없다. */
 export async function deleteAllMemory(): Promise<{deleted: number}> {
   if (!isLive) throw new Error('체험 모드에는 지울 실제 기억이 없어요.');
   return liveDelete('/api/memory');
@@ -543,6 +552,21 @@ export async function deleteAllMemory(): Promise<{deleted: number}> {
 export async function deleteMemoryItem(id: string): Promise<{deleted: number}> {
   if (!isLive) throw new Error('체험 모드에는 지울 실제 기억이 없어요.');
   return liveDelete(`/api/memory/items/${encodeURIComponent(id)}`);
+}
+
+/** POST /api/memory/undo. 메모장을 직전 버전으로 되돌린다. 한 번 더 부르면 되돌리기를 취소한다.
+ * 되돌릴 직전 버전이 없으면 409 (10-08 QA F12). 데모 모드에는 되돌릴 실제 기억이 없다. */
+export async function undoMemory(): Promise<{restored: boolean}> {
+  if (!isLive) throw new Error('체험 모드에는 되돌릴 실제 기억이 없어요.');
+  return (await call('/api/memory/undo', {method: 'POST'}, HISTORY_TIMEOUT_MS)).json();
+}
+
+/** 대화에서 나온 화물 값 변경(확인 대기)을 적용(apply=true)하거나 무시한다 (10-08 QA F5).
+ * ref는 GET /api/memory가 준 cargo_ref(화물 지문). 이미 없는 값이면 404, 그대로 적용할 수 없는 값이면 422 */
+export async function resolvePending(ref: string, field: PendingChange['field'], apply: boolean): Promise<{result: 'applied' | 'dismissed'}> {
+  if (!isLive) throw new Error('체험 모드에는 바꿀 실제 기억이 없어요.');
+  const path = `/api/memory/cargo/${encodeURIComponent(ref)}/pending/${encodeURIComponent(field)}`;
+  return apply ? (await call(`${path}/apply`, {method: 'POST'}, HISTORY_TIMEOUT_MS)).json() : liveDelete(path);
 }
 
 /* ---------- 카카오톡 "나에게 보내기" 알림 (backend/app/routers/kakao.py) ---------- */
