@@ -313,3 +313,15 @@ def test_grant_and_revoke_through_api(db, monkeypatch):
         assert client.post("/api/admin/operators/revoke", json={"email": OPERATOR}, headers=headers).status_code == 400
         r = client.post("/api/admin/operators/revoke", json={"email": "new@marvia.test"}, headers=headers)
         assert r.status_code == 200 and r.json()["audit"][0]["action"] == "revoke"
+
+
+def test_metrics_carries_chat_agent_health(db, monkeypatch):
+    """GET /api/metrics가 채팅 에이전트 실패 집계(services/chat.agent_health)를 chat_agent 칸으로 준다 (10-08 QA)."""
+    from backend.app.services import chat
+    chat._agent_breaker.failure("bad_request")
+    chat._agent_breaker.failure("bad_request")
+    with TestClient(app) as client:
+        r = client.get("/api/metrics", headers=_login(monkeypatch, OPERATOR))
+    block = r.json()["chat_agent"]
+    assert r.status_code == 200 and block["failures_by_kind"] == {"bad_request": 2} and block["failures_total"] == 2
+    assert block["skipped"] == 0 and block["trips"] == 0 and block["open"] is False

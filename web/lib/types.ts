@@ -184,6 +184,8 @@ export interface CustomerItem {
   user_id: string; email_masked: string | null; name_masked: string | null;
   phone_masked: string | null; address_masked: string | null; profile_complete: boolean; is_suspended: boolean;
   created_at: string | null; last_sign_in_at: string | null; is_operator: boolean;
+  /** Supabase 로그인 차단 상태 (10-08 QA). is_suspended와 다르면 정지·해제 중 한쪽만 바뀐 것이라 화면이 경고한다. 옛 서버 응답에는 없다 */
+  supabase_banned?: boolean;
 }
 export interface CustomersResponse { items: CustomerItem[]; total: number }
 export interface OperatorItem { email: string; granted_by: string; granted_at: string; granted_by_email?: string | null }

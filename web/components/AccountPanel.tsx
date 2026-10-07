@@ -35,7 +35,10 @@ export function AccountPanel() {
     setAccountStep('busy'); setError(''); setMessage('');
     try {
       const r = await deleteMyAccount();
-      setMessage(`조회 이력 ${r.deleted_records}건과 계정을 지웠어요. 그동안 이용해 주셔서 감사해요.`); setAccountStep('done');
+      // resumed: 앞선 시도가 기록을 이미 지웠다. 그때는 0건이 맞으므로 0건이라고 쓰지 않는다 (10-08 QA, services/account.py)
+      setMessage(r.resumed
+        ? '앞선 시도에서 기록은 이미 지웠고, 이번에 계정 삭제를 마쳤어요. 그동안 이용해 주셔서 감사해요.'
+        : `조회 이력 ${r.deleted_records}건과 계정을 지웠어요. 그동안 이용해 주셔서 감사해요.`); setAccountStep('done');
       await signOut(); reset();  // 서버에서 계정이 지워졌으니 브라우저의 로그인 정보도 지운다
     } catch (e) { setError(e instanceof Error ? e.message : '탈퇴를 마치지 못했어요.'); setAccountStep('confirm'); }
   }

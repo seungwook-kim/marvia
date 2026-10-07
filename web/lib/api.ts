@@ -525,8 +525,9 @@ export async function deleteMyHistory(): Promise<{deleted: number}> {
   return liveDelete('/api/history');
 }
 
-/** DELETE /api/account. 기록과 계정을 지운다. 실패하면 503이고 다시 누르면 이어서 끝난다 (services/account.py). */
-export async function deleteMyAccount(): Promise<{deleted_records: number; account_deleted: boolean}> {
+/** DELETE /api/account. 기록과 계정을 지운다. 실패하면 503이고 다시 누르면 이어서 끝난다 (services/account.py).
+ * resumed: 앞선 시도가 기록을 이미 지웠고 이번에 계정 삭제만 마쳤다. 이때 deleted_records 0이 맞다 (10-08 QA, 옛 서버 응답에는 없다) */
+export async function deleteMyAccount(): Promise<{deleted_records: number; account_deleted: boolean; resumed?: boolean}> {
   if (!isLive) throw new Error('체험 모드에는 탈퇴할 계정이 없어요.');
   return liveDelete('/api/account');
 }
@@ -616,8 +617,9 @@ export async function getWatchState(blNo: string): Promise<WatchState> {
   return res.json();
 }
 
-/** PUT /api/cargo/watch. 지켜보기를 켜거나 끈다. 실패하면 서버 안내 문장이 그대로 올라온다(404 아직 저장 전, 409 끝난 화물·5건 한도, 503). */
-export async function setWatch(blNo: string, on: boolean): Promise<{watch: boolean}> {
+/** PUT /api/cargo/watch. 지켜보기를 켜거나 끈다. 실패하면 서버 안내 문장이 그대로 올라온다(404 아직 저장 전, 409 끝난 화물·5건 한도, 503).
+ * 켜기 응답에는 known_vessel과 notice가 붙는다. 배가 정해지지 않았으면(false) 자동 확인이 안 돈다는 안내 문장이 notice다 (10-08 QA E1-9) */
+export async function setWatch(blNo: string, on: boolean): Promise<{watch: boolean; known_vessel?: boolean; notice?: string | null}> {
   if (!isLive) throw new Error('체험 모드에서는 화물을 지켜볼 수 없어요.');
   const res = await call('/api/cargo/watch', {method: 'PUT', headers: {'content-type': 'application/json'}, body: JSON.stringify({...watchBody(blNo), on})}, HISTORY_TIMEOUT_MS);
   return res.json();
@@ -763,7 +765,7 @@ export const unmaskCustomer = (id: string, reason: string) =>
 export const updateCustomer = (id: string, p: ProfileData) =>
   customerCall<{ok: boolean}>(`/api/admin/customers/${encodeURIComponent(id)}/profile`, json('PUT', p));
 export const deleteCustomer = (id: string) =>
-  customerCall<{deleted_records: number}>(`/api/admin/customers/${encodeURIComponent(id)}`, {method: 'DELETE'});
+  customerCall<{deleted_records: number; resumed?: boolean}>(`/api/admin/customers/${encodeURIComponent(id)}`, {method: 'DELETE'});
 /** 일시 정지(사유 필수)와 해제. 서버가 Supabase 차단과 정지 표를 같이 바꾼다 */
 export const suspendCustomer = (id: string, reason: string) =>
   customerCall<{ok: boolean}>(`/api/admin/customers/${encodeURIComponent(id)}/suspend`, json('POST', {reason}));
@@ -839,6 +841,9 @@ export interface WatchItem {
   track?: {lat: number; lng: number; at: string; sog: number | null}[];
   /** 서버 목록에만 있는 칸: 화물 지문, UNI-PASS 품명, 배 국적 */
   cargo_key?: string; goods_name?: string | null; ship_flag?: string | null;
+  /** 서버 목록에만 있는 칸 (10-08 QA E1-1·E1-9, services/watch.watch_list). auto_paused: 잇달아 실패해 자동 확인을 멈췄다
+   * (다시 조회하거나 지켜보기를 다시 켜면 풀린다). known_vessel: false면 배가 정해지지 않아 워커가 자동 확인을 하지 않는다 */
+  auto_paused?: boolean; known_vessel?: boolean;
 }
 export interface WatchList { items: WatchItem[]; updated_at: string | null; sample: boolean }
 /** 내 감시 화물 목록. 서버(isLive)면 GET /api/watch, 데모 모드면 가공 예시를 돌려준다(sample).

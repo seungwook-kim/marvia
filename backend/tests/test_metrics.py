@@ -39,3 +39,13 @@ def test_latest_per_config_and_service_gates(tmp_path):
     assert m["gates"][1]["value"] == "0건" and "$0.00030" in m["gates"][4]["value"]
     assert [g["passed"] for g in m["gates"]] == [True, True, None, None, None]  # 게이트 키가 없는 줄과 목표 없는 줄은 null
     assert [e["file"] for e in m["experiments"]] == ["b_2.json", "a_1.json", "b_1.json"]  # 최신순, 깨진 파일 제외
+
+
+def test_chat_agent_block_counts_failures(tmp_path):
+    """채팅 에이전트 실패 집계를 화면 칸으로 (10-08 QA). 종류별 합계, 건너뜀, 차단 열림 횟수. 값이 없으면 null."""
+    health = {"open": True, "open_seconds_left": 120, "consecutive_failures": 0,
+              "failures_by_kind": {"bad_request": 3, "timeout": 1}, "skipped": 5, "trips": 1}
+    m = svc.build(tmp_path, chat_agent=health)
+    assert m["chat_agent"] == {"failures_by_kind": {"bad_request": 3, "timeout": 1}, "failures_total": 4,
+                               "skipped": 5, "trips": 1, "open": True, "open_seconds_left": 120}
+    assert svc.build(tmp_path)["chat_agent"] is None

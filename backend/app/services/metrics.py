@@ -6,6 +6,8 @@ evals/run_eval.py가 실행마다 evals/results/<config>_<한국시각>.json을 
 - 실행 기록은 파일 전부를 최신순으로 (실험 이력)
 숫자를 만들거나 고치지 않는다. 실행하지 않은 값은 null 그대로다 (CLAUDE.md "실행하지 않은 결과 숫자를 적지 않는다").
 폴더가 비어 있으면 전부 null이다. 주입 측정(injection/ 하위 폴더)은 읽지 않는다.
+chat_agent 칸은 평가 결과가 아니라 지금 서버 프로세스의 채팅 에이전트 실패 집계다 (10-08 QA, services/chat.agent_health).
+라우터가 값을 넘기고 여기서는 화면 모양으로만 고친다. 넘기지 않으면 null이다.
 """
 from __future__ import annotations
 
@@ -43,7 +45,21 @@ def load_runs(results_dir: Path = RESULTS_DIR) -> list[dict]:
     return sorted(runs, key=lambda d: d.get("run_at") or "", reverse=True)
 
 
-def build(results_dir: Path = RESULTS_DIR) -> dict:
+def chat_agent_block(health: dict | None) -> dict | None:
+    """채팅 에이전트 실패 집계(services/chat.agent_health)를 화면 칸으로 (10-08 QA).
+    종류별 실패 횟수, 회로가 열려 건너뛴 문장 수, 회로가 열린 횟수, 지금 열려 있나. 사용자 글·B/L은 원래 없다.
+    값이 없으면 None (화면은 블록을 그리지 않는다). 숫자는 프로세스가 켜진 뒤 누적이라 재시작하면 0부터다."""
+    if not isinstance(health, dict):
+        return None
+    kinds = health.get("failures_by_kind") or {}
+    return {"failures_by_kind": {str(k): int(v) for k, v in kinds.items()},
+            "failures_total": sum(int(v) for v in kinds.values()),
+            "skipped": int(health.get("skipped") or 0), "trips": int(health.get("trips") or 0),
+            "open": bool(health.get("open")), "open_seconds_left": int(health.get("open_seconds_left") or 0)}
+
+
+def build(results_dir: Path = RESULTS_DIR, chat_agent: dict | None = None) -> dict:
+    """평가지표 화면 응답 전체. chat_agent는 라우터가 넘기는 agent_health() 값 (평가 결과와 따로 붙인다, 10-08 QA)."""
     runs = load_runs(results_dir)
     latest = {}
     for r in runs:
@@ -86,4 +102,5 @@ def build(results_dir: Path = RESULTS_DIR) -> dict:
             "llm_calls": (r["summary"].get("usage") or {}).get("llm_calls"),
             "cost_usd": (r["summary"].get("usage") or {}).get("cost_usd"), "file": r["_file"],
         } for r in runs[:EXPERIMENT_LIMIT]],
+        "chat_agent": chat_agent_block(chat_agent),
     }

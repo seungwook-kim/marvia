@@ -26,6 +26,10 @@ function Val({value}:{value:number|null|undefined}){
   return typeof value==='number'?<span className="mx-val">{value}<small>%</small></span>:<span className="mx-val none">측정 전</span>;
 }
 
+/** GET /api/metrics의 chat_agent 칸 (services/metrics.chat_agent_block, 10-08 QA). 평가 결과가 아니라 지금 서버 프로세스의
+ * 채팅 에이전트 실패 집계다. 재시작하면 0부터. 옛 서버 응답·체험 예시에는 없다(블록을 그리지 않는다) */
+interface ChatAgentHealth { failures_by_kind: Record<string, number>; failures_total: number; skipped: number; trips: number; open: boolean; open_seconds_left: number }
+
 /** 비교표 항목 옆 ⓘ. 뜻 설명이 있는 항목만 단다. 누르면 아래에 한 줄 설명 */
 const TERM_HELP: Record<string, string> = {grounded: '설명이 근거와 일치한 비율'};
 
@@ -37,6 +41,9 @@ export function MetricsPage(){
   const m=live??data.metrics;
   const runs=(m.experiments??[]) as Array<Record<string,unknown>>;
   const datasetSize=(m as {dataset_size?:number|null}).dataset_size;
+  const agent=(m as {chat_agent?:ChatAgentHealth|null}).chat_agent;
+  // 종류별 실패를 "bad_request 3회, timeout 1회"로. 실패가 없으면 0회
+  const agentKinds=agent?Object.entries(agent.failures_by_kind).map(([k,n])=>`${k} ${n}회`).join(', ')||'0회':'';
   // 열 이름. 서버 필드 baseline=기준선(a), model_a=서비스(b), model_b=비교 모델(c)
   return <div className="page mx-page">
     <div className="page-heading adm-heading">
@@ -85,6 +92,11 @@ export function MetricsPage(){
         {!live&&<p className="mx-note">체험용 예시 값이에요. 운영 서버에 연결하면 실제 평가 결과로 바뀌어요.</p>}
       </section>
     </div>
+    {agent&&<section className="mx-section" aria-label="채팅 에이전트 실패">
+      <div className="mx-card-head"><h2>채팅 에이전트 실패</h2>{agent.open&&<span className="mx-legend">차단 중 · {agent.open_seconds_left}초 남음</span>}</div>
+      <p>종류별 {agentKinds}, 건너뜀 {agent.skipped}회, 차단 열림 {agent.trips}회</p>
+      <p className="mx-note">서버가 켜진 뒤부터 센 값이에요. 다시 시작하면 0부터 세요.</p>
+    </section>}
     <a className="quiet-link" href="/about">Marvia의 평가 방식 알아보기 <ArrowUpRight size={16}/></a>
   </div>;
 }
