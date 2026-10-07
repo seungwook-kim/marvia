@@ -12,7 +12,7 @@ MCP_TOKEN이 있으면 /mcp는 Authorization: Bearer <MCP_TOKEN> 없이 부를 �
 MCP_TOKEN이 없으면 REPLAY_MODE일 때만 열고, 아니면 같은 컨테이너 안의 요청만 받습니다 (10-06 점검, mcp_server/auth.py).
 
 어디서 뜨나 (09-29 결정, SDD 5.9):
-  기본은 API 서버(backend/app/main.py) 안의 /mcp 경로입니다. 서버·Cloud Run 서비스가 하나로 끝납니다.
+  기본은 API 서버(backend/app/main.py) 안의 /mcp 경로입니다. 배포 서비스(Railway marvia-api)가 하나로 끝납니다.
   이 파일을 직접 실행하는 길(아래)은 로컬 확인용으로 남깁니다.
   서비스(routers/agent.py 등)도 /mcp를 거쳐 도구를 부릅니다 (10-02, backend/app/services/mcp_client.py).
   외부 MCP 클라이언트와 같은 창구입니다.
@@ -72,9 +72,9 @@ def _in_thread(fn):
 def create_mcp(token: str | None = None) -> FastMCP:
     """도구 4종을 등록한 FastMCP를 새로 만든다.
 
-    Host 검사: FastMCP는 기본으로 localhost에서 온 요청만 받는다(DNS 리바인딩 방지). 그대로면 Cloud Run 주소
+    Host 검사: FastMCP는 기본으로 localhost에서 온 요청만 받는다(DNS 리바인딩 방지). 그대로면 배포 주소
     (xxx.run.app)로 온 요청이 421로 막힌다 (09-29 라이브러리 코드 확인, mcp 1.30 fastmcp/server.py).
-    토큰이 있으면 이 검사를 끄고 토큰이 막는다. Cloud Run 주소는 미리 알 수 없어 허용 목록을 적기 어렵다.
+    토큰이 있으면 이 검사를 끄고 토큰이 막는다. 배포 주소는 미리 알 수 없어 허용 목록을 적기 어렵다.
     compose의 worker도 같다: MCP_URL=http://api:8000/mcp라 Host가 api:8000이고, 토큰이 있으면 그대로 통과한다.
     토큰이 없으면 localhost에 compose 서비스 이름(api)만 더해 받는다 (10-06 점검: 전에는 localhost만이라 worker가 421).
     토큰 없이 밖에서 오는 요청은 어차피 auth.protect가 막는다(REPLAY_MODE가 아니면 루프백만). 이 목록은 REPLAY_MODE에서
@@ -83,17 +83,43 @@ def create_mcp(token: str | None = None) -> FastMCP:
     security = (TransportSecuritySettings(enable_dns_rebinding_protection=False) if _token(token)
                 else TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=NO_TOKEN_HOSTS,
                                                allowed_origins=NO_TOKEN_ORIGINS))
-    server = FastMCP("marvia-mcp", instructions=INSTRUCTIONS, streamable_http_path="/mcp",
-                     transport_security=security)
+    mcp = FastMCP("marvia-mcp", instructions=INSTRUCTIONS, streamable_http_path="/mcp",
+                  transport_security=security)
     # 4종 모두 외부 데이터를 조회하거나 거리를 계산할 뿐, 무언가를 바꾸는 부작용이 없어 읽기 전용으로 표시한다
     # (D9 도구 권한 정책, 가이드 v4 신뢰 경계). MCP 클라이언트가 이 표시를 보고 확인 없이 불러도 되는지 판단한다
     read_only = ToolAnnotations(readOnlyHint=True)
-    # 도구 함수(mcp_server/tools/*.py)에 @mcp.tool 데코레이터를 달지 않고 여기서 등록한다. 서버를 API 서버 수명이
-    # 열릴 때마다 새로 만들어야 하고(MountedMCP), 읽기 전용 표시와 스레드 실행(_in_thread)을 4종에 똑같이 붙이기 위해서다.
-    # 도구 이름·설명·입력 스키마는 함수 이름·docstring·타입 힌트에서 나온다 (10-02 점검: 데코레이터가 없어 미정의로 오해됨)
-    for tool in (estimate_distance, get_live_position, get_vessel_candidates, get_port_schedule):
-        server.tool(annotations=read_only)(_in_thread(tool))
-    return server
+
+    # 도구 4종. 본체는 mcp_server/tools/*.py에 있고, 여기서 @mcp.tool로 하나씩 등록한다.
+    # 서버를 API 서버 수명이 열릴 때마다 새로 만들어야 해서(MountedMCP) 도구 파일이 아니라 이 함수 안에서 단다.
+    # functools.wraps가 본체의 이름·docstring·타입 힌트를 옮겨서 도구 이름·설명·입력 스키마는 본체 그대로다.
+    # _in_thread: 동기 도구를 스레드에서 돌려 외부 API를 기다리는 동안 API 서버가 멈추지 않게 한다.
+    # (10-07: 전에는 반복문으로 등록해 데코레이터가 보이지 않아 "MCP tool 미정의"로 오해받았다. 동작은 같다)
+
+    @mcp.tool(annotations=read_only)
+    @_in_thread
+    @functools.wraps(estimate_distance)
+    def _estimate_distance(**kwargs):
+        return estimate_distance(**kwargs)
+
+    @mcp.tool(annotations=read_only)
+    @_in_thread
+    @functools.wraps(get_live_position)
+    def _get_live_position(**kwargs):
+        return get_live_position(**kwargs)
+
+    @mcp.tool(annotations=read_only)
+    @_in_thread
+    @functools.wraps(get_vessel_candidates)
+    def _get_vessel_candidates(**kwargs):
+        return get_vessel_candidates(**kwargs)
+
+    @mcp.tool(annotations=read_only)
+    @_in_thread
+    @functools.wraps(get_port_schedule)
+    def _get_port_schedule(**kwargs):
+        return get_port_schedule(**kwargs)
+
+    return mcp
 
 
 # 도구 목록·설명 확인용 (mcp_server/tests/test_tool_descriptions.py). 서버로 띄울 때는 create_mcp()로 새로 만든다
