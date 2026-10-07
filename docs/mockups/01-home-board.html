@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marvia 홈 보드</title>
+<style>
+:root{
+  --text:#111827;--text-2:#4b5563;--muted:#6b7280;--line:#e5e7eb;--soft:#f5f7fa;--surface:#fff;--dark:#0f1b2d;
+  --brand:#2962f5;--brand-hover:#1d4fd7;--brand-soft:#eef3ff;
+  --fine:#047857;--fine-bg:#ecfdf5;--fine-bar:#10b981;
+  --watch:#b45309;--watch-bg:#fffbeb;--watch-bar:#f59e0b;
+  --act:#b91c1c;--act-bg:#fef2f2;--act-bar:#ef4444;
+  --r-chip:4px;--r-btn:6px;--r-card:8px;
+  --float:0 1px 2px rgba(17,24,39,.05),0 4px 12px rgba(17,24,39,.06);
+  --font:"Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);font-size:15px;line-height:1.5;color:var(--text);background:var(--soft);min-width:1024px}
+a{color:var(--brand)}
+button,input{font:inherit}
+.num{font-variant-numeric:tabular-nums}
+
+/* 앱 셸 (공통) */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.app-main{min-width:0}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:20px 12px}
+.logo{font-size:18px;font-weight:700;letter-spacing:-.02em;padding:0 12px 20px}
+.nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:var(--r-btn);color:var(--text-2);text-decoration:none;font-size:14px;font-weight:500}
+.nav a::before{content:"";width:8px;height:8px;border-radius:2px;background:#cbd5e1}
+.nav a:hover{background:var(--soft)}
+.nav a[aria-current]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav a[aria-current]::before{background:var(--brand)}
+.nav .op{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.top{height:56px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 32px}
+.top h1{font-size:15px;font-weight:600}
+.top-r{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-2)}
+.live{display:flex;align-items:center;gap:6px}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--fine-bar)}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--dark);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600}
+main{padding:24px 32px 48px;max-width:1240px}
+
+/* 제목 */
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--brand);margin-bottom:4px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:24px}
+.head h2{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.sub{font-size:14px;color:var(--text-2);margin-top:4px}
+.sub b{font-weight:600;color:var(--text)}
+
+/* 버튼·배지·카드 */
+.btn{height:40px;padding:0 16px;border-radius:var(--r-btn);font-weight:700;font-size:14px;cursor:pointer;border:1px solid transparent;white-space:nowrap}
+.btn-p{background:var(--brand);color:#fff}.btn-p:hover{background:var(--brand-hover)}
+.btn-s{background:var(--surface);color:var(--text);border-color:var(--line)}.btn-s:hover{background:var(--soft)}
+.btn-sm{height:32px;padding:0 12px;font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:var(--r-chip);font-size:13px;font-weight:600;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;flex:none}
+.b-act{background:var(--act-bg);color:var(--act)}.b-act::before{background:var(--act-bar)}
+.b-watch{background:var(--watch-bg);color:var(--watch)}.b-watch::before{background:var(--watch-bar)}
+.b-fine{background:var(--fine-bg);color:var(--fine)}.b-fine::before{background:var(--fine-bar)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-chip);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:24px}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px}
+.card-h h3{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.card-h .meta{font-size:13px;color:var(--muted)}
+.prop{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+
+/* 레이아웃 */
+.board{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:24px;align-items:start}
+.col{display:flex;flex-direction:column;gap:24px;min-width:0}
+@media (max-width:1240px){.board{grid-template-columns:1fr}.aside{display:grid;grid-template-columns:1fr 1fr;gap:24px}}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--k);border-radius:var(--r-card);padding:20px 24px}
+.kpi.act{--k:var(--act-bar)}.kpi.watch{--k:var(--watch-bar)}.kpi.fine{--k:var(--fine-bar)}
+.kpi-l{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:600;color:var(--text-2)}
+.kpi-n{font-size:40px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin:8px 0 4px;font-variant-numeric:tabular-nums}
+.kpi.act .kpi-n{color:var(--act)}.kpi.watch .kpi-n{color:var(--watch)}.kpi.fine .kpi-n{color:var(--fine)}
+.kpi-n small{font-size:15px;font-weight:500;color:var(--muted);margin-left:4px}
+.kpi-d{font-size:13px;color:var(--muted)}
+
+/* 바뀐 것 */
+.chg{list-style:none}
+.chg li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:16px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}
+.chg li:first-child{border-top:0;padding-top:0}
+.chg .t{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px;font-weight:600}
+.arrow{color:var(--muted);font-weight:400}
+.chg .why{font-size:14px;color:var(--text-2);margin-top:2px}
+.chg time{font-size:13px;color:var(--muted);white-space:nowrap}
+.chg li.done{opacity:.55}
+
+/* 화물 목록 */
+.list-h,.row{display:grid;grid-template-columns:76px minmax(0,1.6fr) 100px 132px 112px 56px;gap:16px;align-items:center}
+.list-h{font-size:12px;font-weight:600;color:var(--muted);padding-bottom:8px;border-bottom:1px solid var(--line)}
+.item{padding:14px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0;padding-bottom:0}
+.name{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cell{font-size:14px;font-variant-numeric:tabular-nums}
+.row .chip,.row .badge{justify-self:start}
+.margin-ok{color:var(--watch);font-weight:600}
+.margin-over{color:var(--act);font-weight:700}
+.todo{display:flex;gap:8px;align-items:baseline;margin:8px 0 0 92px;font-size:14px;color:var(--text)}
+.todo b{font-size:12px;font-weight:600;color:var(--brand);letter-spacing:.04em;white-space:nowrap}
+.more{font-size:14px;font-weight:600;text-align:right}
+.list-foot{margin-top:16px;font-size:13px;color:var(--muted)}
+
+/* 오른쪽 칸 */
+.aside{display:flex;flex-direction:column;gap:24px}
+.kakao{border-left:3px solid var(--watch-bar)}
+.kakao p{font-size:14px;color:var(--text-2);margin:8px 0 16px}
+.kakao .t{font-size:15px;font-weight:700}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.field label{font-size:13px;font-weight:600;color:var(--text-2)}
+.field input{height:40px;border:1px solid var(--line);border-radius:var(--r-btn);padding:0 12px;font-size:15px;color:var(--text);background:var(--surface);width:100%}
+.field input:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:var(--brand)}
+.hint{font-size:12px;color:var(--muted)}
+.qs .btn{width:100%;margin-top:4px}
+.qs .alt{display:block;text-align:center;margin-top:12px;font-size:14px}
+.sep{height:1px;background:var(--line);margin:16px 0}
+.fine-list{list-style:none;font-size:14px}
+.fine-list li{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.fine-list li:first-child{border-top:0;padding-top:0}
+.fine-list span{color:var(--muted);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="주 메뉴">
+    <div class="logo">Marvia</div>
+    <ul class="nav">
+      <li><a href="#" aria-current="page">홈</a></li>
+      <li><a href="#">물어보기</a></li>
+      <li><a href="#">내 화물</a></li>
+      <li><a href="#">알림·설정</a></li>
+      <li class="op"><a href="#">관리 (운영자)</a></li>
+    </ul>
+  </aside>
+
+  <div class="app-main">
+    <header class="top">
+      <h1>홈</h1>
+      <div class="top-r"><span class="live">실시간 조회</span><span class="avatar" aria-label="사용자 김데모">김</span></div>
+    </header>
+
+    <main>
+      <div class="head">
+        <div>
+          <div class="eyebrow">오늘의 화물 보드</div>
+          <h2>오늘 챙길 화물을 먼저 보여 드려요</h2>
+          <p class="sub">10월 7일 수요일 · 지켜보는 화물 <b class="num">9</b>건</p>
+        </div>
+        <button class="btn btn-s" type="button">전체 다시 조회</button>
+      </div>
+
+      <div class="board">
+        <div class="col">
+          <!-- KPI -->
+          <section class="kpis" aria-label="판정 요약">
+            <div class="kpi act">
+              <div class="kpi-l">긴급 <span class="badge b-act">긴급</span></div>
+              <div class="kpi-n">2<small>건</small></div>
+              <div class="kpi-d">판매 예정일을 넘기거나 막힌 화물이에요</div>
+            </div>
+            <div class="kpi watch">
+              <div class="kpi-l">주의 <span class="badge b-watch">주의</span></div>
+              <div class="kpi-n">3<small>건</small></div>
+              <div class="kpi-d">여유가 3일 안쪽이에요</div>
+            </div>
+            <div class="kpi fine">
+              <div class="kpi-l">순항 <span class="badge b-fine">순항</span></div>
+              <div class="kpi-n">4<small>건</small></div>
+              <div class="kpi-d">일정대로 오고 있어요</div>
+            </div>
+          </section>
+
+          <!-- 어제 이후 바뀐 것 -->
+          <section class="card" aria-labelledby="chg-h">
+            <div class="card-h">
+              <h3 id="chg-h">어제 이후 바뀐 것 <span class="prop">(제안)</span></h3>
+              <span class="meta">지난 접속 10월 6일 18:40 이후 · 3건</span>
+            </div>
+            <ul class="chg">
+              <li>
+                <div>
+                  <div class="t">베트남 원두 2차 <span class="badge b-watch">주의</span><span class="arrow">→</span><span class="badge b-act">긴급</span></div>
+                  <p class="why">입항이 10월 9일에서 10월 12일로 밀려 판매 예정일을 2일 넘겨요.</p>
+                </div>
+                <time class="num" datetime="2026-10-07T06:20">오늘 06:20</time>
+                <button class="btn btn-s btn-sm" type="button">확인</button>
+              </li>
+              <li>
+                <div>
+                  <div class="t">칠레 냉동 연어 <span class="badge b-fine">순항</span><span class="arrow">→</span><span class="badge b-watch">주의</span></div>
+                  <p class="why">수입신고 뒤 검사 대상으로 바뀌어 반출이 1~2일 늦어질 수 있어요.</p>
+                </div>
+                <time class="num" datetime="2026-10-06T22:05">어제 22:05</time>
+                <button class="btn btn-s btn-sm" type="button">확인</button>
+              </li>
+              <li class="done">
+                <div>
+                  <div class="t">중국 LED 패널 <span class="badge b-watch">주의</span><span class="arrow">→</span><span class="badge b-fine">순항</span></div>
+                  <p class="why">반입이 끝나 판매 예정일까지 5일 여유가 생겼어요.</p>
+                </div>
+                <time class="num" datetime="2026-10-06T19:30">어제 19:30</time>
+                <button class="btn btn-s btn-sm" type="button" disabled>확인함</button>
+              </li>
+            </ul>
+          </section>
+
+          <!-- 지금 챙길 화물 -->
+          <section class="card" aria-labelledby="todo-h">
+            <div class="card-h">
+              <h3 id="todo-h">지금 챙길 화물</h3>
+              <span class="meta">긴급·주의 5건 · 여유 적은 순</span>
+            </div>
+            <div class="list-h" role="presentation">
+              <span>판정</span><span>화물 · B/L</span><span>도착 예정</span><span>여유</span><span>통관 단계</span><span></span>
+            </div>
+
+            <div class="item">
+              <div class="row">
+                <span class="badge b-act">긴급</span>
+                <div><div class="name">베트남 원두 2차 · 생두 18톤</div><div class="bl">MRVD****0001 · DEMO PIONEER</div></div>
+                <span class="cell">10월 12일</span>
+                <span class="cell margin-over">판매일 2일 넘김</span>
+                <span class="chip">입항 전</span>
+                <a class="more" href="#">자세히</a>
+              </div>
+              <p class="todo"><b>지금 할 일</b>데모포워딩에 환적 일정을 묻고, 거래처에 납품일 조정을 알려 주세요.</p>
+            </div>
+
+            <div class="item">
+              <div class="row">
+                <span class="badge b-act">긴급</span>
+                <div><div class="name">독일 산업용 밸브 · 부품 42상자</div><div class="bl">MRVD****0014 · DEMO HARBOR</div></div>
+                <span class="cell">10월 6일 입항</span>
+                <span class="cell margin-over">1일</span>
+                <span class="chip">서류 보완 요청</span>
+                <a class="more" href="#">자세히</a>
+              </div>
+              <p class="todo"><b>지금 할 일</b>관세사에게 원산지 증명서를 오늘 안에 보내 주세요. 관세사 확인이 필요해요.</p>
+            </div>
+
+            <div class="item">
+              <div class="row">
+                <span class="badge b-watch">주의</span>
+                <div><div class="name">칠레 냉동 연어 · 냉동 필렛</div><div class="bl">MRVD****0027 · TEST AURORA</div></div>
+                <span class="cell">10월 5일 입항</span>
+                <span class="cell margin-ok">2일</span>
+                <span class="chip">검사 대상</span>
+                <a class="more" href="#">자세히</a>
+              </div>
+              <p class="todo"><b>지금 할 일</b>검사 일정을 관세사에게 확인하고, 냉동 창고 보관 기간을 늘려 두세요.</p>
+            </div>
+
+            <div class="item">
+              <div class="row">
+                <span class="badge b-watch">주의</span>
+                <div><div class="name">태국 쌀국수 면 · 건면 1,200박스</div><div class="bl">MRVD****0033 · DEMO MERIDIAN</div></div>
+                <span class="cell">10월 10일</span>
+                <span class="cell margin-ok">3일</span>
+                <span class="chip">입항 전</span>
+                <a class="more" href="#">자세히</a>
+              </div>
+              <p class="todo"><b>지금 할 일</b>도착 통지서가 오면 운임 결제 조건을 확인해 주세요.</p>
+            </div>
+
+            <div class="item">
+              <div class="row">
+                <span class="badge b-watch">주의</span>
+                <div><div class="name">이탈리아 올리브유 · 병입 900병</div><div class="bl">MRVD****0041 · TEST LIBRA</div></div>
+                <span class="cell">10월 8일</span>
+                <span class="cell margin-ok">3일</span>
+                <span class="chip">하선 신고</span>
+                <a class="more" href="#">자세히</a>
+              </div>
+              <p class="todo"><b>지금 할 일</b>원본 B/L이 은행에 있어요. 은행 인수 일정을 미리 잡아 주세요.</p>
+            </div>
+
+            <p class="list-foot">순항 4건은 접어 두었어요. <a href="#">내 화물에서 모두 보기</a></p>
+          </section>
+        </div>
+
+        <!-- 오른쪽 칸 -->
+        <div class="aside">
+          <section class="card kakao" aria-labelledby="kk-h">
+            <span class="chip">알림 꺼짐</span>
+            <p class="t" id="kk-h" style="margin-top:12px">카카오 알림이 연결되지 않았어요</p>
+            <p>판정이 주의나 긴급으로 바뀌면 카카오톡으로 바로 알려 드려요. 연결은 1분이면 끝나요.</p>
+            <button class="btn btn-p" type="button" style="width:100%">카카오 알림 연결하기</button>
+          </section>
+
+          <section class="card qs" aria-labelledby="qs-h">
+            <div class="card-h" style="margin-bottom:12px"><h3 id="qs-h">빠른 시작</h3></div>
+            <div class="field">
+              <label for="bl">B/L 번호</label>
+              <input id="bl" type="text" placeholder="예: MRVD00000001" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="due">판매 예정일</label>
+              <input id="due" type="date" value="2026-10-20">
+              <span class="hint">이 날짜를 기준으로 여유 일수를 계산해요</span>
+            </div>
+            <button class="btn btn-p" type="button">조회</button>
+            <a class="alt" href="#">서류 사진·PDF로 채우기</a>
+            <div class="sep"></div>
+            <div class="eyebrow" style="color:var(--muted)">순항 중인 화물</div>
+            <ul class="fine-list">
+              <li>중국 LED 패널 <span>여유 5일</span></li>
+              <li>일본 문구류 <span>여유 8일</span></li>
+              <li>미국 견과류 <span>여유 11일</span></li>
+              <li>대만 반도체 소켓 <span>여유 14일</span></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>

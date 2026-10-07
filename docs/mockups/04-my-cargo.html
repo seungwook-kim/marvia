@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>내 화물 목업</title>
+<style>
+:root{
+  --text:#111827;--text-2:#4b5563;--muted:#6b7280;--line:#e5e7eb;--soft:#f5f7fa;--surface:#fff;--dark:#0f1b2d;
+  --brand:#2962f5;--brand-hover:#1d4fd7;--brand-soft:#eef3ff;
+  --fine:#047857;--fine-bg:#ecfdf5;--fine-bar:#10b981;
+  --watch:#b45309;--watch-bg:#fffbeb;--watch-bar:#f59e0b;
+  --act:#b91c1c;--act-bg:#fef2f2;--act-bar:#ef4444;
+  --r-chip:4px;--r-btn:6px;--r-card:8px;
+  --float:0 1px 2px rgba(17,24,39,.05),0 4px 12px rgba(17,24,39,.06);
+  --font:"Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:var(--font);color:var(--text);background:var(--soft);font-size:15px;line-height:1.5;min-width:1024px}
+button{font:inherit;cursor:pointer}
+/* 앱 셸 (공통) */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.app-main{min-width:0}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:20px 12px}
+.logo{font-size:18px;font-weight:700;letter-spacing:-.02em;padding:0 12px 20px}
+.nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:var(--r-btn);color:var(--text-2);text-decoration:none;font-size:14px;font-weight:500}
+.nav a::before{content:"";width:8px;height:8px;border-radius:2px;background:#cbd5e1}
+.nav a:hover{background:var(--soft)}
+.nav a[aria-current]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav a[aria-current]::before{background:var(--brand)}
+.nav .op{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.top{height:56px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 32px}
+.top h1{font-size:15px;font-weight:600}
+.top-r{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-2)}
+.live{display:flex;align-items:center;gap:6px}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--fine-bar)}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--dark);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600}
+main{padding:24px 32px 48px;min-width:0}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--brand)}
+h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:4px 0 16px}
+/* 탭 */
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.tab{background:none;border:0;padding:8px 0 12px;font-size:15px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--brand)}
+/* 버튼·칩·배지 */
+.btn{height:40px;padding:0 16px;border-radius:var(--r-btn);font-size:14px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.pri:hover{background:var(--brand-hover)}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
+.link{background:none;border:0;color:var(--text-2);text-decoration:underline;font-size:13px;padding:0}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-chip);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+.chip em{font-style:normal;color:var(--muted);margin-left:4px}
+.badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:var(--r-chip);font-size:13px;font-weight:600;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;flex:none}
+.b-act{background:var(--act-bg);color:var(--act)}.b-act::before{background:var(--act-bar)}
+.b-watch{background:var(--watch-bg);color:var(--watch)}.b-watch::before{background:var(--watch-bar)}
+.b-fine{background:var(--fine-bg);color:var(--fine)}.b-fine::before{background:var(--fine-bar)}
+.prop{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+/* 툴바 */
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.search{height:40px;flex:0 1 280px;min-width:180px;border:1px solid var(--line);border-radius:var(--r-btn);padding:0 12px;font:inherit;font-size:14px;background:var(--surface)}
+.chips{display:flex;gap:8px}
+.spacer{flex:1}
+/* 일괄 작업 바 */
+.bulk{display:flex;align-items:center;gap:12px;background:var(--dark);color:#fff;border-radius:var(--r-card);padding:8px 16px;margin-bottom:12px;font-size:14px;box-shadow:var(--float)}
+.bulk b{font-weight:700}
+.bulk .btn{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+.bulk .btn.pri{background:var(--brand);border-color:var(--brand)}
+.bulk .link{color:#d1d9e6;margin-left:auto}
+.bulk .prop{color:#c3cddc}
+/* 표 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card)}
+.scroll{overflow-x:auto;max-width:100%}
+.card{min-width:0}
+table{width:100%;min-width:1240px;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:0 12px;height:44px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+tr.sel td{background:var(--brand-soft)}
+tr.grp td{background:#fafbfc;height:40px;font-size:13px;color:var(--text-2)}
+tr.grp b{color:var(--text);font-weight:600}
+td.cb,th.cb{width:40px;padding-right:0}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand)}
+.goods b{display:block;font-weight:600;font-size:14px;line-height:1.3;padding-top:6px}
+.goods span{font-size:12px;color:var(--muted);padding-bottom:6px;display:block}
+.flag{font-size:12px;color:var(--muted);margin-left:4px}
+.dim{color:var(--muted)}
+.slack{font-weight:600}.slack.act{color:var(--act)}.slack.watch{color:var(--watch)}
+.more{width:32px;height:32px;border:0;background:none;border-radius:var(--r-btn);color:var(--muted);font-size:15px}
+.more:hover{background:var(--soft)}
+.foot{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;font-size:13px;color:var(--muted)}
+.trunc{display:flex;align-items:center;gap:8px}
+.trunc i{width:6px;height:6px;background:var(--muted)}
+/* 지도 탭 */
+.map-wrap{display:grid;grid-template-columns:1fr 320px;gap:16px}
+.map-wrap svg{display:block;width:100%;height:auto;border-radius:var(--r-card)}
+.list{padding:8px 0}
+.list h2{font-size:18px;font-weight:700;padding:12px 20px 8px}
+.ship{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);padding:12px 20px}
+.ship:hover{background:var(--soft)}
+.ship b{font-size:14px;font-weight:600;display:block;margin:4px 0 2px}
+.ship span{font-size:12px;color:var(--muted)}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="주 메뉴">
+    <div class="logo">Marvia</div>
+    <ul class="nav">
+      <li><a href="#">홈</a></li>
+      <li><a href="#">물어보기</a></li>
+      <li><a href="#" aria-current="page">내 화물</a></li>
+      <li><a href="#">알림·설정</a></li>
+      <li class="op"><a href="#">관리 (운영자)</a></li>
+    </ul>
+  </aside>
+
+  <div class="app-main">
+    <header class="top">
+      <h1>내 화물</h1>
+      <div class="top-r"><span class="live">실시간 조회</span><span class="avatar" aria-label="사용자 김데모">김</span></div>
+    </header>
+
+    <main>
+      <div class="eyebrow">신용장별 화물</div>
+      <h1>내 화물</h1>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-tab="table">표</button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="map">지도</button>
+      </div>
+
+      <!-- 표 탭 -->
+      <section id="panel-table">
+        <div class="toolbar">
+          <input class="search" type="search" placeholder="B/L 뒤 4자리나 품명으로 찾아요" aria-label="화물 검색">
+          <div class="chips" role="group" aria-label="판정 필터">
+            <button class="chip on">전체<em>5</em></button>
+            <button class="chip">긴급<em>1</em></button>
+            <button class="chip">주의<em>2</em></button>
+            <button class="chip">순항<em>2</em></button>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn">엑셀 받기</button>
+          <button class="btn pri">화물 추가</button>
+        </div>
+
+        <div class="bulk" role="region" aria-label="일괄 작업">
+          <b>2건 선택</b>
+          <button class="btn sm pri">한 번에 다시 조회<span class="prop">(제안)</span></button>
+          <button class="btn sm">지켜보기</button>
+          <button class="link">선택 해제</button>
+        </div>
+
+        <div class="card">
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th class="cb"><input type="checkbox" aria-label="전체 선택"></th>
+                  <th>판정<span class="prop">(제안)</span></th>
+                  <th>화물</th>
+                  <th>배</th>
+                  <th>출항</th>
+                  <th>입항</th>
+                  <th>입고</th>
+                  <th>여유 일수<span class="prop">(제안)</span></th>
+                  <th>통관 단계</th>
+                  <th>포워더</th>
+                  <th>마지막 확인<span class="prop">(제안)</span></th>
+                  <th aria-label="메뉴"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="grp"><td colspan="12"><b>신용장 DEMO-LC-0001</b> · 개설 8월 20일 · 3건</td></tr>
+                <tr class="sel">
+                  <td class="cb"><input type="checkbox" checked aria-label="선택"></td>
+                  <td><span class="badge b-act">긴급</span></td>
+                  <td class="goods"><b>냉동 새우 (데모)</b><span>MRVD****0001</span></td>
+                  <td>DEMO PIONEER<span class="flag">파나마</span></td>
+                  <td>9/14</td>
+                  <td class="dim">예정 10/20</td>
+                  <td class="dim">—</td>
+                  <td><span class="slack act">-3일</span></td>
+                  <td>입항 전</td>
+                  <td>데모포워딩</td>
+                  <td>2시간 전</td>
+                  <td><button class="more" aria-label="더 보기">⋯</button></td>
+                </tr>
+                <tr class="sel">
+                  <td class="cb"><input type="checkbox" checked aria-label="선택"></td>
+                  <td><span class="badge b-watch">주의</span></td>
+                  <td class="goods"><b>건조 망고 (데모)</b><span>MRVD****0002</span></td>
+                  <td>DEMO PIONEER<span class="flag">파나마</span></td>
+                  <td>9/14</td>
+                  <td class="dim">예정 10/20</td>
+                  <td class="dim">—</td>
+                  <td><span class="slack watch">4일</span></td>
+                  <td>입항 전</td>
+                  <td>데모포워딩</td>
+                  <td>2시간 전</td>
+                  <td><button class="more" aria-label="더 보기">⋯</button></td>
+                </tr>
+                <tr>
+                  <td class="cb"><input type="checkbox" aria-label="선택"></td>
+                  <td><span class="badge b-fine">순항</span></td>
+                  <td class="goods"><b>캔 참치 (데모)</b><span>MRVD****0003</span></td>
+                  <td>DEMO HARMONY<span class="flag">라이베리아</span></td>
+                  <td>9/02</td>
+                  <td>10/03</td>
+                  <td>10/05</td>
+                  <td><span class="slack">12일</span></td>
+                  <td>반입신고</td>
+                  <td>데모포워딩</td>
+                  <td>35분 전</td>
+                  <td><button class="more" aria-label="더 보기">⋯</button></td>
+                </tr>
+                <tr class="grp"><td colspan="12"><b>신용장 DEMO-LC-0002</b> · 개설 9월 2일 · 2건</td></tr>
+                <tr>
+                  <td class="cb"><input type="checkbox" aria-label="선택"></td>
+                  <td><span class="badge b-watch">주의</span></td>
+                  <td class="goods"><b>원두 커피 (데모)</b><span>MRVD****0004</span></td>
+                  <td>DEMO STAR<span class="flag">싱가포르</span></td>
+                  <td>9/21</td>
+                  <td class="dim">예정 10/12</td>
+                  <td class="dim">—</td>
+                  <td><span class="slack watch">5일</span></td>
+                  <td>입항 전</td>
+                  <td>데모포워딩</td>
+                  <td>어제</td>
+                  <td><button class="more" aria-label="더 보기">⋯</button></td>
+                </tr>
+                <tr>
+                  <td class="cb"><input type="checkbox" aria-label="선택"></td>
+                  <td><span class="badge b-fine">순항</span></td>
+                  <td class="goods"><b>올리브유 (데모)</b><span>MRVD****0005</span></td>
+                  <td class="dim">배 확정 전</td>
+                  <td>9/28</td>
+                  <td class="dim">예정 10/26</td>
+                  <td class="dim">—</td>
+                  <td><span class="slack">18일</span></td>
+                  <td class="dim">—</td>
+                  <td>데모포워딩</td>
+                  <td>5시간 전</td>
+                  <td><button class="more" aria-label="더 보기">⋯</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="foot">
+            <span>5건 · 신용장 2개</span>
+            <span class="trunc"><i></i>화물이 많으면 앞쪽 500줄까지 보여요. 나머지는 엑셀로 받아 주세요.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 지도 탭 -->
+      <section id="panel-map" hidden>
+        <div class="map-wrap">
+          <div class="card">
+            <svg viewBox="0 0 800 480" role="img" aria-label="배 3척 위치 지도">
+              <rect width="800" height="480" fill="#eaf1fb"/>
+              <path d="M0 0H330L360 60L300 120L260 210L190 250L120 330L0 360Z" fill="#fff" stroke="#e5e7eb"/>
+              <path d="M520 40L600 30L640 90L610 150L560 170L530 120Z" fill="#fff" stroke="#e5e7eb"/>
+              <path d="M680 0H800V260L740 230L700 160L690 80Z" fill="#fff" stroke="#e5e7eb"/>
+              <path d="M300 400L420 380L470 430L440 480H280Z" fill="#fff" stroke="#e5e7eb"/>
+              <path d="M180 300C300 260 420 230 560 170" fill="none" stroke="#9aa8bd" stroke-width="1.5" stroke-dasharray="5 5"/>
+              <path d="M330 420C430 340 520 240 575 160" fill="none" stroke="#9aa8bd" stroke-width="1.5" stroke-dasharray="5 5"/>
+              <path d="M720 250C680 230 620 190 580 168" fill="none" stroke="#9aa8bd" stroke-width="1.5" stroke-dasharray="5 5"/>
+              <rect x="568" y="158" width="14" height="14" rx="2" fill="#0f1b2d"/>
+              <text x="590" y="186" font-size="12" fill="#4b5563" font-family="sans-serif">부산항</text>
+              <g><circle cx="330" cy="248" r="9" fill="#ef4444" stroke="#fff" stroke-width="2"/>
+                <text x="346" y="252" font-size="13" font-weight="600" fill="#111827" font-family="sans-serif">DEMO PIONEER</text></g>
+              <g><circle cx="470" cy="300" r="9" fill="#f59e0b" stroke="#fff" stroke-width="2"/>
+                <text x="486" y="304" font-size="13" font-weight="600" fill="#111827" font-family="sans-serif">DEMO STAR</text></g>
+              <g><circle cx="640" cy="205" r="9" fill="#10b981" stroke="#fff" stroke-width="2"/>
+                <text x="656" y="209" font-size="13" font-weight="600" fill="#111827" font-family="sans-serif">DEMO HARMONY</text></g>
+            </svg>
+          </div>
+          <div class="card list">
+            <h2>배 3척</h2>
+            <button class="ship"><span class="badge b-act">긴급</span><b>DEMO PIONEER</b><span>2건 · 예정 10/20 · 데모선사</span></button>
+            <button class="ship"><span class="badge b-watch">주의</span><b>DEMO STAR</b><span>1건 · 예정 10/12 · 데모선사</span></button>
+            <button class="ship"><span class="badge b-fine">순항</span><b>DEMO HARMONY</b><span>1건 · 10/03 입항 · 데모선사</span></button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script>
+document.querySelectorAll('.tab').forEach(function (t) {
+  t.addEventListener('click', function () {
+    document.querySelectorAll('.tab').forEach(function (x) { x.setAttribute('aria-selected', x === t); });
+    document.getElementById('panel-table').hidden = t.dataset.tab !== 'table';
+    document.getElementById('panel-map').hidden = t.dataset.tab !== 'map';
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>입항 예정 선박</title>
+<style>
+:root{
+  --text:#111827;--text-2:#4b5563;--muted:#6b7280;--line:#e5e7eb;--soft:#f5f7fa;--surface:#fff;--dark:#0f1b2d;
+  --brand:#2962f5;--brand-hover:#1d4fd7;--brand-soft:#eef3ff;
+  --fine:#047857;--fine-bg:#ecfdf5;--fine-bar:#10b981;
+  --watch:#b45309;--watch-bg:#fffbeb;--watch-bar:#f59e0b;
+  --act:#b91c1c;--act-bg:#fef2f2;--act-bar:#ef4444;
+  --r-chip:4px;--r-btn:6px;--r-card:8px;
+  --float:0 1px 2px rgba(17,24,39,.05),0 4px 12px rgba(17,24,39,.06);
+  --font:"Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);color:var(--text);background:var(--soft);font-size:15px;line-height:1.5;min-width:1024px}
+button{font-family:inherit;cursor:pointer}
+.tnum{font-variant-numeric:tabular-nums}
+/* 앱 셸 (공통) */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.app-main{min-width:0}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:20px 12px}
+.logo{font-size:18px;font-weight:700;letter-spacing:-.02em;padding:0 12px 20px}
+.nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:var(--r-btn);color:var(--text-2);text-decoration:none;font-size:14px;font-weight:500}
+.nav a::before{content:"";width:8px;height:8px;border-radius:2px;background:#cbd5e1}
+.nav a:hover{background:var(--soft)}
+.nav a[aria-current]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav a[aria-current]::before{background:var(--brand)}
+.nav .op{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.top{height:56px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 32px}
+.top h1{font-size:15px;font-weight:600}
+.top-r{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-2)}
+.live{display:flex;align-items:center;gap:6px}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--fine-bar)}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--dark);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600}
+main{padding:24px 32px 48px;display:flex;flex-direction:column;gap:16px}
+/* 대화 접힘 줄 */
+.ask{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:8px 8px 8px 16px;font-size:14px}
+.ask .q{background:var(--brand-soft);color:var(--brand);border-radius:var(--r-chip);padding:4px 8px;font-weight:500}
+.ask .meta{color:var(--muted);font-size:13px}
+.ask .sp{flex:1}
+.crumb{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--brand)}
+.crumb span{color:var(--muted);font-weight:500;letter-spacing:0}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.head h2{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-top:4px}
+.head p{font-size:14px;color:var(--text-2);margin-top:4px}
+.head p b{color:var(--text);font-weight:600}
+/* 버튼·칩 */
+.btn{height:40px;padding:0 16px;border-radius:var(--r-btn);font-size:14px;font-weight:700;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.pri:hover{background:var(--brand-hover)}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
+.link{background:none;border:0;color:var(--brand);font-size:13px;font-weight:500;text-decoration:underline;text-underline-offset:3px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-chip);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+.prop{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+.badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:var(--r-chip);font-size:13px;font-weight:600;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;flex:none}
+.b-act{background:var(--act-bg);color:var(--act)}.b-act::before{background:var(--act-bar)}
+.b-watch{background:var(--watch-bg);color:var(--watch)}.b-watch::before{background:var(--watch-bar)}
+.b-fine{background:var(--fine-bg);color:var(--fine)}.b-fine::before{background:var(--fine-bar)}
+/* 필터 줄 */
+.filters{display:flex;align-items:center;gap:24px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:12px 16px}
+.fg{display:flex;align-items:center;gap:8px}
+.fl{font-size:13px;font-weight:600;color:var(--muted)}
+.seg{display:flex;gap:4px}
+select{height:32px;border:1px solid var(--line);border-radius:var(--r-btn);padding:0 28px 0 12px;font:500 13px var(--font);color:var(--text);background:var(--surface)}
+.chk{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.chk input{width:16px;height:16px;accent-color:var(--brand)}
+.sort{margin-left:auto;font-size:13px;color:var(--text-2)}
+.sort b{color:var(--text);font-weight:600}
+/* 본문 2단 */
+.body{display:grid;grid-template-columns:55fr 45fr;gap:16px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card)}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:12px;border-bottom:1px solid var(--line);white-space:nowrap}
+th.s{color:var(--text)}
+th.s::after{content:" ↑";color:var(--brand)}
+td{height:44px;padding:0 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr.row:hover td{background:#fafbfc}
+tr.sel td{background:var(--brand-soft)}
+tr.sel td:first-child{box-shadow:inset 2px 0 0 var(--brand)}
+.name{display:flex;align-items:center;gap:8px;font-weight:600}
+.watch{width:28px;height:28px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--surface);display:grid;place-items:center;color:var(--muted)}
+.watch.on{color:var(--brand);border-color:var(--brand);background:var(--surface)}
+.watch svg{width:14px;height:14px}
+.sub{color:var(--muted);font-size:13px}
+.left{font-weight:600}
+.left.soon{color:var(--watch)}
+.exp{width:28px;height:28px;border:0;background:none;color:var(--muted);font-size:15px;border-radius:var(--r-btn)}
+tr.sel .exp{transform:rotate(180deg);color:var(--brand)}
+tr.detail td{height:auto;padding:16px 16px 16px 24px;background:var(--surface);box-shadow:inset 2px 0 0 var(--brand)}
+.dl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px 16px;margin-bottom:16px}
+.dl dt{font-size:12px;font-weight:600;color:var(--muted)}
+.dl dd{font-size:14px;font-weight:500;margin-top:2px;white-space:normal}
+.dact{display:flex;align-items:center;gap:16px}
+.dact .note{font-size:13px;color:var(--muted)}
+.pager{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;font-size:13px;color:var(--muted)}
+.pages{display:flex;gap:4px}
+.pg{min-width:32px;height:32px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2)}
+.pg.on{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:700}
+/* 지도 */
+.map-h{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+.map-h h3{font-size:18px;font-weight:700}
+.map-h span{font-size:12px;color:var(--muted)}
+.map svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:16px;padding:12px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--text-2)}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;border-radius:50%}
+@media (max-width:1280px){
+  main{padding:24px}
+  .body{grid-template-columns:1fr}
+  .dl{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .map svg{max-width:560px;margin:0 auto}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="주 메뉴">
+    <div class="logo">Marvia</div>
+    <ul class="nav">
+      <li><a href="#">홈</a></li>
+      <li><a href="#" aria-current="page">물어보기</a></li>
+      <li><a href="#">내 화물</a></li>
+      <li><a href="#">알림·설정</a></li>
+      <li class="op"><a href="#">관리 (운영자)</a></li>
+    </ul>
+  </aside>
+
+  <div class="app-main">
+    <header class="top">
+      <h1>물어보기</h1>
+      <div class="top-r"><span class="live">실시간 조회</span><span class="avatar" aria-label="사용자 김데모">김</span></div>
+    </header>
+    <main>
+      <div class="ask">
+        <span class="meta">질문</span>
+        <span class="q">부산항에 내일 들어오는 컨테이너선</span>
+        <span class="meta tnum">3단계 · 2.4초 · 근거: 입항 예정 정보(10/7 09:12 조회)</span>
+        <span class="sp"></span>
+        <button class="btn sm">대화 펼치기</button>
+      </div>
+
+      <div class="head">
+        <div>
+          <div class="crumb">물어보기 <span>›</span> 입항 예정 선박</div>
+          <h2>부산항 입항 예정 · 10월 8일</h2>
+          <p><b class="tnum">화물선 18척</b> (전체 31척) · 지켜보는 배 2척이 들어 있어요</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn">엑셀 받기</button>
+          <button class="btn pri">지켜보는 배만 보기</button>
+        </div>
+      </div>
+
+      <div class="filters" role="group" aria-label="필터">
+        <div class="fg"><span class="fl">기간</span>
+          <div class="seg"><button class="chip">오늘</button><button class="chip on" aria-pressed="true">내일</button><button class="chip">3일</button></div>
+        </div>
+        <div class="fg"><label class="fl" for="from">출발지</label>
+          <select id="from"><option>전체 출발지</option><option>상하이</option><option>칭다오</option><option>도쿄</option><option>가오슝</option></select>
+        </div>
+        <label class="chk"><input type="checkbox" checked> 화물선만</label>
+        <div class="sort">정렬 <b>입항 예정 빠른 순</b> <button class="link">바꾸기</button></div>
+      </div>
+
+      <div class="body">
+        <section class="card" aria-label="입항 예정 선박 표">
+          <table>
+            <thead><tr>
+              <th>선박 이름</th><th>국적</th><th>이전 항구</th><th class="s">입항 예정</th><th>남은 시간</th><th><span class="sub">펼치기</span></th>
+            </tr></thead>
+            <tbody>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>DEMO PIONEER</div></td>
+                <td>파나마</td><td>상하이</td><td class="tnum">10/8 02:30</td><td class="tnum left soon">16시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row sel" aria-selected="true">
+                <td><div class="name"><button class="watch on" aria-label="지켜보는 중" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></button>DEMO HARMONY</div></td>
+                <td>라이베리아</td><td>칭다오</td><td class="tnum">10/8 06:10</td><td class="tnum left soon">20시간</td><td><button class="exp" aria-label="접기" aria-expanded="true">⌄</button></td>
+              </tr>
+              <tr class="detail">
+                <td colspan="6">
+                  <dl class="dl">
+                    <div><dt>호출부호</dt><dd class="tnum">DEMO01</dd></div>
+                    <div><dt>IMO</dt><dd class="tnum">0000000 (가공)</dd></div>
+                    <div><dt>마지막 수신</dt><dd class="tnum">12분 전 (09:00)</dd></div>
+                    <div><dt>속도</dt><dd class="tnum">16.4 노트</dd></div>
+                    <div><dt>목적지</dt><dd>KR PUS · 신항 2부두</dd></div>
+                  </dl>
+                  <div class="dact">
+                    <button class="btn pri">이 배로 화물 조회</button>
+                    <span class="badge b-fine">순항</span>
+                    <span class="note">내 화물 1건(MRVD****0001)이 이 배에 실려 있어요</span>
+                  </div>
+                </td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>TEST ORIENT</div></td>
+                <td>한국</td><td>도쿄</td><td class="tnum">10/8 08:45</td><td class="tnum left">23시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch on" aria-label="지켜보는 중" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></button>DEMO NAVIGATOR</div></td>
+                <td>싱가포르</td><td>가오슝</td><td class="tnum">10/8 11:20</td><td class="tnum left">1일 2시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>TEST MERIDIAN</div></td>
+                <td>마셜제도</td><td>상하이</td><td class="tnum">10/8 14:00</td><td class="tnum left">1일 5시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>DEMO SEABRIDGE</div></td>
+                <td>홍콩</td><td>닝보</td><td class="tnum">10/8 17:30</td><td class="tnum left">1일 8시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>TEST AURORA</div></td>
+                <td>일본</td><td>오사카</td><td class="tnum">10/8 20:15</td><td class="tnum left">1일 11시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+              <tr class="row">
+                <td><div class="name"><button class="watch" aria-label="지켜보기"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg></button>DEMO KESTREL</div></td>
+                <td>파나마</td><td>톈진</td><td class="tnum">10/8 23:40</td><td class="tnum left">1일 14시간</td><td><button class="exp" aria-label="펼치기">⌄</button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="pager">
+            <span class="tnum">1–8 / 18척</span>
+            <nav class="pages" aria-label="페이지">
+              <button class="pg on" aria-current="page">1</button><button class="pg">2</button><button class="pg">3</button><button class="pg" aria-label="다음 페이지">›</button>
+            </nav>
+          </div>
+        </section>
+
+        <section class="card map" aria-label="입항 예정 선박 지도">
+          <div class="map-h"><h3>위치 · 8척</h3><span class="tnum">마지막 갱신 09:12 · 표에서 고르면 지도에 표시돼요</span></div>
+          <svg viewBox="0 0 440 400" role="img" aria-label="동아시아 지도, DEMO HARMONY 선택됨">
+            <rect width="440" height="400" fill="#eaf1fb"/>
+            <!-- 중국 동부 해안 -->
+            <path d="M0 0H190L196 30 176 58 150 66 160 92 136 112 150 140 128 168 140 198 118 232 126 268 100 304 92 340 60 372 40 400H0Z" fill="#fff" stroke="#d6dde8"/>
+            <!-- 산둥 반도 -->
+            <path d="M136 112 172 104 188 116 160 128 150 140Z" fill="#fff" stroke="#d6dde8"/>
+            <!-- 한반도 -->
+            <path d="M190 0H262L258 30 246 56 254 86 262 120 256 150 244 168 222 172 210 160 214 134 204 110 216 86 200 70 196 30Z" fill="#fff" stroke="#d6dde8"/>
+            <!-- 일본 -->
+            <path d="M340 0H372L366 40 352 70 344 60 350 30Z" fill="#fff" stroke="#d6dde8"/>
+            <path d="M344 78 362 72 380 100 396 140 420 180 440 196V240L410 226 380 204 352 196 318 200 290 206 278 192 300 180 330 170 348 140 350 110Z" fill="#fff" stroke="#d6dde8"/>
+            <path d="M266 200 290 212 284 238 262 236Z" fill="#fff" stroke="#d6dde8"/>
+            <!-- 대만 -->
+            <path d="M96 348 110 336 116 360 104 384 92 372Z" fill="#fff" stroke="#d6dde8"/>
+            <!-- 항로 점선 -->
+            <g fill="none" stroke="#9fb4d8" stroke-width="1.5" stroke-dasharray="4 4">
+              <path d="M150 232 C190 210 220 190 248 172"/>
+              <path d="M176 120 C200 140 226 160 248 172"/>
+              <path d="M330 196 C300 196 270 184 248 172"/>
+              <path d="M110 336 C160 280 210 210 248 172"/>
+            </g>
+            <!-- 부산항 -->
+            <rect x="243" y="167" width="10" height="10" fill="var(--dark)"/>
+            <text x="258" y="166" font-size="12" font-weight="600" fill="var(--text)">부산항</text>
+            <!-- 배 마커 -->
+            <g fill="#64748b" stroke="#fff" stroke-width="1.5">
+              <circle cx="232" cy="186" r="5"/>
+              <circle cx="292" cy="190" r="5"/>
+              <circle cx="186" cy="214" r="5"/>
+              <circle cx="168" cy="256" r="5"/>
+              <circle cx="306" cy="198" r="5"/>
+              <circle cx="140" cy="292" r="5"/>
+              <circle cx="190" cy="110" r="5"/>
+            </g>
+            <!-- 선택된 배 -->
+            <circle cx="214" cy="150" r="14" fill="var(--brand)" opacity=".15"/>
+            <circle cx="214" cy="150" r="8" fill="var(--brand)" stroke="#fff" stroke-width="2"/>
+            <g>
+              <rect x="88" y="124" width="112" height="24" rx="4" fill="var(--brand)"/>
+              <text x="144" y="140" font-size="12" font-weight="600" fill="#fff" text-anchor="middle">DEMO HARMONY</text>
+            </g>
+          </svg>
+          <div class="legend">
+            <span><i style="background:var(--brand)"></i>선택한 배</span>
+            <span><i style="background:#64748b"></i>입항 예정</span>
+            <span><i style="background:var(--dark);border-radius:0"></i>도착 항구</span>
+            <span>점선: 예상 항로</span>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>

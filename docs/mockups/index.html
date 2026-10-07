@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marvia 화면 목업</title>
+<style>
+  :root{--text:#111827;--text-2:#4b5563;--muted:#6b7280;--line:#e5e7eb;--soft:#f5f7fa;--brand:#2962f5;--brand-hover:#1d4fd7;
+    --font:"Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--soft);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.6}
+  main{max-width:960px;margin:0 auto;padding:48px 24px}
+  .eyebrow{margin:0 0 8px;color:var(--brand);font-size:12px;font-weight:600;letter-spacing:.08em}
+  h1{margin:0 0 8px;font-size:28px;font-weight:700;letter-spacing:-.02em}
+  p.lead{margin:0 0 32px;color:var(--text-2)}
+  ol{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+  li a{display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:16px;padding:20px 24px;border:1px solid var(--line);border-radius:8px;background:#fff;color:inherit;text-decoration:none}
+  li a:hover{border-color:var(--brand)}
+  li a:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+  .no{color:var(--muted);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+  .t{font-size:18px;font-weight:700}
+  .d{display:block;color:var(--text-2);font-size:14px}
+  .go{color:var(--brand);font-size:14px;font-weight:600}
+  footer{margin-top:32px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">DESIGN MOCKUP · 2026-10-07</p>
+  <h1>Marvia 앱 화면 목업</h1>
+  <p class="lead">소개 페이지의 기업 톤(흰 바탕, 얇은 선, 파란 단색, 낮은 모서리)을 로그인 후 화면에 맞춘 시안이에요. 기준은 <a href="DESIGN_BRIEF.md">DESIGN_BRIEF.md</a>예요. 모든 데이터는 가공값이에요.</p>
+  <ol>
+    <li><a href="01-home-board.html"><span class="no">01</span><span><span class="t">홈 · 오늘의 화물 보드</span><span class="d">긴급·주의·순항 건수, 어제 이후 바뀐 것, 지금 챙길 화물</span></span><span class="go">열기</span></a></li>
+    <li><a href="02-chat-split.html"><span class="no">02</span><span><span class="t">물어보기 · 채팅과 결과</span><span class="d">근거 칩, 후보 칩, 판매 예정일 칩, 왜 이 판정인지 3줄</span></span><span class="go">열기</span></a></li>
+    <li><a href="03-cargo-detail.html"><span class="no">03</span><span><span class="t">화물 상세 · 긴급 대응</span><span class="d">할 일 체크리스트, 거래처 바로 연락, 신호 충돌 설명</span></span><span class="go">열기</span></a></li>
+    <li><a href="04-my-cargo.html"><span class="no">04</span><span><span class="t">내 화물 · 표와 지도</span><span class="d">신용장별 표에 판정·여유 일수, 여러 건 한 번에 다시 조회</span></span><span class="go">열기</span></a></li>
+    <li><a href="05-arrivals.html"><span class="no">05</span><span><span class="t">입항 예정 선박</span><span class="d">필터, 정렬 표와 지도 연동, 줄마다 지켜보기</span></span><span class="go">열기</span></a></li>
+  </ol>
+  <footer>"(제안)"이 붙은 기능은 아직 앱에 없고, 개편 때 함께 만들 후보예요.</footer>
+</main>
+</body>
+</html>

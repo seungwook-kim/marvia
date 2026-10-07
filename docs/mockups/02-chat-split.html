@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marvia 물어보기</title>
+<style>
+:root{
+  --text:#111827;--text-2:#4b5563;--muted:#6b7280;--line:#e5e7eb;--soft:#f5f7fa;--surface:#fff;--dark:#0f1b2d;
+  --brand:#2962f5;--brand-hover:#1d4fd7;--brand-soft:#eef3ff;
+  --fine:#047857;--fine-bg:#ecfdf5;--fine-bar:#10b981;
+  --watch:#b45309;--watch-bg:#fffbeb;--watch-bar:#f59e0b;
+  --act:#b91c1c;--act-bg:#fef2f2;--act-bar:#ef4444;
+  --r-chip:4px;--r-btn:6px;--r-card:8px;
+  --float:0 1px 2px rgba(17,24,39,.05),0 4px 12px rgba(17,24,39,.06);
+  --font:"Pretendard","Noto Sans KR","Malgun Gothic",-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);font-size:15px;color:var(--text);background:var(--soft);line-height:1.55;min-width:1024px}
+button{font:inherit;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+/* 앱 셸 (공통) */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.app-main{min-width:0}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:20px 12px}
+.logo{font-size:18px;font-weight:700;letter-spacing:-.02em;padding:0 12px 20px}
+.nav{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:var(--r-btn);color:var(--text-2);text-decoration:none;font-size:14px;font-weight:500}
+.nav a::before{content:"";width:8px;height:8px;border-radius:2px;background:#cbd5e1}
+.nav a:hover{background:var(--soft)}
+.nav a[aria-current]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+.nav a[aria-current]::before{background:var(--brand)}
+.nav .op{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.top{height:56px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 32px}
+.top h1{font-size:15px;font-weight:600}
+.top-r{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-2)}
+.live{display:flex;align-items:center;gap:6px}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--fine-bar)}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--dark);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600}
+.app{height:100vh}
+.main{display:flex;flex-direction:column;height:100vh}
+/* 분할 */
+.split{flex:1;display:grid;grid-template-columns:40fr 60fr;min-height:0}
+.chat{display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0}
+.chat-head{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.log{flex:1;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.res{overflow:auto;padding:24px;display:flex;flex-direction:column;gap:16px;min-height:0}
+/* 공통 부품 */
+.btn{height:40px;padding:0 16px;border-radius:6px;font-size:14px;font-weight:700;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px}
+.btn-p{background:var(--brand);color:#fff}.btn-p:hover{background:var(--brand-hover)}
+.btn-s{background:var(--surface);color:var(--text);border-color:var(--line)}.btn-s:hover{background:var(--soft)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r-chip);background:var(--surface);font-size:13px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border-radius:var(--r-chip);font-size:13px;font-weight:600;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;flex:none}
+.b-act{background:var(--act-bg);color:var(--act)}.b-act::before{background:var(--act-bar)}
+.b-watch{background:var(--watch-bg);color:var(--watch)}.b-watch::before{background:var(--watch-bar)}
+.b-fine{background:var(--fine-bg);color:var(--fine)}.b-fine::before{background:var(--fine-bar)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px}
+.card h2{font-size:18px;font-weight:700;margin-bottom:12px}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--brand);margin-bottom:4px}
+.sub{font-size:12px;color:var(--muted)}
+.link{background:none;border:0;color:var(--brand);font-size:13px;font-weight:500;text-decoration:underline;text-underline-offset:2px}
+.prop{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+/* 대화 */
+.msg{max-width:92%;font-size:15px}
+.me{align-self:flex-end;background:var(--brand-soft);color:var(--text);padding:10px 14px;border-radius:8px}
+.bot{align-self:flex-start}
+.bot p{margin-bottom:6px}
+.cite{display:inline-flex;align-items:center;height:22px;padding:0 6px;margin-left:4px;border:1px solid var(--line);border-radius:4px;background:var(--soft);font-size:12px;font-weight:500;color:var(--text-2);vertical-align:1px}
+.cite.open{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.pop{position:relative;margin:4px 0 10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:var(--float);padding:12px 14px;font-size:13px}
+.pop::before{content:"";position:absolute;top:-6px;left:40%;width:10px;height:10px;background:var(--surface);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
+.pop dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+.pop dt{color:var(--muted)}.pop dd{color:var(--text)}
+.pop .row+.row{border-top:1px solid var(--line);margin-top:10px;padding-top:10px}
+.steps{display:inline-flex;gap:4px;margin-top:2px;background:none;border:0;font-size:12px;color:var(--muted)}
+.steps:hover{color:var(--text-2)}
+.cands{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.cand{display:flex;gap:6px}
+.cand .pick{flex:1;display:flex;justify-content:space-between;align-items:center;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:4px;background:var(--surface);font-size:14px;color:var(--text);text-align:left}
+.cand .pick:hover{border-color:var(--brand)}
+.cand .pick span{font-size:12px;color:var(--muted)}
+.icon-btn{width:40px;height:40px;flex:none;border:1px solid var(--line);border-radius:6px;background:var(--surface);display:grid;place-items:center;color:var(--text-2)}
+.icon-btn:hover{color:var(--brand);border-color:var(--brand)}
+.divider{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.compose{border-top:1px solid var(--line);padding:16px 20px}
+.box{border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.box:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.box textarea{width:100%;border:0;outline:0;resize:none;font:inherit;font-size:15px;color:var(--text);min-height:48px}
+.box-foot{display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-top:6px}
+.box-foot .chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip.date{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+.chip .x{font-style:normal;font-size:14px;line-height:1;color:var(--brand)}
+/* 결과 */
+.verdict{border-top:3px solid var(--watch-bar);padding:24px}
+.v-head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}
+.v-title{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:10px 0 4px}
+.margin{text-align:right;flex:none}
+.margin b{display:block;font-size:40px;font-weight:700;line-height:1;color:var(--watch);letter-spacing:-.02em}
+.why{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+.why h3{font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px}
+.why li{list-style:none;display:grid;grid-template-columns:150px 1fr;gap:12px;padding:8px 0;font-size:14px;border-bottom:1px solid var(--line)}
+.why li:last-child{border-bottom:0}
+.why li span{color:var(--text-2)}.why li strong{font-weight:600}
+.todo{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:16px;background:var(--watch-bg);border-radius:6px;padding:14px 16px}
+.todo p{font-size:14px;color:var(--text)}.todo p b{font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.mapwrap{border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.mapwrap svg{display:block;width:100%;height:auto}
+.map-foot{display:flex;justify-content:space-between;margin-top:10px;font-size:13px;color:var(--text-2)}
+.etas{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.eta{display:grid;grid-template-columns:70px 1fr auto;align-items:center;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:6px;font-size:14px}
+.eta span{color:var(--muted);font-size:13px}
+.eta.trust{border-color:var(--brand);background:var(--brand-soft)}
+.eta.trust em{font-style:normal;font-size:12px;font-weight:600;color:var(--brand)}
+.tl{position:relative;height:56px;margin:4px 8px 0}
+.tl .bar{position:absolute;top:10px;left:0;right:0;height:4px;background:var(--line);border-radius:2px}
+.tl .done{position:absolute;top:10px;left:0;width:72%;height:4px;background:var(--brand);border-radius:2px}
+.tl .pt{position:absolute;top:4px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:var(--surface);border:3px solid var(--brand)}
+.tl .pt.now{background:var(--brand)}
+.tl .pt.end{border-color:#9ca3af}
+.tl .lb{position:absolute;top:26px;transform:translateX(-50%);font-size:12px;color:var(--muted);text-align:center;white-space:nowrap}
+.tl .lb b{display:block;color:var(--text);font-weight:600}
+.stagebar{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:12px 0 6px}
+.stagebar i{height:6px;border-radius:2px;background:var(--line)}
+.stagebar i.d{background:var(--brand)}.stagebar i.c{background:var(--watch-bar)}
+.stagelab{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;font-size:12px;color:var(--muted)}
+.stagelab .c{color:var(--watch);font-weight:600}
+.cur{margin-top:16px;font-size:14px;color:var(--text-2)}
+.cur strong{display:block;font-size:15px;color:var(--text);font-weight:600;margin-bottom:2px}
+.next{margin-top:12px;font-size:13px;color:var(--muted)}.next b{color:var(--text);font-weight:600}
+@media (max-width:1279px){
+  .grid2{grid-template-columns:1fr}
+  .why li{grid-template-columns:120px 1fr}
+  .log,.res{padding:16px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="주 메뉴">
+    <div class="logo">Marvia</div>
+    <ul class="nav">
+      <li><a href="#">홈</a></li>
+      <li><a href="#" aria-current="page">물어보기</a></li>
+      <li><a href="#">내 화물</a></li>
+      <li><a href="#">알림·설정</a></li>
+      <li class="op"><a href="#">관리 (운영자)</a></li>
+    </ul>
+  </aside>
+
+  <div class="main app-main">
+    <header class="top">
+      <h1>물어보기</h1>
+      <div class="top-r"><span class="live">실시간 조회</span><span class="avatar" aria-label="사용자 김데모">김</span></div>
+    </header>
+
+    <div class="split">
+      <!-- 왼쪽: 대화 -->
+      <section class="chat" aria-label="대화">
+        <div class="chat-head">
+          <span>MRVD****0003 대화</span>
+          <button class="chip" type="button">근거 6개 ▾</button>
+        </div>
+
+        <div class="log">
+          <!-- 이전 턴: 되묻기 -->
+          <div class="msg me">DEMO 배로 들어오는 화물 지금 어디쯤이에요?</div>
+          <div class="msg bot">
+            <p>이름이 비슷한 배가 2척 있어요. 어느 배인지 골라 주세요.</p>
+            <div class="cands">
+              <div class="cand">
+                <button class="pick" type="button">DEMO PIONEER <span>파나마 · 부산 (KRPUS)</span></button>
+                <button class="icon-btn" type="button" aria-label="DEMO PIONEER 지켜보기" title="지켜보기"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+              </div>
+              <div class="cand">
+                <button class="pick" type="button">DEMO PIONEER II <span>라이베리아 · 광양 (KRKAN)</span></button>
+                <button class="icon-btn" type="button" aria-label="DEMO PIONEER II 지켜보기" title="지켜보기"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider">오늘 14:20</div>
+
+          <!-- 지금 턴 -->
+          <div class="msg me">MRVD****0003 화물 판매일 전에 들어와요?</div>
+          <div class="msg bot">
+            <p>DEMO PIONEER는 10월 17일 오후에 부산항에 들어올 것으로 보여요.<button class="cite" type="button">AIS 외 1</button></p>
+            <p>판매 예정일 10월 20일까지 3일 여유가 있지만, 통관이 아직 입항 전 단계라 하루만 밀려도 빠듯해요.<button class="cite open" type="button" aria-expanded="true">해수부 외 1</button></p>
+            <div class="pop" role="dialog" aria-label="근거">
+              <div class="row"><dl>
+                <dt>출처</dt><dd>해양수산부 입출항 예정 정보</dd>
+                <dt>값</dt><dd class="num">입항 예정 10월 17일 15:00</dd>
+                <dt>조회 시각</dt><dd class="num">10월 7일 14:21</dd>
+              </dl></div>
+              <div class="row"><dl>
+                <dt>출처</dt><dd>UNI-PASS 화물 통관 진행</dd>
+                <dt>값</dt><dd>적하목록 제출 (입항 전)</dd>
+                <dt>조회 시각</dt><dd class="num">10월 7일 14:21</dd>
+              </dl></div>
+            </div>
+            <p>입항 전에 관세사와 서류를 미리 맞춰 두면 좋아요.<button class="cite" type="button">관세청</button></p>
+            <button class="steps" type="button">4단계 · 12초 ▸</button>
+          </div>
+        </div>
+
+        <div class="compose">
+          <div class="box">
+            <label for="q" class="sub" style="position:absolute;left:-9999px">질문 입력</label>
+            <textarea id="q" rows="2" placeholder="B/L 번호나 배 이름으로 물어보세요. Shift+Enter로 줄을 바꿔요."></textarea>
+            <div class="box-foot">
+              <div class="chips">
+                <button class="chip" type="button">+ 서류 첨부</button>
+                <button class="chip date" type="button">판매 예정일: 10월 20일 <span class="x" aria-hidden="true">✕</span></button>
+                <span class="prop" style="align-self:center">(제안)</span>
+              </div>
+              <button class="btn btn-p" type="button">보내기</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 오른쪽: 결과 -->
+      <section class="res" aria-label="결과">
+        <article class="card verdict">
+          <div class="v-head">
+            <div>
+              <div class="eyebrow">MRVD****0003 · DEMO PIONEER</div>
+              <span class="badge b-watch">주의</span>
+              <p class="v-title">판매일 전에 들어오지만 여유가 빠듯해요</p>
+              <p class="sub">규칙으로 판정 · 10월 7일 14:21 기준</p>
+            </div>
+            <div class="margin"><span class="sub">판매일까지 여유</span><b class="num">3일</b><span class="sub">10월 17일 → 10월 20일</span></div>
+          </div>
+          <div class="why">
+            <h3>왜 이 판정?</h3>
+            <ul>
+              <li><span>믿은 입항 예정</span><strong class="num">10월 17일 15:00 (해수부)</strong></li>
+              <li><span>통관 단계</span><strong>입항 전 · 적하목록 제출</strong></li>
+              <li><span>위치 신호</span><strong class="num">10분 전 수신 · 13.2노트로 항해 중</strong></li>
+            </ul>
+          </div>
+          <div class="todo">
+            <p><b>지금 할 일</b> · 관세사에게 수입신고 서류를 미리 보내 두세요.<br>입항이 하루 넘게 밀리면 바로 알려 드릴게요.</p>
+            <button class="btn btn-s" type="button">지켜보기</button>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>지금 위치</h2>
+          <div class="mapwrap">
+            <svg viewBox="0 0 640 300" role="img" aria-label="서해를 지나 부산으로 오는 DEMO PIONEER 위치">
+              <rect width="640" height="300" fill="#eaf1fb"/>
+              <!-- 중국 동해안 -->
+              <path d="M0 0H120L135 40 110 80 140 120 120 170 150 210 130 260 145 300H0Z" fill="#fff" stroke="#e5e7eb"/>
+              <!-- 한반도 -->
+              <path d="M330 0H470L482 50 498 110 505 170 520 215 495 240 455 238 420 250 392 232 372 200 380 165 360 130 372 95 350 60Z" fill="#fff" stroke="#e5e7eb"/>
+              <!-- 제주 -->
+              <ellipse cx="392" cy="285" rx="22" ry="9" fill="#fff" stroke="#e5e7eb"/>
+              <!-- 일본 큐슈 -->
+              <path d="M590 250 612 220 640 214V300H600Z" fill="#fff" stroke="#e5e7eb"/>
+              <text x="40" y="150" font-size="12" fill="#9ca3af">중국</text>
+              <text x="250" y="140" font-size="12" fill="#6b7280">서해</text>
+              <text x="410" y="110" font-size="12" fill="#9ca3af">대한민국</text>
+              <!-- 항로 -->
+              <path d="M150 40 C220 100 250 200 330 262 S470 270 512 228" fill="none" stroke="#2962f5" stroke-width="2" stroke-dasharray="6 6"/>
+              <path d="M150 40 C200 85 225 130 246 170" fill="none" stroke="#2962f5" stroke-width="2.5"/>
+              <!-- 부산항 -->
+              <rect x="506" y="222" width="12" height="12" fill="#0f1b2d"/>
+              <text x="524" y="250" font-size="13" font-weight="600" fill="#111827">부산항</text>
+              <!-- 배 -->
+              <circle cx="248" cy="174" r="14" fill="#2962f5" opacity=".15"/>
+              <path d="M248 162 256 182 248 177 240 182Z" fill="#2962f5" transform="rotate(150 248 174)"/>
+              <rect x="262" y="160" width="118" height="26" rx="4" fill="#fff" stroke="#e5e7eb"/>
+              <text x="272" y="178" font-size="12" font-weight="600" fill="#111827">DEMO PIONEER</text>
+            </svg>
+          </div>
+          <div class="map-foot num"><span>부산까지 <b>184.5해리</b> · 수신 10분 전</span><span class="sub">35.1°N 124.9°E · 13.2노트</span></div>
+        </article>
+
+        <div class="grid2">
+          <article class="card">
+            <h2>일정</h2>
+            <div class="etas num">
+              <div class="eta"><span>AIS</span>10월 17일 09:00<span>선박 신고</span></div>
+              <div class="eta trust"><span>해수부</span>10월 17일 15:00<em>이 값을 믿었어요</em></div>
+              <div class="eta"><span>계산</span>10월 17일 13:40<span>거리 ÷ 속도</span></div>
+            </div>
+            <div class="tl" aria-label="출항에서 입항까지 진행">
+              <div class="bar"></div><div class="done"></div>
+              <span class="pt" style="left:0"></span><span class="lb" style="left:0;transform:none;text-align:left"><b>출항</b>10/1 칭다오</span>
+              <span class="pt now" style="left:72%"></span><span class="lb" style="left:72%"><b>지금</b>10/7</span>
+              <span class="pt end" style="left:100%"></span><span class="lb" style="left:100%;transform:translateX(-100%);text-align:right"><b>입항</b>10/17 부산</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2>통관</h2>
+            <span class="chip">입항 전</span>
+            <div class="stagebar"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div>
+            <div class="stagelab"><span>출항</span><span class="c">적하목록</span><span>입항</span><span>수입신고</span><span>반출</span></div>
+            <div class="cur"><strong>적하목록 제출</strong>선사가 배에 실린 화물 목록을 세관에 냈어요. 아직 배가 도착하지 않아 세관이 기다리는 중이에요.</div>
+            <p class="next">다음 단계 · <b>입항 보고</b> 후 수입신고를 할 수 있어요.</p>
+            <p class="next"><button class="link" type="button">처리 이력 보기</button></p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</body>
+</html>
