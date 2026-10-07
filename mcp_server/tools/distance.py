@@ -46,7 +46,8 @@ def _busan_node() -> tuple[float, float]:
 def estimate_distance(
     lat: Annotated[float, Field(description="선박 위도. WGS84, -90~90. 예: 34.5", ge=-90, le=90)],
     lng: Annotated[float, Field(description="선박 경도. WGS84, -180~180. 예: 128.8", ge=-180, le=180)],
-    sog: Annotated[float | None, Field(description="선박 대지속력(노트). 예: 12. 주면 그 속력으로 걸리는 시간도 함께 계산한다")] = None,
+    # 속력은 음수가 없다 (10-08 QA: -5가 들어와도 막지 않았다). 0은 정지라 받되 시간은 계산하지 않는다
+    sog: Annotated[float | None, Field(description="선박 대지속력(노트). 예: 12. 주면 그 속력으로 걸리는 시간도 함께 계산한다", ge=0)] = None,
 ) -> dict:
     """배의 좌표에서 부산항까지 바닷길로 얼마나 남았는지 알고 싶을 때 쓴다.
 
@@ -71,7 +72,8 @@ def estimate_distance(
             route = searoute.searoute([lng, lat], [node[1], node[0]], units="naut", append_orig_dest=True)
             distance = float(route["properties"]["length"]) + last_leg
     except Exception as e:  # searoute는 좌표·항로망 문제를 다양한 예외로 던진다
-        return {"error": ToolError(code="route_failed", message=f"{type(e).__name__}: {e}", retryable=False).model_dump()}
+        # 예외 원문은 내부 경로·값이 섞일 수 있어 종류 이름만 돌려준다 (10-08 QA)
+        return {"error": ToolError(code="route_failed", message=f"바닷길 계산 실패 ({type(e).__name__})", retryable=False).model_dump()}
 
     distance_nm = round(distance, 1)
     return DistanceResult(

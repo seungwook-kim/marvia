@@ -20,6 +20,10 @@ flag_cache_ttl_days: 30
 vessel_recent_days: 7
 # 선박 자세히 보기(/api/vessels/detail)를 캐시 밖에서 새로 조회할 수 있는 사용자당 하루(한국 날짜) 횟수
 vessel_detail_daily_limit: 10
+# 후보 검색(get_vessel_candidates) 한 번에 위치·국적 상세 조회를 붙일 후보 수. 판정 경로(_identify)와 채팅 도구가 쓴다 (mcp_server/tools/vessel_candidates.py)
+vessel_candidate_lookups: 5
+# 선박 자세히 보기는 선명만 있을 때 가장 비슷한 1척만 보여 주므로 그 1척만 상세 조회한다 (10-08 QA: 한 번에 ShipFinder 11회를 썼다)
+vessel_detail_lookups: 1
 # 저장된 지난 신뢰 ETA(user_cargo.last_eta)와 이번 신뢰 ETA가 이 시간 이상 달라지면 "도착 예정이 바뀜"으로 알린다 (services/port_facts.py eta_change, 10-08).
 # 판정 신호가 아니다. 등급에는 쓰지 않고 응답 eta_change 칸·지켜보기 알림 글에만 쓴다
 eta_change_alert_hours: 12
@@ -65,3 +69,5 @@ ShipFinder 무료 키는 하루 50회이고, 한도를 넘기면 그날 프로�
 - flag_cache_ttl_days: 등록 국가는 배가 팔리거나 국적을 바꿀 때만 바뀐다. 실패 대비 캐시(api_cache_ttl_hours)와 달리 먼저 캐시를 본다
 - vessel_recent_days: 호출부호는 다른 배에 다시 배정된다. 최근 신호를 보낸 배가 지금 그 호출부호를 쓰는 배다. 그래도 둘 이상 남으면 고르지 않는다
 - vessel_detail_daily_limit: 선박 자세히 보기 한 번이 ShipFinder를 2~3회 쓴다. 캐시에서 답하는 조회는 세지 않는다
+- vessel_candidate_lookups, vessel_detail_lookups: 후보 상세 조회(위치 1·국적 1, 국적은 flag_cache_ttl_days 캐시)를 붙일 후보 수. 판정 경로는 국적 비교로 남의 배를 가려야 해서 여러 척을 보고,
+  자세히 보기는 가장 비슷한 1척만 보여 주므로 1척만 본다. 호출부호로 찾았는데 최근 신호를 보낸 배가 여러 척이면 아무도 고르지 않으므로(vessel_pick 4단계) 상세 조회를 하지 않는다

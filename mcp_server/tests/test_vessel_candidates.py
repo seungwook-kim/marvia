@@ -117,11 +117,13 @@ def test_call_sign_search_drops_old_holders(fake):
 
 
 def test_detail_lookup_capped(fake):
-    """상세 조회는 상위 MAX_LOOKUPS명까지만. 나머지는 flag·dest가 비어 있다."""
+    """상세 조회는 상위 rules.md vessel_candidate_lookups명까지만. 나머지는 flag·dest가 비어 있다."""
+    from backend.app.services.rules import rule
     fake()
     cands = get_vessel_candidates("TEST STAR")["candidates"]
-    assert all(c["flag"] for c in cands[: vessel_candidates.MAX_LOOKUPS])
-    assert all(c["flag"] is None for c in cands[vessel_candidates.MAX_LOOKUPS :])
+    n = rule("vessel_candidate_lookups")
+    assert all(c["flag"] for c in cands[:n])
+    assert all(c["flag"] is None for c in cands[n:])
 
 
 def test_search_failure_returns_tool_error(fake, monkeypatch):

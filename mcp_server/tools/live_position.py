@@ -22,7 +22,8 @@ make_client = ShipFinderClient
 
 
 def get_live_position(
-    mmsi: Annotated[int, Field(description="9자리 해상이동업무식별번호. 예: 440999001. 선명만 알면 get_vessel_candidates로 먼저 찾는다")],
+    # MMSI는 9자리라 1~999999999 밖은 입력 오류로 막는다 (10-08 QA: 10^30 같은 값이 그대로 ShipFinder까지 갔다)
+    mmsi: Annotated[int, Field(description="9자리 해상이동업무식별번호. 예: 440999001. 선명만 알면 get_vessel_candidates로 먼저 찾는다", ge=1, le=999_999_999)],
 ) -> dict:
     """MMSI를 알고 그 배가 어디서 어떤 속력으로 어디로 가는지 볼 때 쓴다.
 
