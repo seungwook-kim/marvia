@@ -79,6 +79,28 @@ def _same_port(loading: str | None, previous: str | None) -> bool:
     return bool(a and b) and (a.startswith(b) or b.startswith(a))
 
 
+# 적재항과 직전 기항지가 달라 보일 때 붙이는 근거 한 줄 (10-08). 환적이라고 단정하지 않는다: 적재 뒤 다른 항구를 들르는 직항 배도 많고,
+# 이름 표기 차이일 수도 있다. 사실(두 이름이 다르다)과 할 일(포워더 확인)만 적는다
+PORT_MISMATCH_NOTE = "적재항({loading})과 부산 직전 기항지({previous})가 다릅니다. 다른 항구를 거쳐 오는지 포워더에게 확인해 보세요."
+_PORT_NAME = re.compile(r"^[A-Za-z][A-Za-z .'()\-]{0,39}$")  # 근거 카드에 옮길 항구 이름 모양: 영문 지명만 (LLM에도 가는 외부 글자다)
+
+
+def port_mismatch_note(customs: CustomsRecord | None, previous_port: str | None) -> str | None:
+    """UNI-PASS 적재항 이름과 해수부 입항 신고의 직전 기항지가 다른 항구로 보이면 근거 한 줄을 돌려준다. 같거나 비교할 수 없으면 None.
+
+    비교 기준은 match_by_papers와 같은 _same_port다 (영문 대문자·숫자만 보고 한쪽이 다른 쪽 앞부분이면 같다).
+    둘 중 하나라도 영문 지명 모양이 아니면(한글 이름, 빈 칸, 문장이 섞인 외부 글자) 다르다고 말할 근거가 없어 None이다.
+    외부 호출은 없다. 직전 기항지는 get_port_schedule이 이미 받은 신고에서 꺼낸 값이다 (10-08, "추가 호출 없음").
+    """
+    loading = (customs.loading_port_name or "").strip() if customs else ""
+    previous = (previous_port or "").strip()
+    if not (_PORT_NAME.match(loading) and _PORT_NAME.match(previous)):
+        return None
+    if _same_port(loading, previous):
+        return None
+    return PORT_MISMATCH_NOTE.format(loading=loading, previous=previous)
+
+
 def match_by_papers(customs: CustomsRecord, candidates: list[dict], *, mrn_call_sign: str | None = None,
                     same_call_sign: Callable[[str, str], bool], same_nationality: Callable[[str, str], bool],
                     mof: MofClient | None = None) -> tuple[int, str, str] | None:

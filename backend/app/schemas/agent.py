@@ -185,6 +185,45 @@ class BerthInfo(BaseModel):
     shed: str | None = Field(default=None, description="UNI-PASS shedNm")
 
 
+class AnchorageInfo(BaseModel):
+    """해수부 관제 이벤트로 코드가 센 묘박지 대기 사실 (10-08, services/port_facts.anchorage). 판정 신호가 아니라 등급에 안 쓴다.
+    지난 일만 담는다. 앞으로 얼마나 더 기다릴지는 없다."""
+
+    anchored_at: datetime = Field(description="가장 최근 투묘(닻 내림) 시각")
+    weighed_at: datetime | None = Field(default=None, description="그 뒤 양묘(닻 올림) 시각. 아직이면 null")
+    berthed_at: datetime | None = Field(default=None, description="그 뒤 접안 시각. 아직이면 null")
+    state: Literal["anchored", "weighed", "berthed"] = Field(description="anchored: 아직 대기 중, weighed: 닻을 올림, berthed: 접안함")
+    waited_hours: int = Field(description="투묘부터 양묘·접안(없으면 지금)까지 정수 시간")
+
+
+class StageElapsed(BaseModel):
+    """이미 처리된 통관 단계 두 개 사이에 걸린 시간 (10-08, services/port_facts.customs_timing). 시각은 UNI-PASS 값 그대로(한국 시각)."""
+
+    from_stage: str
+    to_stage: str
+    from_at: datetime
+    to_at: datetime
+    hours: int = Field(description="정수 시간. 같은 시각에 처리됐으면 0")
+
+
+class CustomsTiming(BaseModel):
+    """통관 이력의 지난 소요 시간 (10-08). 앞으로 걸릴 시간은 예측하지 않는다 (PRD 4절)."""
+
+    steps: list[StageElapsed] = Field(default_factory=list)
+    arrived_at: datetime | None = Field(default=None, description="입항보고 수리 처리 시각. 없으면 null")
+    hours_since_arrival: int | None = Field(default=None, description="입항부터 지금(반출됐으면 반출)까지 정수 시간")
+    measured_until: Literal["now", "released"] | None = Field(default=None, description="hours_since_arrival을 어디까지 셌나")
+
+
+class EtaChange(BaseModel):
+    """지난 조회 때 저장한 신뢰 ETA 날짜와 이번 신뢰 ETA 날짜가 기준(rules.md eta_change_alert_hours) 이상 달라졌다 (10-08).
+    from·to는 파이썬 예약어라 from_eta·to_eta로 둔다. hours는 늦어지면 양수, 당겨지면 음수."""
+
+    from_eta: date
+    to_eta: date
+    hours: int
+
+
 class AgentResponse(BaseModel):
     """C1. 성공·실패 모두 같은 틀. status가 ok/partial/insufficient/failed/unsupported를 가른다 (SDD 8절, unsupported는 09-23 추가).
 
@@ -213,3 +252,7 @@ class AgentResponse(BaseModel):
     # UNI-PASS 처리 이력 원문, 화면 전용 (docs/specs/customs-detail.md, 10-02). 라우터가 판정 뒤에 붙이고,
     # 이력 저장(routers/agent.py _logged)과 후속 질문 LLM 입력(llm.answer_follow_up)에서는 뺀다
     customs_detail: list[CustomsDetailRow] = Field(default_factory=list)
+    # 10-08 추가. 모두 코드가 센 지난 사실이고 선택 칸이라 옛 응답·이력 JSON도 그대로 읽힌다. 등급에는 쓰지 않는다 (services/port_facts.py)
+    anchorage: AnchorageInfo | None = Field(default=None, description="해수부 관제 이벤트로 센 묘박지 대기")
+    customs_timing: CustomsTiming | None = Field(default=None, description="통관 단계 사이 걸린 시간·입항 뒤 지난 시간")
+    eta_change: EtaChange | None = Field(default=None, description="지난 조회 대비 도착 예정 변화")

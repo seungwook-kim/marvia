@@ -209,9 +209,24 @@ def recent_positions(conn, mmsi: int, limit: int = 20) -> list[dict]:
 
     limit 20줄은 워커 6시간 간격(09-23 결정)이면 약 5일치다. 정지 기준 24시간(rules.md anchor_wait_hours)과
     그 앞에 움직이던 점까지 보기에 넉넉하다. 모양은 signals.compute의 history와 같게 {"at", "lat", "lng", "sog"}.
+
+    10-08: 연구용 대상 선박 이력(positions, 001)과 사용자 화물 배 이력(watch_positions, 017)을 같이 읽는다. 사용자 화물 배는
+    positions에 없고 조회·지켜보기 때 watch_positions에만 쌓여서(services/cargo._keep_position, worker/collector.py), 전에는
+    그 배의 anchor_wait가 늘 "이력 없음"으로 unknown이었다. 같은 보고 시각(ts)이 두 표에 다 있으면 한 점만 쓴다(positions 쪽 우선,
+    DISTINCT ON). 위도·경도가 비어 있는 줄은 정지 판단에 쓸 수 없어 뺀다 (positions의 lat·lng는 NULL을 허용한다).
     """
     rows = conn.execute(
-        "SELECT ts, lat, lng, sog FROM positions WHERE mmsi = %s ORDER BY ts DESC LIMIT %s",
-        [mmsi, limit],
+        """
+        SELECT ts, lat, lng, sog FROM (
+            SELECT DISTINCT ON (ts) ts, lat, lng, sog FROM (
+                SELECT ts, lat, lng, sog, 0 AS pri FROM positions WHERE mmsi = %s AND lat IS NOT NULL AND lng IS NOT NULL
+                UNION ALL
+                SELECT ts, lat, lng, sog, 1 AS pri FROM watch_positions WHERE mmsi = %s
+            ) both_tables
+            ORDER BY ts DESC, pri
+        ) deduped
+        ORDER BY ts DESC LIMIT %s
+        """,
+        [mmsi, mmsi, limit],
     ).fetchall()
     return [{"at": ts, "lat": lat, "lng": lng, "sog": sog} for ts, lat, lng, sog in reversed(rows)]

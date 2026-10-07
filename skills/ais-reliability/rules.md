@@ -20,6 +20,9 @@ flag_cache_ttl_days: 30
 vessel_recent_days: 7
 # 선박 자세히 보기(/api/vessels/detail)를 캐시 밖에서 새로 조회할 수 있는 사용자당 하루(한국 날짜) 횟수
 vessel_detail_daily_limit: 10
+# 저장된 지난 신뢰 ETA(user_cargo.last_eta)와 이번 신뢰 ETA가 이 시간 이상 달라지면 "도착 예정이 바뀜"으로 알린다 (services/port_facts.py eta_change, 10-08).
+# 판정 신호가 아니다. 등급에는 쓰지 않고 응답 eta_change 칸·지켜보기 알림 글에만 쓴다
+eta_change_alert_hours: 12
 ---
 
 # 1층 신호 7종
@@ -43,6 +46,12 @@ vessel_detail_daily_limit: 10
 ShipFinder가 빈도 초과(status 23·29)로 답하지 않으면 이 시간 안에 받아 둔 마지막 성공 값을 대신 쓴다 (SDD 5.2, clients/cache.py).
 시간 초과와 하루 한도 소진(status 38)은 TTL이 지난 값도 쓴다. 오래된 위치는 position_stale이 드러낸다 (clients/shipfinder.py).
 판정 신호가 아니라 원천 값을 언제까지 믿고 다시 쓸지의 기준이라 position_stale_hours와 같은 6시간이지만 키를 따로 둔다.
+
+# 도착 예정 변화 알림 (eta_change_alert_hours)
+
+같은 사용자가 같은 화물을 다시 조회하거나 지켜보기가 다시 판정할 때, 지난번 신뢰 ETA(user_cargo.last_eta, 한국 날짜)와 이번 신뢰 ETA의
+한국 날짜 차이가 이 시간 이상이면 응답 eta_change 칸과 지켜보기 알림 글에 "도착 예정이 바뀜"을 적는다 (services/port_facts.py).
+저장 값이 날짜뿐이라 실제로는 하루(24시간) 단위로 잡힌다. 판정 신호가 아니라 등급을 바꾸지 않는다.
 
 # 상충 시 우선순위 (priority)
 

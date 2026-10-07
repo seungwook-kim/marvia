@@ -22,12 +22,17 @@ export const fieldLabels: Record<string, string> = {
   calc_hours_at_sog:'지금 속력으로 걸리는 시간', trusted_eta:'가장 믿을 만한 도착 예정', days_margin:'판매 예정일까지 여유(일)',
   calc_eta:'지금 속력 기준 예상 도착', sale_due_date:'판매 예정일', forwarder_eta:'포워더가 알려 준 입항 예정일',
   mrn_plan:'입항 신고 선박', mof_planned:'해수부 입항 예정', mof_eta:'해수부 입항 예정',
+  // 10-08 추가 (backend services/evidence.py). 코드가 센 지난 사실이다
+  anchored_at:'묘박지 투묘(닻 내림)', anchor_weighed_at:'양묘(닻 올림)', berthed_at:'접안', anchor_waited_hours:'묘박지 대기 시간',
+  eta_change:'지난 조회 대비 도착 예정 변화', port_mismatch:'적재항과 직전 기항지', since_arrival:'입항 뒤 지난 시간',
+  arrival_to_release:'입항부터 반출까지',
 };
 /** 근거 field를 사람이 읽는 이름으로. 통관 이력은 "stage:단계명"으로 온다.
  * 후속 질문에서 LLM이 부른 도구 근거는 "<도구>.<키>"로 온다 (routers/agent.py _tool_evidence). 키에 이름이 있으면 그 이름을 쓴다.
  * 이름이 있는 항목을 "기타 항목"으로 내지 않는다 (10-02 UI 점검 F14) */
 export function fieldLabel(field: string) {
   if (field.startsWith('stage:')) return `통관 이력 · ${field.slice(6)}`;
+  if (field.startsWith('elapsed:')) return `통관 소요 · ${field.slice(8).replace('~', ' → ')}`;
   const key = field.split(/[.:]/).pop() ?? field;
   return fieldLabels[field] ?? fieldLabels[key] ?? '기타 항목';
 }
@@ -110,6 +115,14 @@ export function dateTime(value: string | null | undefined, short = false) {
   return `${short ? '' : `${p.year}년 `}${p.month}월 ${p.day}일 ${p.hour}:${p.minute}`;
 }
 export function day(value: string | null | undefined) { return value ? `${value.slice(0,4)}년 ${Number(value.slice(5,7))}월 ${Number(value.slice(8,10))}일` : '확인 안 됨'; }
+/** 서버가 센 정수 시간을 사람 말로 (10-08). 48시간 이상이면 "2일 3시간"처럼, 1시간 미만은 "1시간 미만" */
+export function hoursText(hours: number | null | undefined) {
+  if (hours === null || hours === undefined) return '확인 안 됨';
+  if (hours < 1) return '1시간 미만';
+  if (hours < 48) return `${hours}시간`;
+  const d = Math.floor(hours / 24), h = hours % 24;
+  return h ? `${d}일 ${h}시간` : `${d}일`;
+}
 export function shown(value: unknown) { return value === null || value === undefined || value === '' ? '확인 안 됨' : String(value); }
 /** 판매 예정일까지 여유. days_margin = 판매 예정일 - 신뢰 입항 예정일 (VerdictCard와 같은 말: 음수는 "입항이 판매일보다 늦다") */
 export function marginText(c: {days_margin: number | null; sale_due_date: string | null}): string {

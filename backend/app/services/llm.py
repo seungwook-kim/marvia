@@ -509,7 +509,7 @@ JUDGE_CUSTOMS_EXCLUDE = {"bl_masked", "mrn", "fetched_at", "forwarder_name", "ca
 
 def _judge_input(signals: SignalSet, customs: CustomsRecord | None, days_margin: int | None,
                  trusted_eta: datetime | None = None, sale_due_date: date | None = None,
-                 table_verdict: str | None = None, verdict_mode: str | None = None) -> str:
+                 table_verdict: str | None = None, verdict_mode: str | None = None, facts: dict | None = None) -> str:
     """LLM에 넘길 자료를 JSON 문자열로 만든다. B/L 번호(bl_masked)와 MRN은 판정에 필요 없어 뺀다 (CLAUDE.md, SDD 3.5).
 
     날짜는 한국 시각으로 준다 (09-29 D8). 전에는 여유 일수 숫자만 줘서 "언제 와요?"에 날짜로 답하지 못했고,
@@ -518,6 +518,8 @@ def _judge_input(signals: SignalSet, customs: CustomsRecord | None, days_margin:
     table_verdict·verdict_mode (09-30 D7, services/verdict.py): 코드가 판정 표로 낸 등급과, LLM이 그 등급을
     그대로 써야 하는지(fixed) 표 이상에서 고를 수 있는지(raise_only, 회색 지대)를 알려 준다.
     needs_broker (10-01): 관세사가 봐야 하는 단계인지 코드가 정한 값. LLM은 이 값에 맞춰 설명만 한다. 통관 정보가 없으면 null.
+    facts (10-08): 코드가 센 지난 사실(묘박지 대기 anchorage, 지난 조회 대비 도착 예정 변화 eta_change). 판정 신호가 아니라
+    설명 재료다. 없으면 칸을 아예 넣지 않는다: 그동안의 입력 모양과 재생 녹화(_replay_matches)가 그대로 맞게 하려는 것이다.
     """
     data = {
         "table_verdict": table_verdict,
@@ -532,6 +534,8 @@ def _judge_input(signals: SignalSet, customs: CustomsRecord | None, days_margin:
         "customs": _clean_customs(customs.model_dump(mode="json", exclude=JUDGE_CUSTOMS_EXCLUDE)) if customs else None,
         "needs_broker": needs_broker(customs.stage_name) if customs and customs.stage_name else None,
     }
+    if facts:
+        data["facts"] = facts
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -771,12 +775,14 @@ def judge(
     table_verdict: str | None = None,
     verdict_mode: str | None = None,
     memory: str | None = None,
+    facts: dict | None = None,
 ) -> LLMAnswer:
     """2층 판정. output은 JudgeOutput. 자료는 코드가 모은 신호·통관·여유 일수·날짜 (SDD 4.1 7단계, 09-29 D8).
     feedback은 출력 검증(C-7) 위반 내용이다. 주면 위반을 고쳐 다시 답하라고 붙인다 (SDD 5.7 재시도).
-    memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md). 데이터일 뿐이고 등급은 지금처럼 판정 표가 정한다."""
+    memory: 로그인 사용자의 기억 블록 (docs/specs/memory.md). 데이터일 뿐이고 등급은 지금처럼 판정 표가 정한다.
+    facts: 코드가 센 지난 사실 (10-08, routers/agent._judge_facts). 설명 재료일 뿐 등급에 쓰지 않는다."""
     return _ask_json(JUDGE_PROMPT, _judge_input(signals, customs, days_margin, trusted_eta, sale_due_date,
-                                                table_verdict, verdict_mode),
+                                                table_verdict, verdict_mode, facts),
                      "judge", JUDGE_SCHEMA, JudgeOutput, model, feedback=feedback, skills=JUDGE_SKILLS, context=memory)
 
 

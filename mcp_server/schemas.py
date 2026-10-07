@@ -76,6 +76,9 @@ class PortScheduleResult(BaseModel):
     actual_arrival: datetime | None
     facility: str | None = Field(default=None, description="fcltyNm")
     control_events: list[ControlEvent] = Field(default_factory=list)
+    # 10-08 추가 (선택 칸). 입출항 신고의 직전 기항지 prvsDpmprtPrtNm. 이미 받아 온 신고에서 꺼내므로 해수부 호출이 늘지 않는다.
+    # 라우터가 UNI-PASS 적재항과 달라 보이면 "포워더 확인 권장" 근거 한 줄을 붙인다 (services/identify.port_mismatch_note)
+    previous_port: str | None = Field(default=None, description="입항 신고의 직전 기항지 prvsDpmprtPrtNm")
     source: str = "mof"
     fetched_at: datetime
 

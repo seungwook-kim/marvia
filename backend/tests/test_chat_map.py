@@ -108,16 +108,19 @@ def test_api_chat_response_has_map_key(monkeypatch):
         assert "map" in body and body["map"] is None
 
 
-
-def test_follow_up_answer_citing_stored_position_gets_map():
-    """(c) 후속 답이 도구 없이 지난 결과의 위치를 말하면 그 좌표로 지도를 붙인다. 좌표를 말하지 않으면 붙이지 않는다 (10-05)."""
-    from datetime import datetime, timezone
-    from backend.app.routers.agent import _response
+def test_follow_up_without_tool_uses_prior_result_position():
+    """(c) ask_cargo 후속 답이 도구 없이 지난 결과로 답하면 그 결과의 position 칸으로 지도를 붙인다 (10-08).
+    답 문장의 숫자는 보지 않는다: 좌표를 말하지 않은 답에도 붙고, ask_cargo가 안 돌았으면 좌표를 말해도 붙지 않는다."""
     from backend.app.schemas.agent import Position
     pos = Position(lat=34.5, lng=129.0, sog=12.0, cog=30.0, navistat=0, last_time=datetime(2026, 10, 5, 12, tzinfo=timezone.utc), freshness="fresh")
+    quiet = svc.ChatResult(kind="cargo", reply="통관은 입항 신고 단계입니다.",
+                           agent=_response(status="ok", answer="x", position=pos, vessel=_vessel()))
+    asked = [{"name": "ask_cargo", "arguments": {}, "result": {"answer": quiet.reply}}]
+    m = svc._map_payload(asked, [quiet], datetime.now(timezone.utc))
+    assert m and m["lat"] == 34.5 and m["lng"] == 129.0 and m["received_at"].startswith("2026-10-05")
+    assert m["ship_name"] == "TEST STAR"  # 후속 질문은 같은 화물이라 같은 배다
     said = svc.ChatResult(kind="cargo", reply="배의 마지막 수신 위치는 위도 34.5, 경도 129.0 부근입니다.",
                           agent=_response(status="ok", answer="x", position=pos))
-    m = svc._map_payload([{"name": "ask_cargo", "arguments": {}, "result": {"answer": said.reply}}], [said], datetime.now(timezone.utc))
-    assert m and m["lat"] == 34.5 and m["lng"] == 129.0 and m["received_at"].startswith("2026-10-05")
-    quiet = svc.ChatResult(kind="cargo", reply="통관은 입항 신고 단계입니다.", agent=_response(status="ok", answer="x", position=pos))
-    assert svc._map_payload([], [quiet], datetime.now(timezone.utc)) is None
+    assert svc._map_payload([], [said], datetime.now(timezone.utc)) is None  # check_cargo 등 ask_cargo가 아닌 길: 문장 숫자로 붙이지 않는다
+    failed = [{"name": "ask_cargo", "arguments": {}, "result": {"error": {"code": "no_cargo"}}}]
+    assert svc._map_payload(failed, [said], datetime.now(timezone.utc)) is None

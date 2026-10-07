@@ -89,8 +89,8 @@ class FakeConn:
                      and ("vessel_mmsi IS NOT NULL" not in q or r["vessel_mmsi"] is not None)]
             found.sort(key=lambda r: (r["last_checked_at"] is not None, r["last_checked_at"] or NOW))
             cols = ("user_id", "cargo_key", "bl_encrypted", "bl_masked", "label", "bl_type", "sale_due_date",
-                    "forwarder_eta", "voyage_no", "vessel_mmsi", "last_verdict")
-            return _Cur([tuple(r[c] for c in cols) for r in found[:params[0]]])
+                    "forwarder_eta", "voyage_no", "vessel_mmsi", "last_verdict", "last_eta")
+            return _Cur([tuple(r.get(c) for c in cols) for r in found[:params[0]]])
         if q.startswith("UPDATE user_cargo SET changed_from = %s"):
             old, at, user, key = params
             for r in self.rows:
@@ -506,3 +506,47 @@ def test_default_run_watch_still_checks_cargo_without_vessel(upserts, sent):
     _watched(conn, vessel_mmsi=None)
     out = svc.run_watch(conn, now=NOW, assess=lambda req, mem: _resp("watch"))
     assert out == {"checked": 1, "changed": 0, "notified": 0, "failed": 0, "unjudged": 0}
+
+
+# ── 도착 예정 변화 알림 (10-08, port_facts.eta_change) ──
+
+def _moved(verdict, change):
+    """판정과 도착 예정 변화를 가진 가짜 응답."""
+    return SimpleNamespace(verdict=verdict, customs=SimpleNamespace(stage_name="통관진행"), eta_change=change)
+
+
+def test_eta_only_change_notifies_without_verdict_change(upserts, sent):
+    from backend.app.schemas.agent import EtaChange
+    conn = FakeConn()
+    _watched(conn, label="고추", last_verdict="watch", last_eta=date(2026, 10, 5))
+    seen = []
+
+    def assess(req, mem):
+        from backend.app.routers.agent import previous_eta
+        seen.append(previous_eta.get())  # 저장된 지난 ETA가 판정 흐름에 넘어간다
+        return _moved("watch", EtaChange(from_eta=date(2026, 10, 5), to_eta=date(2026, 10, 7), hours=48))
+
+    out = svc.run_watch(conn, now=NOW, assess=assess)
+    assert seen == [date(2026, 10, 5)]
+    assert out == {"checked": 1, "changed": 0, "notified": 1, "failed": 0, "unjudged": 0}
+    assert conn.row()["changed_from"] is None  # 등급 변화 띠는 건드리지 않는다
+    [(_, text, _)] = sent
+    assert text == ("[Marvia] 고추 화물의 도착 예정이 10월 5일에서 10월 7일로 약 48시간 늦어졌습니다. "
+                    "Marvia에서 이유와 할 일을 확인하세요.")
+
+
+def test_verdict_and_eta_change_in_one_message(upserts, sent):
+    from backend.app.schemas.agent import EtaChange
+    conn = FakeConn()
+    _watched(conn, label="고추", last_verdict="watch", last_eta=date(2026, 10, 7))
+    svc.run_watch(conn, now=NOW, assess=lambda req, mem: _moved(
+        "act", EtaChange(from_eta=date(2026, 10, 7), to_eta=date(2026, 10, 6), hours=-24)))
+    [(_, text, _)] = sent
+    assert "판정이 '주의'에서 '긴급'(으)로 바뀌었습니다. 도착 예정이 10월 7일에서 10월 6일로 약 24시간 당겨졌습니다." in text
+
+
+def test_no_eta_change_no_extra_notice(upserts, sent):
+    conn = FakeConn()
+    _watched(conn, last_verdict="watch")
+    out = svc.run_watch(conn, now=NOW, assess=lambda req, mem: _moved("watch", None))
+    assert out["notified"] == 0 and sent == []
