@@ -7,6 +7,10 @@
 판정은 하지 않는다. 도구 하나가 실패해도 나머지는 보여 주고, 실패는 errors에 출처별로 남긴다 (SDD 8절 partial 원칙).
 위치가 오래됐는지는 rules.md position_stale_hours로 코드가 정한다 (화면이 정하지 않는다).
 ShipFinder는 하루 호출 한도가 있어 같은 배는 10분 동안 다시 부르지 않는다.
+캐시 밖 새 조회는 사용자당 하루 rules.md vessel_detail_daily_limit번까지다 (10-08 결정, take_daily_slot). 한 번에 ShipFinder를
+2~3회 쓰고, 하루 50회를 다 쓰면 판정까지 그 프로세스 전체가 ShipFinder를 못 쓴다 (clients/shipfinder.quota_blocked).
+배 고르기 (10-08 결정): 호출부호가 있으면 services/vessel_pick.py 규칙대로 MMSI가 하나로 정해질 때만 보여 준다.
+선명만 있으면 전처럼 가장 비슷한 후보를 보여 주되 vessel.match = "name_similar"로 "이름이 비슷한 배"임을 알린다.
 """
 from __future__ import annotations
 
@@ -14,7 +18,8 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from backend.app.services.rules import rule
 # MCP 도구 4종은 /mcp를 거쳐 부른다 (10-02, services/mcp_client.py).
@@ -22,6 +27,7 @@ from backend.app.services.rules import rule
 from backend.app.services.mcp_client import (
     estimate_distance, get_live_position, get_port_schedule, get_vessel_candidates,
 )
+from backend.app.services.vessel_pick import single
 from mcp_server.tools.distance import route_points
 
 CACHE_SEC = 600  # services/chat.py CACHE_SEC와 같다 (입항 예정 캐시와 같은 수명)
@@ -67,6 +73,60 @@ def cached(call_sign: str | None, ship_name: str | None) -> bool:
     return _cache_get(_key(call_sign, ship_name)) is not None
 
 
+# 하루 횟수 상한 (10-08 결정). 프로세스 메모리라 서버를 다시 띄우면 0부터다. 하루 한도를 지키는 마지막 문은 ShipFinder의
+# 38 응답(quota_blocked)이고, 이 상한은 한 사용자가 그 한도를 혼자 다 쓰지 못하게 하는 몫이다
+_KST = ZoneInfo("Asia/Seoul")
+ANON = "anonymous"  # 로그인 없이 쓰는 경우(인증 꺼짐)는 모두 한 칸을 같이 쓴다
+_daily: dict[str, int] = {}
+_daily_on: date | None = None
+_daily_lock = threading.Lock()
+
+
+def take_daily_slot(user_id: str | None) -> bool:
+    """캐시 밖 새 조회 한 번을 이 사용자 몫에서 쓴다. 오늘(한국 날짜) 몫이 남았으면 True, 다 썼으면 False.
+
+    라우터가 cached()가 False일 때만 부른다: 캐시에서 답하면 ShipFinder를 부르지 않으므로 세지 않는다.
+    날짜가 바뀌면 모두 0부터다. 상한은 rules.md vessel_detail_daily_limit.
+    """
+    global _daily_on
+    today = datetime.now(_KST).date()
+    owner = user_id or ANON
+    with _daily_lock:
+        if _daily_on != today:
+            _daily.clear()
+            _daily_on = today
+        if _daily.get(owner, 0) >= rule("vessel_detail_daily_limit"):
+            return False
+        _daily[owner] = _daily.get(owner, 0) + 1
+        return True
+
+
+def reset_daily() -> None:
+    """하루 횟수를 지운다. 테스트가 서로 영향을 주지 않게 쓴다."""
+    global _daily_on
+    with _daily_lock:
+        _daily.clear()
+        _daily_on = None
+
+
+def _choose(cands: list[dict], call_sign: str | None) -> tuple[dict | None, dict | None]:
+    """후보 중 보여 줄 배 하나와, 못 골랐을 때 errors에 넣을 줄 (10-08 결정).
+
+    호출부호로 찾았으면 후보 도구가 이미 같은 호출부호·IMO마다 최신·최근 신호로 걸렀다 (services/vessel_pick.py).
+    거기서 MMSI가 하나일 때만 그 배다. 여러 척이면 예전에 그 호출부호를 쓴 배와 섞인 것이라 맨 앞을 고르지 않는다.
+    선명만 있으면 가장 비슷한 후보를 보여 주되 이름이 비슷할 뿐인 배라고 표시한다 (화면이 "같은 배인지 확인" 문구를 단다).
+    """
+    if not cands:
+        return None, {"source": "shipfinder", "code": "not_found", "message": "AIS에서 이 배를 찾지 못했습니다"}
+    if call_sign:
+        one = single(cands)
+        if one is None:
+            return None, {"source": "shipfinder", "code": "ambiguous",
+                          "message": "같은 호출부호를 쓰는 배가 여러 척이라 한 척으로 정하지 못했습니다"}
+        return {**one, "match": "call_sign"}, None
+    return {**cands[0], "match": "name_similar"}, None
+
+
 def _err(source: str, result: dict) -> dict | None:
     """MCP 도구는 예외 대신 {error: {code, message}}를 돌려준다 (SDD 3.4). 그 모양이면 화면용 한 줄로."""
     e = result.get("error") if isinstance(result, dict) else None
@@ -88,7 +148,9 @@ def _freshness(last_time: str | None) -> str:
 
 
 def detail(call_sign: str | None, ship_name: str | None) -> dict:
-    """한 척의 자세한 정보. 호출부호가 있으면 그것으로 찾는다(선명은 한글·영문이 달라 매칭이 약하다)."""
+    """한 척의 자세한 정보. 호출부호가 있으면 그것으로 찾는다(선명은 한글·영문이 달라 매칭이 약하다).
+    ShipFinder 호출: 검색 1 + 후보(호출부호면 보통 1척)마다 위치 1·국적 1(국적은 rules.md flag_cache_ttl_days 캐시). 뒤의 실시간 위치 조회는
+    방금 받은 위치를 다시 쓴다 (rules.md position_reuse_minutes, clients/shipfinder.position)."""
     key = _key(call_sign, ship_name)
     hit = _cache_get(key)
     if hit is not None:
@@ -105,10 +167,9 @@ def detail(call_sign: str | None, ship_name: str | None) -> dict:
     if (e := _err("shipfinder", found)):
         errors.append(e)
     else:
-        cands = found.get("candidates") or []
-        vessel = cands[0] if cands else None
-        if vessel is None:
-            errors.append({"source": "shipfinder", "code": "not_found", "message": "AIS에서 이 배를 찾지 못했습니다"})
+        vessel, miss = _choose(found.get("candidates") or [], call_sign)
+        if miss:
+            errors.append(miss)
     if vessel:
         pos = get_live_position(vessel["mmsi"])
         if (e := _err("shipfinder", pos)):

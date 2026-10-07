@@ -14,6 +14,14 @@ from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 FIXTURES = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "shipfinder"
 
 
+@pytest.fixture(autouse=True)
+def no_position_reuse(monkeypatch):
+    """이 파일은 두 번째 위치 조회가 실제로 나가서 실패할 때의 캐시 대체를 지킨다.
+    10분 안 재사용(rules.md position_reuse_minutes, 10-08)이 두 번째 호출을 막지 않게 끈다. 재사용 자체는 test_shipfinder_budget.py가 본다."""
+    from backend.app.clients import shipfinder
+    monkeypatch.setattr(shipfinder, "position_reuse_window", lambda: timedelta(0))
+
+
 def _client(fixtures: list[str]) -> ShipFinderClient:
     """호출할 때마다 fixtures를 순서대로 돌려주는 클라이언트."""
     remaining = list(fixtures)

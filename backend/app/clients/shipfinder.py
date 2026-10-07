@@ -8,6 +8,9 @@ MCP 도구(B3·B4)와 수집 워커(D1)가 이 클라이언트를 같이 씁니�
 - 빈도 초과(23·29)로 실패하면 마지막 성공 응답을 캐시에서 돌려줍니다 (B8, TTL은 rules.md api_cache_ttl_hours).
   캐시 값은 fetched_at이 과거라서 받는 쪽이 오래된 값임을 알 수 있습니다.
 - 하루 호출 한도 소진(38)을 한 번 받으면 그 프로세스는 한국 날짜가 바뀔 때까지 ShipFinder를 더 부르지 않습니다 (10-06 점검).
+- 호출을 아끼려고 먼저 캐시를 보는 경우가 둘 있습니다 (10-08 결정, 하루 50회 한도):
+  같은 MMSI 위치를 rules.md position_reuse_minutes 안에 받았으면 다시 부르지 않고(후보 상세 조회 직후 위치 조회가 겹친다),
+  등록 국가는 거의 안 바뀌어서 rules.md flag_cache_ttl_days 안에 받은 값이 있으면 부르지 않습니다.
 
 명세: https://docs.shipfinder.com/428749512e0 (검색), /428990613e0 (위치), /8401497m0 (상태 코드)
 """
@@ -16,7 +19,7 @@ from __future__ import annotations
 import os
 import threading
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -25,6 +28,7 @@ from backend.app.clients.cache import ResponseCache
 from backend.app.clients.replay import replay_enabled, shipfinder_transport
 from backend.app.clients.retry import with_retry
 from backend.app.observability.logging import log_failure
+from backend.app.services.rules import rule
 
 BASE_URL = "https://api.elaneglobal.com/v1/AIS/"
 TIMEOUT_SEC = float(os.environ.get("SHIPFINDER_TIMEOUT_SEC", 10))  # 환경변수로 조정 가능
@@ -57,6 +61,16 @@ _IGNORE_TTL = {"timeout", "quota_exhausted"}
 _KST = ZoneInfo("Asia/Seoul")
 _quota_lock = threading.Lock()
 _quota_out_on: date | None = None
+
+
+def position_reuse_window() -> timedelta:
+    """같은 MMSI 위치를 다시 부르지 않고 쓰는 기간 (rules.md position_reuse_minutes, 10-08). 테스트가 0으로 바꿔 끼울 수 있게 함수로 둔다."""
+    return timedelta(minutes=rule("position_reuse_minutes"))
+
+
+def flag_reuse_window() -> timedelta:
+    """등록 국가를 다시 부르지 않고 쓰는 기간 (rules.md flag_cache_ttl_days, 10-08)."""
+    return timedelta(days=rule("flag_cache_ttl_days"))
 
 
 def _today_kst() -> date:
@@ -198,6 +212,21 @@ class ShipFinderClient:
         self.last_cached_at = None
         return value
 
+    def _recent(self, key: str, window: timedelta):
+        """window 안에 성공으로 받아 둔 값. 없거나 오래됐거나 값이 비었으면 None (10-08, 하루 50회 한도).
+
+        실패 대비 캐시(_cached)와 같은 칸을 쓴다. 성공한 값만 그 칸에 들어가므로(평가 실행기가 넣는 F02 캐시도 성공 응답 모양)
+        여기서 꺼낸 값은 방금 받은 값과 같다고 본다. 그래서 last_cached_at은 None으로 둔다: 라우터가 이 값을
+        "캐시로 대신한 partial"로 알리면 안 된다. 값의 fetched_at은 처음 받은 시각 그대로라 언제 값인지는 남는다.
+        """
+        if window <= timedelta(0):
+            return None
+        entry = self.cache.entry(key, ignore_ttl=True)
+        if entry is None or entry.value is None or datetime.now(timezone.utc) - entry.cached_at >= window:
+            return None
+        self.last_cached_at = None
+        return entry.value
+
     def close(self) -> None:
         self._http.close()
 
@@ -249,15 +278,28 @@ class ShipFinderClient:
         return SearchResult(hits=hits, fetched_at=datetime.now(timezone.utc))
 
     def flag(self, mmsi: int | str) -> str | None:
-        """선박 등록 국가. MMSI 하나당 한 번 불러야 한다 (VesselFlagInfo)."""
-        return self._cached(f"shipfinder:flag:{mmsi}", lambda: self._flag(mmsi))
+        """선박 등록 국가. MMSI 하나당 한 번 불러야 한다 (VesselFlagInfo).
+        등록 국가는 거의 안 바뀌므로 rules.md flag_cache_ttl_days 안에 받은 값이 있으면 부르지 않는다 (10-08).
+        못 받은 값(None)은 다시 부른다: 비어 있던 것이 나중에 채워질 수 있다."""
+        key = f"shipfinder:flag:{mmsi}"
+        hit = self._recent(key, flag_reuse_window())
+        if hit is not None:
+            return hit
+        return self._cached(key, lambda: self._flag(mmsi))
 
     def _flag(self, mmsi: int | str) -> str | None:
         body = self._get("VesselFlagInfo", {"mmsi": str(mmsi)})
         return _text((body.get("data") or {}).get("registry"))
 
     def position(self, mmsi: int | str) -> VesselPosition:
-        return self._cached(f"shipfinder:pos:{mmsi}", lambda: self._position(mmsi))
+        """한 척의 최신 AIS 위치. rules.md position_reuse_minutes 안에 받은 위치가 있으면 부르지 않고 그 값을 준다 (10-08).
+        한 요청 안에서 후보 상세 조회(get_vessel_candidates)가 받은 위치를 바로 뒤 get_live_position이 다시 받던 중복을 없앤다.
+        그 밖에는 전처럼 부르고, 빈도 초과·시간 초과·한도 소진이면 마지막 성공 값으로 대신한다 (_cached)."""
+        key = f"shipfinder:pos:{mmsi}"
+        hit = self._recent(key, position_reuse_window())
+        if hit is not None:
+            return hit
+        return self._cached(key, lambda: self._position(mmsi))
 
     def _position(self, mmsi: int | str) -> VesselPosition:
         body = self._get("VesselPositionSingle", {"mmsi": str(mmsi)})

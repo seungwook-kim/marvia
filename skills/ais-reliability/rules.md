@@ -11,6 +11,15 @@ navstat_moored_max_kn: 2.0
 navstat_underway_min_kn: 0.3
 # ShipFinder 응답 캐시 TTL(시간). 빈도 초과(23·29)일 때 이 시간 안의 마지막 성공 값을 쓴다 (SDD 5.2, clients/cache.py가 읽는다)
 api_cache_ttl_hours: 6
+# ShipFinder 하루 50회 한도 아끼기 (10-08 결정). clients/shipfinder.py, services/vessel_pick.py, services/vessel_detail.py가 읽는다
+# 같은 MMSI 위치를 이 시간(분) 안에 성공으로 받았으면 다시 부르지 않고 그 값을 쓴다. 후보 상세 조회 직후 같은 배 위치 조회가 겹친다
+position_reuse_minutes: 10
+# 선박 등록 국가(VesselFlagInfo)는 거의 바뀌지 않는다. 이 날수 안에 받은 값이 있으면 부르지 않는다
+flag_cache_ttl_days: 30
+# 호출부호로 배를 고를 때 최근 이 날수 안에 신호를 보낸 배만 지금 그 호출부호를 쓰는 배로 본다 (09-28 실측: 한 호출부호에 IMO 3척)
+vessel_recent_days: 7
+# 선박 자세히 보기(/api/vessels/detail)를 캐시 밖에서 새로 조회할 수 있는 사용자당 하루(한국 날짜) 횟수
+vessel_detail_daily_limit: 10
 ---
 
 # 1층 신호 7종
@@ -39,3 +48,11 @@ ShipFinder가 빈도 초과(status 23·29)로 답하지 않으면 이 시간 안
 
 priority 순서대로 첫 유효값을 신뢰 ETA(trusted_eta)로 쓴다: 해수부 실적 > 해수부 입항 예정 > AIS ETA > AIS 목적지 문자열.
 이 순서를 고르는 이유는 SKILL.md "출처 우선순위" 절에 있다. 수집 데이터로 검증해 틀리면 이 순서를 고친다 (PRD 6.4).
+
+# ShipFinder 호출 아끼기 (position_reuse_minutes, flag_cache_ttl_days, vessel_recent_days, vessel_detail_daily_limit)
+
+ShipFinder 무료 키는 하루 50회이고, 한도를 넘기면 그날 프로세스 전체가 ShipFinder를 못 쓴다 (clients/shipfinder.py quota_blocked).
+- position_reuse_minutes: 한 요청 안에서 후보 상세 조회가 받은 위치를 바로 뒤 위치 조회가 다시 받지 않게 한다. 10분 안의 값은 실시간 값으로 본다
+- flag_cache_ttl_days: 등록 국가는 배가 팔리거나 국적을 바꿀 때만 바뀐다. 실패 대비 캐시(api_cache_ttl_hours)와 달리 먼저 캐시를 본다
+- vessel_recent_days: 호출부호는 다른 배에 다시 배정된다. 최근 신호를 보낸 배가 지금 그 호출부호를 쓰는 배다. 그래도 둘 이상 남으면 고르지 않는다
+- vessel_detail_daily_limit: 선박 자세히 보기 한 번이 ShipFinder를 2~3회 쓴다. 캐시에서 답하는 조회는 세지 않는다

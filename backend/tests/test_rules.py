@@ -31,7 +31,9 @@ def test_each_rules_file_has_its_own_keys():
     """키가 옮겨진 자리를 고정한다. 다른 파일로 옮기면 이 테스트를 같이 고친다."""
     expected = {
         "ais-reliability": {"position_stale_hours", "eta_conflict_hours", "anchor_speed_kn", "anchor_wait_hours",
-                            "navstat_moored_max_kn", "navstat_underway_min_kn", "priority", "api_cache_ttl_hours"},
+                            "navstat_moored_max_kn", "navstat_underway_min_kn", "priority", "api_cache_ttl_hours",
+                            "position_reuse_minutes", "flag_cache_ttl_days", "vessel_recent_days",
+                            "vessel_detail_daily_limit"},
         "customs-stages": {"customs_hold_words", "customs_stages", "customs_subject_words", "customs_assessment_words",
                            "customs_done_words", "customs_done_stages", "customs_done_except_words"},
         "port-busan": {"busan_ref", "busan_radius_nm", "busan_port_code", "port_schedule_lookback_days",

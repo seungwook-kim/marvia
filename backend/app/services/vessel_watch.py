@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.observability.logging import log_failure
+from backend.app.services.vessel_pick import by_call_sign, norm_sign, single
 from backend.app.services.watch import MAX_WATCH, _track, seed_position
 
 make_client = ShipFinderClient  # 테스트가 가짜 클라이언트로 바꿔 끼우는 자리 (mcp_server/tools/vessel_candidates.py와 같은 방식)
@@ -55,23 +56,20 @@ def _search(client, keywords: str) -> list:
         raise VesselWatchError("lookup_failed")
 
 
-def _same_sign(hits: list, sign: str) -> set[int]:
-    """검색 결과 중 호출부호가 정확히 같은 배의 MMSI들."""
-    return {h.mmsi for h in hits if (h.call_sign or "").strip().upper() == sign}
-
-
 def resolve_mmsi(call_sign: str, name: str | None = None) -> int:
     """입항 예정 목록(해수부 신고)의 호출부호로 MMSI를 찾는다 (10-08 정운 실사용 57번).
 
     왜 호출부호인가: 해수부 신고에는 MMSI가 없고, 선명은 같은 이름의 다른 배가 많다. 호출부호가 정확히 같은 배만 받아들인다.
-    ShipFinder 검색은 예전에 같은 호출부호를 쓴 배도 돌려주므로 MMSI가 정확히 하나일 때만 정한다.
-    선명으로 한 번 더 (10-08): ShipFinder 검색은 선명 위주라 호출부호 검색이 0건인 일이 잦다. 그래서 목록에서 "중국에서 오는 배"를
-    지켜보려 하면 422가 났다(선박 자세히 보기는 선명과 호출부호를 함께 써서 배가 나오는데). 호출부호 검색에 같은 호출부호가
-    없을 때만 선명(name)으로 다시 찾는다. 이때도 받는 조건은 같다: 호출부호가 정확히 같은 MMSI가 하나일 때만.
-    선명이 같은 다른 배를 고르지 않는다. 다시 찾는 것은 그 한 번뿐이다 (ShipFinder 하루 50회 한도).
-    0건이나 여러 건이면 추측하지 않고 unknown_vessel (엉뚱한 배를 지켜보게 하면 안 된다).
+    고르는 규칙은 services/vessel_pick.py 하나다 (10-08 결정): 같은 호출부호 → IMO마다 최신 → 최근 신호(rules.md
+    vessel_recent_days) → MMSI가 하나일 때만. 전에는 같은 호출부호 MMSI가 여럿이면 바로 거절해서, 예전에 그 호출부호를 쓴
+    배가 검색에 같이 나오면(09-28 실측: 한 호출부호에 IMO 3척, 마지막 신호 0일·123일·552일 전) 지금 배도 지켜보지 못했다.
+    선명으로 한 번 더 (10-08): ShipFinder 검색은 선명 위주라 호출부호 검색에 같은 호출부호 배가 하나도 안 나오는 일이 잦다.
+    그래서 호출부호 검색에서 쓸 만한 배(위 1~3단계를 지난 배)가 0척일 때만 선명(name)으로 다시 찾는다. 받는 조건은 같다.
+    선명이 같은 다른 배를 고르지 않는다. 여러 척이 남았을 때는 다시 찾지 않는다(선명 검색도 같은 배들을 돌려줄 뿐이다).
+    다시 찾는 것은 그 한 번뿐이다 (ShipFinder 하루 50회 한도).
+    0척이나 여러 척이면 추측하지 않고 unknown_vessel (엉뚱한 배를 지켜보게 하면 안 된다).
     """
-    sign = (call_sign or "").strip().upper()
+    sign = norm_sign(call_sign)
     if not sign:
         raise VesselWatchError("invalid")
     client = None
@@ -84,17 +82,18 @@ def resolve_mmsi(call_sign: str, name: str | None = None) -> int:
         except Exception as e:
             log_failure("vessel_watch_resolve", type(e).__name__)
             raise VesselWatchError("lookup_failed")
-        mmsis = _same_sign(_search(client, sign), sign)
+        rows = by_call_sign(_search(client, sign), sign)
         query = (name or "").strip()
-        if not mmsis and query and query.upper() != sign:
-            mmsis = _same_sign(_search(client, query), sign)
+        if not rows and query and query.upper() != sign:
+            rows = by_call_sign(_search(client, query), sign)
     finally:
         if client is not None:
             client.close()
-    if len(mmsis) != 1:
-        log_failure("vessel_watch_resolve", "no_match" if not mmsis else "many_match")
+    hit = single(rows)
+    if hit is None:
+        log_failure("vessel_watch_resolve", "no_match" if not rows else "many_match")
         raise VesselWatchError("unknown_vessel")
-    return mmsis.pop()
+    return hit.mmsi
 
 
 def fetch_position(mmsi: int) -> bool:

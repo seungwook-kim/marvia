@@ -19,44 +19,25 @@ UNI-PASS는 선명과 국적만 주고 IMO·호출부호를 주지 않는다 (PR
 MCP 등록: 이 함수는 mcp_server/server.py create_mcp()가 도구로 등록한다 (데코레이터 없음).
 """
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Annotated
 
 from pydantic import Field
 
-from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError, VesselHit
+from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.observability.logging import log_failure
+# 호출부호 맞춤·같은 IMO 최신·최근 신호 거르기는 지켜보기·수집 워커와 같은 규칙을 쓴다 (10-08, services/vessel_pick.py)
+from backend.app.services.vessel_pick import newest_per_imo, recent, same_sign
 from mcp_server.schemas import ToolError, VesselCandidate, VesselCandidatesResult
 
 MAX_LOOKUPS = 5  # 상세 조회(위치·국적)를 붙일 후보 수 상한
-IMO_RANGE = range(1000000, 10000000)  # 실제 응답에 7자리가 아닌 IMO가 섞여 온다
 
 make_client = ShipFinderClient  # 테스트가 fixture 클라이언트로 바꿔 끼우는 자리
 
 
 def _similarity(query: str, name: str) -> float:
     return round(SequenceMatcher(None, query.upper().strip(), name.upper().strip()).ratio(), 2)
-
-
-def _newest_per_imo(hits: list[VesselHit]) -> list[VesselHit]:
-    """같은 IMO면 last_time이 가장 최신인 1건만 남긴다 (C4).
-
-    IMO가 없거나 7자리가 아닌 값은 서로 다른 배로 본다. 실제 응답에 9자리 같은
-    값이 섞여 와서, 이런 값으로 묶으면 남의 배를 한 척으로 합쳐 버린다.
-    """
-    newest: dict[int, VesselHit] = {}
-    kept: list[VesselHit] = []
-    for hit in hits:
-        if hit.imo not in IMO_RANGE:
-            kept.append(hit)
-            continue
-        seen = newest.get(hit.imo)
-        if seen is None or (hit.last_time or datetime.min.replace(tzinfo=timezone.utc)) > (
-            seen.last_time or datetime.min.replace(tzinfo=timezone.utc)
-        ):
-            newest[hit.imo] = hit
-    return kept + list(newest.values())
 
 
 def _fetch_details(client: ShipFinderClient, mmsis: list[int]) -> dict[int, tuple]:
@@ -91,7 +72,7 @@ def _fetch_details(client: ShipFinderClient, mmsis: list[int]) -> dict[int, tupl
 def get_vessel_candidates(
     ship_name: Annotated[str, Field(description="찾을 선명. UNI-PASS 화물통관진행정보의 선명을 그대로 넣는다. 예: TEST STAR")],
     nationality: Annotated[str | None, Field(description="아는 국적의 영문 표기(예: Panama, Korea). 주면 국적이 다른 후보를 뺀다")] = None,
-    eta_window_days: Annotated[int, Field(description="최근 며칠 안에 신호를 보낸 배만 볼지. 예: 7(기본값)", ge=1, le=90)] = 7,
+    eta_window_days: Annotated[int | None, Field(description="최근 며칠 안에 신호를 보낸 배만 볼지. 비우면 기본값 7일", ge=1, le=90)] = None,
     call_sign: Annotated[str | None, Field(description="호출부호. 주면 선명 대신 호출부호로 검색하고 호출부호가 같은 배만 남긴다. 예: TST01")] = None,
 ) -> dict:
     """선명이나 호출부호만 알고 그 배의 MMSI를 아직 모를 때 쓴다.
@@ -110,14 +91,16 @@ def get_vessel_candidates(
         hits = client.search(call_sign or ship_name, max=10).hits
     except ShipFinderError as e:
         return {"error": ToolError(**e.to_dict()).model_dump()}
+    # 검색이 캐시로 답했는지는 지금 읽어 둔다. 아래 상세 조회(위치·국적)가 같은 클라이언트의 last_cached_at을 덮어쓴다 (10-08)
+    search_cached_at = client.last_cached_at
     if call_sign:
         # 검색어는 선명·호출부호 등을 두루 찾으므로, 호출부호가 정확히 같은 배만 남긴다
         # 호출부호는 배가 팔리거나 국적을 바꾸면 다른 배에 다시 배정된다. 09-28 실측: 같은 호출부호로 IMO가 다른 3척,
         # 마지막 신호 0일·123일·552일 전. 아래 최근 신호 필터를 지나면 지금 쓰는 배 1척만 남는다
-        hits = [h for h in hits if (h.call_sign or "").strip().upper() == call_sign.strip().upper()]
+        hits = same_sign(hits, call_sign)
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=eta_window_days)
-    fresh = [h for h in _newest_per_imo(hits) if h.last_time and h.last_time >= cutoff]
+    # 기본 기간은 rules.md vessel_recent_days (10-08: 코드 숫자 7을 옮김)
+    fresh = recent(newest_per_imo(hits), eta_window_days)
     fresh.sort(key=lambda h: (_similarity(ship_name, h.ship_name), h.last_time), reverse=True)
 
     # 상세 조회는 상위 후보까지만 하고, 그 안에서는 동시에 부른다 (호출 한도와 지연 둘 다 고려)
@@ -146,5 +129,5 @@ def get_vessel_candidates(
     return VesselCandidatesResult(
         candidates=candidates,
         fetched_at=datetime.now(timezone.utc),
-        cached_at=client.last_cached_at,  # 검색이 캐시로 답했으면 그 시각
+        cached_at=search_cached_at,  # 검색이 캐시로 답했으면 그 시각
     ).model_dump(mode="json")

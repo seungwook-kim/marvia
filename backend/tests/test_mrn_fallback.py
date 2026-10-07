@@ -59,6 +59,15 @@ def test_mof_only_when_ais_fails(tools, monkeypatch):
     assert r.status == "partial" and r.position is None and r.eta.mof_eta is not None  # EC-03
 
 
+def test_call_sign_with_several_candidates_does_not_take_first(tools, monkeypatch):
+    # 호출부호를 아는데 후보가 둘 남으면 맨 앞을 고르지 않고 해수부 정보만으로 답한다 (10-08 결정, services/vessel_pick.py)
+    monkeypatch.setattr(svc, "get_vessel_candidates", lambda **kw: {"candidates": [
+        {"mmsi": 440999001, "name": "TEST VICTORY"}, {"mmsi": 440999002, "name": "TEST VICTORY"}]})
+    monkeypatch.setattr(svc, "get_live_position", lambda mmsi: pytest.fail("위치를 부르면 안 된다"))
+    r = svc.assess(_req())
+    assert r.vessel is None and r.vessel_match == "none" and r.eta.mof_eta is not None
+
+
 def test_mrn_validation():
     assert _req(" 26test0001i ").mrn == "26TEST0001I"
     with pytest.raises(ValueError):

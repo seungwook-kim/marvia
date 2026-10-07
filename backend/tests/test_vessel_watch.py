@@ -212,7 +212,12 @@ class _FakeClient:
         self.queries.append(keywords)
         if self.error:
             raise self.error
-        return SimpleNamespace(hits=[SimpleNamespace(mmsi=m, call_sign=c, ship_name="X") for m, c in self.hits])
+        # 줄은 (mmsi, 호출부호) 또는 (mmsi, 호출부호, IMO, 마지막 신호 며칠 전). 기본은 IMO 없음·방금 신호 (services/vessel_pick.py)
+        now = datetime.now(timezone.utc)
+        rows = [(*h, None, 0) if len(h) == 2 else h for h in self.hits]
+        return SimpleNamespace(hits=[SimpleNamespace(mmsi=m, call_sign=c, ship_name="X", imo=imo,
+                                                     last_time=now - timedelta(days=age))
+                                     for m, c, imo, age in rows])
 
     def close(self):
         self.closed = True
@@ -246,6 +251,20 @@ def test_call_sign_with_several_mmsi_is_422(db, me, monkeypatch):
     _use(monkeypatch, _FakeClient([(1, "TST01"), (2, "TST01")]))
     r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
     assert r.status_code == 422 and db.rows == {}
+
+
+def test_call_sign_reused_by_old_ships_picks_the_recent_one(db, me, monkeypatch):
+    # 09-28 실측과 같은 모양: 한 호출부호에 IMO가 다른 3척, 마지막 신호 0일·123일·552일 전 → 지금 배 하나 (10-08 결정)
+    _use(monkeypatch, _FakeClient([(440999901, "TST01", 9900001, 0), (440999902, "TST01", 9900002, 123),
+                                   (440999903, "TST01", 9900003, 552)]))
+    r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
+    assert r.status_code == 200 and r.json()["mmsi"] == 440999901
+
+
+def test_call_sign_with_two_recent_ships_is_422(db, me, monkeypatch):
+    # 최근 신호를 보낸 배가 둘이면 어느 쪽인지 모른다. 고르지 않는다
+    _use(monkeypatch, _FakeClient([(440999901, "TST01", 9900001, 0), (440999902, "TST01", 9900002, 2)]))
+    assert _call("post", "/api/watch/vessels", SIGN_BODY, me).status_code == 422 and db.rows == {}
 
 
 def test_call_sign_lookup_failure_is_503_without_leaking(db, me, monkeypatch):

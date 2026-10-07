@@ -150,7 +150,7 @@ def test_select_targets_keeps_unmatched_ship_so_it_is_not_searched_again():
 
 def test_collect_positions_saves_and_respects_budget():
     calls = []
-    conn = ScriptedConn(tracked=[440999002, 440999002, 440999002])
+    conn = ScriptedConn(tracked=[440999001, 440999002, 440999003])  # 서로 다른 배 (같은 배는 10분 안에 다시 안 부른다, 10-08)
     result = collect_positions(conn, _sf("position_ok.json", calls), Budget(2), now=NOW)
     assert len(calls) == 2 and result["tracked"] == 3
     sql, params = conn.inserts[0]
@@ -303,3 +303,15 @@ def test_watch_positions_only_for_watched_cargo():
     from worker.collector import SELECT_WATCHED
     sql = " ".join(SELECT_WATCHED.split())
     assert "status = 'active' AND watch AND vessel_mmsi IS NOT NULL" in sql
+
+
+def test_pick_hit_uses_shared_rule_recent_single_ship():
+    """호출부호 고르기는 services/vessel_pick.py 규칙을 쓴다 (10-08): 예전 주인은 빼고, 최근 배가 둘이면 고르지 않는다."""
+    from types import SimpleNamespace
+    from worker.collector import _pick_hit
+
+    def hit(mmsi, imo, days):
+        return SimpleNamespace(mmsi=mmsi, imo=imo, call_sign="TST01", last_time=NOW - timedelta(days=days))
+
+    assert _pick_hit([hit(1, 9900001, 0), hit(2, 9900002, 123), hit(3, 9900003, 552)], "tst 01", NOW).mmsi == 1
+    assert _pick_hit([hit(1, 9900001, 0), hit(2, 9900002, 1)], "TST01", NOW) is None
