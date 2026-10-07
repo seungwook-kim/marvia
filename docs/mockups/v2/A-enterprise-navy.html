@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Marvia 오늘의 화물 (A 엔터프라이즈)</title>
 <style>
-:root{
+:root{--r:4px;
   --nav:#0f1b2d; --nav-2:#16243a; --nav-line:#22324b; --nav-text:#c9d2df; --nav-mute:#7f8ca0;
   --ink:#111827; --ink-2:#374151; --mute:#6b7280; --line:#e5e7eb; --line-2:#d1d5db;
   --head:#f3f4f6; --bg:#ffffff; --page:#f9fafb;
@@ -23,8 +23,8 @@ svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stro
 .side{background:var(--nav);color:var(--nav-text);display:flex;flex-direction:column}
 .brand{height:52px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--nav-line)}
 .brand b{color:#fff;font-size:15px;font-weight:700;letter-spacing:.02em}
-.brand span{font-size:11px;color:var(--nav-mute);border:1px solid var(--nav-line);padding:1px 5px;border-radius:2px}
-.mark{width:18px;height:18px;border:1.5px solid #fff;border-radius:2px;position:relative}
+.brand span{font-size:11px;color:var(--nav-mute);border:1px solid var(--nav-line);padding:1px 5px;border-radius:var(--r)}
+.mark{width:18px;height:18px;border:1.5px solid #fff;border-radius:var(--r);position:relative}
 .mark:after{content:"";position:absolute;left:3px;right:3px;bottom:4px;height:1.5px;background:#fff}
 .grp{padding:14px 20px 6px;font-size:11px;color:var(--nav-mute);letter-spacing:.04em}
 .side nav a{display:flex;align-items:center;gap:10px;height:36px;padding:0 20px;color:var(--nav-text);text-decoration:none;font-size:13px;border-left:3px solid transparent}
@@ -39,7 +39,7 @@ svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stro
 .top{height:52px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 24px;gap:16px}
 .crumb{font-size:12px;color:var(--mute)}
 .crumb em{font-style:normal;color:var(--ink)}
-.search{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:3px;height:30px;padding:0 8px;width:260px;color:var(--mute);font-size:12px}
+.search{margin-left:auto;display:flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:var(--r);height:30px;padding:0 8px;width:260px;color:var(--mute);font-size:12px}
 .user{font-size:12px;color:var(--ink-2);padding-left:16px;border-left:1px solid var(--line);white-space:nowrap}
 .user b{font-weight:600;color:var(--ink)}
 
@@ -50,12 +50,12 @@ svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stro
 .ph h1{font-size:20px;font-weight:700;letter-spacing:-.01em}
 .ph .ts{font-size:12px;color:var(--mute);margin-left:4px;padding-bottom:2px}
 .ph .act{margin-left:auto;display:flex;gap:6px}
-.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-2);background:#fff;color:var(--ink);font:inherit;font-size:12px;border-radius:3px;cursor:pointer;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--line-2);background:#fff;color:var(--ink);font:inherit;font-size:12px;border-radius:var(--r);cursor:pointer;white-space:nowrap}
 .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.sm{height:24px;padding:0 8px;font-size:11px}
 
 /* KPI */
-.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:3px}
+.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--line);border-radius:var(--r)}
 .kpi > div{padding:12px 16px;border-left:1px solid var(--line)}
 .kpi > div:first-child{border-left:0}
 .kpi .l{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px}
@@ -71,7 +71,7 @@ svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stro
 .vd.r{color:var(--red)}.vd.a{color:var(--amber)}.vd.g{color:var(--green)}
 
 /* panel + table */
-.panel{background:#fff;border:1px solid var(--line);border-radius:3px;min-width:0}
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--r);min-width:0}
 .ptitle{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-bottom:1px solid var(--line)}
 .ptitle h2{font-size:13px;font-weight:700}
 .ptitle .c{font-size:12px;color:var(--mute)}
@@ -92,14 +92,14 @@ td.m{color:var(--mute);font-size:12px;font-variant-numeric:tabular-nums}
 a.lnk{color:var(--accent);text-decoration:none;font-size:12px}
 .tfoot{display:flex;align-items:center;height:36px;padding:0 14px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}
 .tfoot .pg{margin-left:auto;display:flex;gap:4px}
-.tfoot .pg span{min-width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-2);border-radius:2px}
+.tfoot .pg span{min-width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-2);border-radius:var(--r)}
 .tfoot .pg span.on{border-color:var(--accent);color:var(--accent);font-weight:600}
 
 /* sub grid */
 .sub3{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:16px}
 .form{padding:12px 14px;display:grid;grid-template-columns:84px minmax(0,1fr);gap:8px 10px;align-items:center}
 .form label{font-size:12px;color:var(--ink-2)}
-.inp{height:30px;border:1px solid var(--line-2);border-radius:3px;padding:0 8px;display:flex;align-items:center;font-size:12px;color:#9ca3af;font-variant-numeric:tabular-nums}
+.inp{height:30px;border:1px solid var(--line-2);border-radius:var(--r);padding:0 8px;display:flex;align-items:center;font-size:12px;color:#9ca3af;font-variant-numeric:tabular-nums}
 .form .btns{grid-column:2;display:flex;gap:6px;justify-content:flex-end}
 dl.kv{padding:4px 14px 10px}
 dl.kv > div{display:flex;align-items:center;gap:8px;min-height:34px;border-bottom:1px solid var(--line);font-size:12px}
