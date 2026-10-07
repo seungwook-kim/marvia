@@ -13,7 +13,7 @@ from backend.app import crypto
 
 NAME_MAX = 30
 ADDRESS_MIN, ADDRESS_MAX = 5, 200
-# 휴대전화: 010, 011, 016~019 + 7~8자리 (Spec EC-02). 하이픈·공백은 빼고 본다
+# 휴대전화: 010, 011, 016~019 + 7~8자리. 하이픈·공백은 빼고 본다
 _PHONE = re.compile(r"^01[016789]\d{7,8}$")
 
 
@@ -33,7 +33,7 @@ class Profile:
 
 
 def clean(name: str, phone: str, address: str, consent: bool) -> Profile:
-    """입력을 다듬고 검사한다. 동의가 없으면 다른 칸보다 먼저 거절한다 (EC-01)."""
+    """입력을 다듬고 검사한다. 동의가 없으면 다른 칸보다 먼저 거절한다."""
     if not consent:
         raise ProfileError("consent")
     name = " ".join((name or "").split())
@@ -81,9 +81,9 @@ def mask_address(address: str | None) -> str | None:
 
 
 def save(conn, user_id: str, profile: Profile, *, by_operator: bool = False) -> None:
-    """잠가서 저장한다. 하나라도 못 잠그면(열쇠 없음) 아무것도 저장하지 않는다 (EC-04).
-    by_operator: 운영자가 고친 경우. 본인 동의 시각(consent_at)은 그대로 둔다 (operator-admin 추가 절)."""
-    sealed = [crypto.encrypt_pii(v) for v in (profile.name, profile.phone, profile.address)]  # PII 열쇠 (10-01 분리)
+    """잠가서 저장한다. 하나라도 못 잠그면(열쇠 없음) 아무것도 저장하지 않는다.
+    by_operator: 운영자가 고친 경우. 본인 동의 시각(consent_at)은 그대로 둔다."""
+    sealed = [crypto.encrypt_pii(v) for v in (profile.name, profile.phone, profile.address)]  # B/L 열쇠와 분리된 PII 열쇠
     if any(s is None for s in sealed):
         raise ProfileError("no_key")
     consent = "user_profiles.consent_at" if by_operator else "now()"
@@ -99,7 +99,7 @@ def save(conn, user_id: str, profile: Profile, *, by_operator: bool = False) -> 
 
 
 def _open(row) -> Profile | None:
-    """잠긴 세 칸을 연다. 하나라도 못 열면(열쇠 바뀜) None (EC-07)."""
+    """잠긴 세 칸을 연다. 하나라도 못 열면(열쇠 바뀜) None."""
     values = [crypto.decrypt_pii(v) for v in row]
     return None if any(v is None for v in values) else Profile(*values)
 
@@ -128,5 +128,5 @@ def masked_by_user(conn) -> dict[str, dict]:
 
 
 def delete(conn, user_id: str) -> int:
-    """탈퇴 때 지운다 (EC-08). 지운 줄 수."""
+    """탈퇴 때 지운다. 지운 줄 수."""
     return conn.execute("DELETE FROM user_profiles WHERE user_id = %s", [user_id]).rowcount

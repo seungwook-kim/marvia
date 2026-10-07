@@ -1,4 +1,4 @@
-"""입항 예정 선박 한 척 자세히 보기 (docs/specs/chat-search.md "선박 자세히 보기" 절, 10-01).
+"""입항 예정 선박 한 척 자세히 보기 (docs/specs/chat-search.md "선박 자세히 보기" 절).
 
 선박 표(직전 기항지·입출항 예정)에서 선명을 누르면 부른다. 새 데이터 소스는 없고 기존 MCP 도구 넷을 묶는다.
 - 해수부: 입항 예정·실적, 접안 시설, 관제 이벤트 (get_port_schedule, 호출부호 우선)
@@ -7,11 +7,11 @@
 판정은 하지 않는다. 도구 하나가 실패해도 나머지는 보여 주고, 실패는 errors에 출처별로 남긴다 (SDD 8절 partial 원칙).
 위치가 오래됐는지는 rules.md position_stale_hours로 코드가 정한다 (화면이 정하지 않는다).
 ShipFinder는 하루 호출 한도가 있어 같은 배는 10분 동안 다시 부르지 않는다.
-캐시 밖 새 조회는 사용자당 하루 rules.md vessel_detail_daily_limit번까지다 (10-08 결정, take_daily_slot).
-DB가 있으면 그 횟수를 vessel_detail_usage 표(024)에 센다. 서버를 다시 띄워도 0부터 시작하지 않게 (10-08). 없거나 실패하면 메모리로 센다. 한 번에 ShipFinder를
-2~3회 쓰고, 하루 50회를 다 쓰면 판정까지 그 프로세스 전체가 ShipFinder를 못 쓴다 (clients/shipfinder.quota_blocked).
-배 고르기 (10-08 결정): 호출부호가 있으면 services/vessel_pick.py 규칙대로 MMSI가 하나로 정해질 때만 보여 준다.
-선명만 있으면 전처럼 가장 비슷한 후보를 보여 주되 vessel.match = "name_similar"로 "이름이 비슷한 배"임을 알린다.
+캐시 밖 새 조회는 사용자당 하루 rules.md vessel_detail_daily_limit번까지다 (take_daily_slot).
+한 번에 ShipFinder를 2~3회 쓰고, 하루 한도를 다 쓰면 판정까지 그 프로세스 전체가 ShipFinder를 못 쓰기 때문이다
+(clients/shipfinder.quota_blocked). 횟수는 DB(vessel_detail_usage)에 세고, 없거나 실패하면 메모리로 센다.
+배 고르기: 호출부호가 있으면 services/vessel_pick.py 규칙대로 MMSI가 하나로 정해질 때만 보여 준다.
+선명만 있으면 가장 비슷한 후보를 보여 주되 vessel.match = "name_similar"로 "이름이 비슷한 배"임을 알린다.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 from backend.app.db import connect
 from backend.app.observability.logging import log_failure
 from backend.app.services.rules import rule
-# MCP 도구 4종은 /mcp를 거쳐 부른다 (10-02, services/mcp_client.py).
+# MCP 도구 4종은 /mcp를 거쳐 부른다 (services/mcp_client.py).
 # route_points는 지도에 그릴 항로 좌표를 만드는 도우미라 MCP 도구가 아니다. 그래서 직접 부른다
 from backend.app.services.mcp_client import (
     estimate_distance, get_live_position, get_port_schedule, get_vessel_candidates,
@@ -35,8 +35,7 @@ from backend.app.services.vessel_pick import single
 from mcp_server.tools.distance import route_points
 
 CACHE_SEC = 600  # services/chat.py CACHE_SEC와 같다 (입항 예정 캐시와 같은 수명)
-# 캐시에 두는 배 수 상한 (10-06 점검). 전에는 상한이 없고 사용자가 친 글자 그대로를 열쇠로 써서,
-# 선명을 조금씩 바꿔 부르면 메모리가 끝없이 늘었다. 가장 오래 안 쓴 것부터 버린다(LRU)
+# 캐시에 두는 배 수 상한. 선명을 조금씩 바꿔 불러도 메모리가 끝없이 늘지 않게 가장 오래 안 쓴 것부터 버린다(LRU)
 CACHE_MAX = 256
 _cache: OrderedDict[tuple[str, str], tuple[float, dict]] = OrderedDict()
 _cache_lock = threading.Lock()
@@ -77,9 +76,9 @@ def cached(call_sign: str | None, ship_name: str | None) -> bool:
     return _cache_get(_key(call_sign, ship_name)) is not None
 
 
-# 하루 횟수 상한 (10-08 결정). 하루 한도를 지키는 마지막 문은 ShipFinder의 38 응답(quota_blocked)이고,
+# 하루 횟수 상한. 하루 한도를 지키는 마지막 문은 ShipFinder의 38 응답(quota_blocked)이고,
 # 이 상한은 한 사용자가 그 한도를 혼자 다 쓰지 못하게 하는 몫이다.
-# DB가 있으면 vessel_detail_usage(024)에 세고, 없거나 DB가 실패하면 아래 프로세스 메모리로 센다 (서버를 다시 띄우면 0부터)
+# DB가 있으면 vessel_detail_usage에 세고, 없거나 DB가 실패하면 아래 프로세스 메모리로 센다 (서버를 다시 띄우면 0부터)
 _KST = ZoneInfo("Asia/Seoul")
 ANON = "anonymous"  # 로그인 없이 쓰는 경우(인증 꺼짐)는 모두 한 칸을 같이 쓴다
 _daily: dict[str, int] = {}
@@ -88,7 +87,7 @@ _daily_lock = threading.Lock()
 
 
 # 오늘 몫이 남았을 때만 1을 더하고 새 값을 돌려준다. 다 썼으면 WHERE가 막아 줄이 안 나온다.
-# 읽고 더해 쓰지 않고 한 문장이라 두 요청이 같이 와도 상한을 넘지 않는다 (024, 10-08)
+# 읽고 더해 쓰지 않고 한 문장이라 두 요청이 같이 와도 상한을 넘지 않는다
 USAGE_SQL = """INSERT INTO vessel_detail_usage (user_key, day, count) VALUES (%s, %s, 1)
                ON CONFLICT (user_key, day) DO UPDATE SET count = vessel_detail_usage.count + 1
                WHERE vessel_detail_usage.count < %s
@@ -113,7 +112,7 @@ def take_daily_slot(user_id: str | None) -> bool:
 
     라우터가 cached()가 False일 때만 부른다: 캐시에서 답하면 ShipFinder를 부르지 않으므로 세지 않는다.
     날짜가 바뀌면 모두 0부터다. 상한은 rules.md vessel_detail_daily_limit.
-    DB가 있으면 표(vessel_detail_usage, 024)에 세서 서버를 다시 띄워도 이어 센다 (10-08). 없거나 실패하면 메모리로 센다.
+    DB가 있으면 표(vessel_detail_usage)에 세서 서버를 다시 띄워도 이어 센다. 없거나 실패하면 메모리로 센다.
     """
     global _daily_on
     today = datetime.now(_KST).date()
@@ -143,7 +142,7 @@ def reset_daily() -> None:
 
 
 def _choose(cands: list[dict], call_sign: str | None) -> tuple[dict | None, dict | None]:
-    """후보 중 보여 줄 배 하나와, 못 골랐을 때 errors에 넣을 줄 (10-08 결정).
+    """후보 중 보여 줄 배 하나와, 못 골랐을 때 errors에 넣을 줄.
 
     호출부호로 찾았으면 후보 도구가 이미 같은 호출부호·IMO마다 최신·최근 신호로 걸렀다 (services/vessel_pick.py).
     거기서 MMSI가 하나일 때만 그 배다. 여러 척이면 예전에 그 호출부호를 쓴 배와 섞인 것이라 맨 앞을 고르지 않는다.
@@ -223,7 +222,7 @@ def detail(call_sign: str | None, ship_name: str | None) -> dict:
 
     result = {"call_sign": call_sign, "ship_name": ship_name, "vessel": vessel, "position": position,
               "distance": distance, "schedule": schedule, "errors": errors,
-              # 이 결과를 만든 시각. 10분 캐시에서 다시 나가도 그대로라 화면이 "몇 시 기준"인지 보여 줄 수 있다 (10-06)
+              # 이 결과를 만든 시각. 10분 캐시에서 다시 나가도 그대로라 화면이 "몇 시 기준"인지 보여 줄 수 있다
               "cached_at": datetime.now(timezone.utc).isoformat()}
     _cache_put(key, result)
     return result

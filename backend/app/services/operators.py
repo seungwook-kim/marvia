@@ -29,7 +29,7 @@ class OperatorError(Exception):
 
 
 def normalize_email(email: str) -> str:
-    """앞뒤 공백을 빼고 소문자로. 형식이 아니면 OperatorError(invalid_email). 009의 CHECK(email = lower(email))와 맞춘다."""
+    """앞뒤 공백을 빼고 소문자로. 형식이 아니면 OperatorError(invalid_email). migrations/009의 CHECK(email = lower(email))와 맞춘다."""
     value = (email or "").strip().lower()
     if not _EMAIL.match(value):
         raise OperatorError("invalid_email")
@@ -37,7 +37,7 @@ def normalize_email(email: str) -> str:
 
 
 def mask_email(email: str | None) -> str | None:
-    """ka***@g***.com 모양으로 가린다 (Spec "마스킹"). 앞 2자, 도메인 첫 글자, 최상위 도메인만 남긴다.
+    """ka***@g***.com 모양으로 가린다. 앞 2자, 도메인 첫 글자, 최상위 도메인만 남긴다.
     짧은 아이디(1~2자)는 첫 글자만 남겨 원문이 그대로 보이지 않게 한다."""
     if not email or "@" not in email:
         return None
@@ -49,7 +49,7 @@ def mask_email(email: str | None) -> str | None:
 
 
 def mask_name(name: str | None) -> str | None:
-    """첫 글자만 남기고 나머지는 *로. 김승욱 -> 김**, Alex Kim -> A*******."""
+    """첫 글자만 남기고 나머지는 *로. 홍길동 -> 홍**, Alex Kim -> A*******."""
     if not name or not name.strip():
         return None
     name = name.strip()
@@ -57,10 +57,10 @@ def mask_name(name: str | None) -> str | None:
 
 
 def _seal(email: str | None) -> tuple[str | None, str | None]:
-    """이메일을 (암호문, 가린 값)으로. 평문은 DB에 넣지 않는다 (013, 10-01). 열쇠가 없으면 암호문은 None."""
+    """이메일을 (암호문, 가린 값)으로. 평문은 DB에 넣지 않는다. 열쇠가 없으면 암호문은 None."""
     if not email:
         return None, None
-    return crypto.encrypt_pii(email), mask_email(email)  # PII 열쇠 (10-01 분리)
+    return crypto.encrypt_pii(email), mask_email(email)  # B/L 열쇠와 분리된 PII 열쇠
 
 
 def _open(enc: str | None, masked: str | None) -> str | None:
@@ -77,10 +77,9 @@ def _hash(email: str) -> str:
 
 
 def is_operator(conn, email: str | None) -> bool:
-    """지금 활성 운영자인가. 출입증 이메일의 지문을 operators.email_hash와 비교한다 (013).
+    """지금 활성 운영자인가. 출입증 이메일의 지문을 operators.email_hash와 비교한다.
     이메일이 없거나 열쇠가 없으면 운영자가 아니다(닫힌 쪽으로 실패).
-    email은 확인된 이메일만 와야 한다. auth.current_user가 email_verified가 false인 출입증의 이메일을 None으로 넘긴다
-    (auth.verified_email, 10-06 점검). 그래서 확인 안 된 이메일은 여기서 None이 되어 운영자가 아니다."""
+    email은 확인된 이메일만 온다. auth.verified_email이 email_verified가 false인 출입증의 이메일을 None으로 넘긴다."""
     if not email:
         return False
     h = crypto.fingerprint(email.lower())
@@ -96,8 +95,8 @@ def active_operator_hashes(conn) -> set[str]:
 
 
 def grant(conn, email: str, actor_user_id: str, actor_email: str | None) -> None:
-    """운영자로 등록한다. 이미 활성이면 OperatorError(already), 이력은 남기지 않는다 (Spec EC-03).
-    해지됐던 사람이면 같은 줄을 다시 활성으로 돌리고 이력은 한 줄 더 쌓는다 (EC-05). 평문 이메일은 저장하지 않는다."""
+    """운영자로 등록한다. 이미 활성이면 OperatorError(already), 이력은 남기지 않는다.
+    해지됐던 사람이면 같은 줄을 다시 활성으로 돌리고 이력은 한 줄 더 쌓는다. 평문 이메일은 저장하지 않는다."""
     target = normalize_email(email)
     h = _hash(target)
     enc, masked = _seal(target)
@@ -120,7 +119,7 @@ def grant(conn, email: str, actor_user_id: str, actor_email: str | None) -> None
 
 
 def revoke(conn, email: str, actor_user_id: str, actor_email: str | None) -> None:
-    """운영자를 해지한다. 자기 자신은 못 한다(EC-04: 마지막 운영자가 사라지는 것을 막는다). 활성 운영자가 아니면 not_found."""
+    """운영자를 해지한다. 자기 자신은 못 한다(마지막 운영자가 사라지는 것을 막는다). 활성 운영자가 아니면 not_found."""
     target = normalize_email(email)
     if actor_email and target == actor_email.lower():
         raise OperatorError("self_revoke")
@@ -136,7 +135,7 @@ def revoke(conn, email: str, actor_user_id: str, actor_email: str | None) -> Non
 
 
 def _audit(conn, action: str, target_email: str, actor_user_id: str, actor_email: str | None) -> None:
-    """이력 한 줄. INSERT만 한다 (Spec "이력은 쌓기만"). 이메일은 암호문과 가린 값으로만 (013)."""
+    """이력 한 줄. INSERT만 한다 (이력은 쌓기만). 이메일은 암호문과 가린 값으로만."""
     t_enc, t_masked = _seal(target_email)
     a_enc, a_masked = _seal(actor_email)
     conn.execute(
@@ -148,7 +147,7 @@ def _audit(conn, action: str, target_email: str, actor_user_id: str, actor_email
 
 def list_operators(conn) -> list[dict]:
     """활성 운영자. 운영자끼리는 누가 권한을 가졌는지 알아야 하므로 풀어서 보여 준다.
-    granted_by_email: 등록한 사람의 이메일. operator_audit의 최신 grant 줄에서 찾는다 (A5, 10-06).
+    granted_by_email: 등록한 사람의 이메일. operator_audit의 최신 grant 줄에서 찾는다.
     암호문은 같은 값이어도 매번 달라 SQL로 못 맞추므로, 풀어낸 이메일끼리 여기서 맞춘다. 못 찾거나 스크립트 등록이면 None."""
     rows = conn.execute(
         "SELECT email_enc, email_masked, granted_by, granted_at FROM operators WHERE revoked_at IS NULL ORDER BY granted_at"

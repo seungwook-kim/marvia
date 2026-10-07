@@ -1,10 +1,10 @@
-"""세관(UNI-PASS)에 아직 없는 화물은 MRN으로 배 상태까지 보여 준다 (docs/specs/mrn-fallback.md, 10-01).
+"""세관(UNI-PASS)에 아직 없는 화물은 MRN으로 배 상태까지 보여 준다 (docs/specs/mrn-fallback.md).
 
 routers/agent.py의 조회가 UNI-PASS에서 B/L을 못 찾았고(insufficient) 요청에 MRN이 있을 때만 부른다.
 - 해수부 입항 신고에서 MRN으로 배(선명·호출부호·입항 예정·접안 시설)를 찾는다
 - 호출부호로 ShipFinder 후보 → AIS 위치 → 부산까지 남은 거리 (기존 MCP 도구)
 - status=partial, verdict=None. 통관 정보가 없어서 판정하지 않는다. trusted_eta도 정하지 않는다
-해수부에서도 못 찾으면 None (부르는 쪽은 원래 응답을 그대로 돌려준다, EC-02).
+해수부에서도 못 찾으면 None (부르는 쪽은 원래 응답을 그대로 돌려준다).
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from backend.app.schemas.agent import (
 )
 from backend.app.services.vessel_detail import _freshness
 from backend.app.services.vessel_pick import single
-# MCP 도구는 /mcp를 거쳐 부른다 (10-02, services/mcp_client.py)
+# MCP 도구는 /mcp를 거쳐 부른다 (services/mcp_client.py)
 from backend.app.services.mcp_client import estimate_distance, get_live_position, get_vessel_candidates
 
 LOOKBACK_DAYS, LOOKAHEAD_DAYS = 3, 14  # 입항 신고를 찾는 기간. 통지서는 보통 입항 며칠 전에 온다
@@ -58,9 +58,9 @@ def assess(request: AgentRequest) -> AgentResponse | None:
     ais_eta = calc_eta = distance_nm = None
     found = get_vessel_candidates(ship_name=plan.ship_name or "", call_sign=plan.call_sign)
     cands = [] if "error" in found else (found.get("candidates") or [])
-    # 호출부호를 알면 후보 도구가 같은 호출부호·IMO마다 최신·최근 신호로 거른 뒤 MMSI가 하나일 때만 그 배다
-    # (10-08 결정, services/vessel_pick.py). 여러 척이면 맨 앞을 고르지 않고 해수부 정보만으로 답한다 (EC-03과 같은 길).
-    # 호출부호가 없을 때만 전처럼 가장 비슷한 선명 후보를 쓴다
+    # 호출부호를 알면 같은 호출부호·IMO마다 최신·최근 신호로 거른 뒤 MMSI가 하나일 때만 그 배다
+    # (services/vessel_pick.py). 여러 척이면 맨 앞을 고르지 않고 해수부 정보만으로 답한다.
+    # 호출부호가 없을 때만 가장 비슷한 선명 후보를 쓴다
     c = (single(cands) if plan.call_sign else (cands[0] if cands else None))
     if c is not None:
         vessel = VesselInfo(mmsi=c["mmsi"], imo=c.get("imo"), name=c.get("name") or plan.ship_name,
@@ -81,7 +81,7 @@ def assess(request: AgentRequest) -> AgentResponse | None:
                     calc_eta = now + timedelta(hours=dist["calc_hours_at_sog"])
                 evidence.append(Evidence(source="searoute", field="distance_nm", value=str(distance_nm), fetched_at=now))
         else:
-            log_failure("mrn_fallback_position", pos["error"].get("code"))  # EC-03: 해수부 정보만으로 계속
+            log_failure("mrn_fallback_position", pos["error"].get("code"))  # 위치가 없어도 해수부 정보만으로 계속
     else:
         code = (found.get("error") or {}).get("code") or ("ambiguous" if cands else "not_found")
         log_failure("mrn_fallback_vessel", code)

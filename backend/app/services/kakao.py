@@ -1,10 +1,10 @@
-"""카카오톡 "나에게 보내기" 연결의 업무 규칙 (10-02 결정, 카카오 로그인 REST API 문서).
+"""카카오톡 "나에게 보내기" 연결의 업무 규칙 (카카오 로그인 REST API).
 
-하는 일: 사용자별 카카오 토큰 보관(연결), 만료 전 갱신, 메시지 보내기, 연결 해제, 탈퇴 때 지우기.
-HTTP 요청·응답은 라우터(routers/kakao.py)가, 카카오 서버 호출은 clients/kakao.py가 한다. 여기는 DB와 규칙만 안다.
-나중에 만들 "판정이 바뀌면 알림" 작업도 HTTP 없이 send_to_user를 그대로 부른다.
+사용자별 카카오 토큰 보관(연결), 만료 전 갱신, 메시지 보내기, 연결 해제, 탈퇴 때 지우기.
+HTTP는 routers/kakao.py가, 카카오 서버 호출은 clients/kakao.py가 한다. 여기는 DB와 규칙만 안다.
+"판정이 바뀌면 알림"(services/watch.py)도 HTTP 없이 send_to_user를 부른다.
 
-왜 이렇게 했나:
+설계 이유:
 - state를 서명하고 10분 뒤 만료시킨다: 연결을 시작한 사람이 누구인지 동의 화면 왕복 동안 들고 다니는 글자다.
   콜백은 로그인한 화면이 부르므로(routers/kakao.py), 라우터가 state 속 user_id와 지금 로그인한 사용자가 같은지 비교한다.
   서명이 없으면 남의 user_id를 넣어 위조할 수 있다. 서명 열쇠는 KAKAO_CLIENT_SECRET에서
@@ -172,7 +172,7 @@ def send_to_user(conn, user_id: str, text: str, link_url: str) -> None:
         if row[2] - _now() <= REFRESH_BEFORE:
             access = _refresh_access(conn, user_id, refresh_token)
         kakao.send_memo(access, text, link_url)
-        # 보냈다는 시각. 설정 화면이 "마지막 발송"으로 보여 준다 (022). 실패한 시도는 적지 않는다
+        # 보냈다는 시각. 설정 화면이 "마지막 발송"으로 보여 준다. 실패한 시도는 적지 않는다
         conn.execute("UPDATE kakao_links SET last_sent_at = now() WHERE user_id = %s", [user_id])
     except KakaoError as e:
         if e.kind != "unauthorized":

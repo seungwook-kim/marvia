@@ -1,4 +1,4 @@
-"""이미 일어난 일을 코드가 세는 사실 세 가지 (10-08). 판정 신호가 아니고 등급을 바꾸지 않는다.
+"""이미 일어난 일을 코드가 세는 사실 세 가지. 판정 신호가 아니고 등급을 바꾸지 않는다.
 
   anchorage()       해수부 관제 이벤트(투묘·양묘·접안)로 묘박지에서 얼마나 기다렸나
   customs_timing()  UNI-PASS 통관 이력의 단계 사이 걸린 시간과 입항 뒤 지난 시간
@@ -48,7 +48,7 @@ def anchorage(schedule: dict | None, now: datetime | None = None) -> AnchorageIn
     - 이벤트 이름 목록은 skills/port-busan/rules.md anchor_event_kinds, weigh_anchor_event_kinds, berth_event_kinds
     - state: 투묘 뒤 접안이 있으면 berthed, 양묘만 있으면 weighed(부두로 가는 중), 둘 다 없으면 anchored(아직 대기 중)
     - waited_hours: 투묘부터 양묘·접안 중 이른 것까지. 아직 대기 중이면 투묘부터 지금까지. 앞으로 얼마나 더 기다릴지는 세지 않는다
-    anchor_wait 신호(services/signals.py, AIS 위치 이력)와는 따로다. 이 값은 등급에 쓰지 않는다 (10-08 지시: 신호가 아니라 사실).
+    anchor_wait 신호(services/signals.py, AIS 위치 이력)와는 따로다. 이 값은 신호가 아니라 사실이라 등급에 쓰지 않는다.
     도구가 실패했거나(error) 이벤트가 없으면 None이다.
     """
     if not schedule or "error" in schedule:
@@ -109,9 +109,9 @@ def eta_change(previous: date | datetime | None, trusted: datetime | None) -> Et
     """지난 조회의 신뢰 ETA와 이번 신뢰 ETA가 기준 이상 달라졌으면 그 변화를 돌려준다.
 
     기준은 skills/ais-reliability/rules.md eta_change_alert_hours.
-    - previous가 시각(datetime, user_cargo.last_eta_at, 024, 10-08)이면 실제 시간 차이로 센다. 같은 날 안에서 14시간 밀린 것도 잡고,
+    - previous가 시각(datetime, user_cargo.last_eta_at)이면 실제 시간 차이로 센다. 같은 날 안에서 14시간 밀린 것도 잡고,
       자정을 넘겨 2시간 밀린 것은 잡지 않는다
-    - previous가 날짜뿐(date, 옛 줄의 user_cargo.last_eta)이면 전처럼 한국 날짜 차이 x 24시간으로 센다 (하루 단위)
+    - previous가 날짜뿐(date, 옛 줄의 user_cargo.last_eta)이면 한국 날짜 차이 x 24시간으로 센다 (하루 단위)
     from_eta·to_eta는 화면·알림 글이 쓰는 한국 날짜다. hours는 늦어지면 양수, 당겨지면 음수다.
     둘 중 하나라도 없으면(처음 조회, 이번에 ETA 없음) None. 판정 신호가 아니다. 등급은 지금처럼 판정 표가 정한다.
     """

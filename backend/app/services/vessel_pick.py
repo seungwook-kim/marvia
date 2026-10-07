@@ -1,9 +1,7 @@
-"""호출부호로 ShipFinder 검색 결과에서 지금 그 호출부호를 쓰는 배 한 척을 고르는 규칙 (10-08 결정).
+"""호출부호로 ShipFinder 검색 결과에서 지금 그 호출부호를 쓰는 배 한 척을 고르는 규칙.
 
-왜 한 곳에 두나: 호출부호는 배가 팔리거나 국적을 바꾸면 다른 배에 다시 배정된다. 09-28 실측: 한 호출부호에 IMO가 다른 3척,
-마지막 신호 0일·123일·552일 전. 전에는 고르는 기준이 네 곳(후보 도구, 지켜보기, 수집 워커, 선박 자세히 보기)에 따로 있어
-지켜보기는 여러 MMSI라서 거절하고, 워커는 최신 보고만 보고, 자세히 보기는 맨 앞 후보를 그대로 받았다.
-이제 모두 같은 순서를 쓴다:
+호출부호는 배가 팔리거나 국적을 바꾸면 다른 배에 다시 배정되어, 한 호출부호에 IMO가 다른 여러 척이 검색될 수 있다.
+후보 도구, 지켜보기, 수집 워커, 선박 자세히 보기가 모두 이 한 곳의 순서를 쓴다:
   1. 호출부호가 정확히 같은 배 (앞뒤·안쪽 공백을 떼고 대문자, identify._sign과 같은 맞춤)
   2. 같은 IMO는 가장 최근에 신호를 보낸 MMSI 하나만 (newest_per_imo)
   3. 최근 N일 안에 신호를 보낸 배만 (rules.md vessel_recent_days)
@@ -17,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from backend.app.services.rules import rule
 
-# 실제 응답에 7자리가 아닌 IMO가 섞여 온다. 7자리만 IMO로 믿는다 (mcp_server/tools/vessel_candidates.py에서 옮김)
+# 실제 응답에 7자리가 아닌 IMO가 섞여 온다. 7자리만 IMO로 믿는다
 IMO_RANGE = range(1000000, 10000000)
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 

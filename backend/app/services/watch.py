@@ -1,19 +1,18 @@
-"""화물 지켜보기: 등록·감시·알림의 업무 규칙 (G5, 10-05 결정, docs/Marvia_개발_작업_리스트.md "G5 등록·감시·알림").
+"""화물 지켜보기: 등록·감시·알림의 업무 규칙.
 
-하는 일:
   set_watch()        결과 화면의 "지켜보기" 켜기·끄기. 사용자당 최대 MAX_WATCH건
   seed_position()    켜는 순간 이미 받아 둔 배 위치를 지도 첫 점으로 남긴다 (ShipFinder를 새로 부르지 않는다)
   watch_state()      그 화물이 저장됐는지, 지켜보는 중인지 (버튼 상태)
   pending_changes()  아직 안 본 판정 변화 목록 ("다음 접속 때 표시" 띠)
   mark_seen()        화면에 보여 줬으니 "봤음"으로 바꾸기
   run_watch()        지켜보는 화물을 다시 판정하고, 등급이 바뀌었으면 기록하고 카카오톡으로 알린다 (워커가 부른다).
-                     도착 예정이 기준(rules.md eta_change_alert_hours) 이상 바뀌었으면 그것도 알림 글에 적는다 (10-08)
+                     도착 예정이 기준(rules.md eta_change_alert_hours) 이상 바뀌었으면 그것도 알림 글에 적는다
 HTTP는 라우터(routers/watch.py)가, 주기 실행은 worker/watch.py·worker/run.py가 맡는다. 여기는 DB와 규칙만 안다.
-표는 새로 만들지 않고 화물 표(user_cargo)에 칸 네 개를 더했다 (마이그레이션 017).
+표는 새로 만들지 않고 화물 표(user_cargo)에 칸을 더했다 (migrations/017).
 
-왜 이렇게 했나:
-- 사용자가 직접 켠 화물만 본다: 조회한 화물을 전부 감시하면 ShipFinder 하루 한도(50회)와 LLM 비용이 사용자 모르게 나간다.
-  그래서 최대 5건으로 제한한다
+설계 이유:
+- 사용자가 직접 켠 화물만 본다: 조회한 화물을 전부 감시하면 ShipFinder 하루 한도와 LLM 비용이 사용자 모르게 나간다.
+  그래서 최대 MAX_WATCH건으로 제한한다
 - 다시 판정은 사용자가 조회할 때와 같은 길(routers/agent._assess, LLM 포함)로 한다: 감시가 따로 만든 판정 규칙이 있으면
   "조회 화면에서는 순항인데 알림은 긴급"처럼 두 답이 어긋난다. 저장된 값으로 같은 AgentRequest를 만들어 그대로 부른다
 - 한 번에 5건만: ShipFinder 호출을 아끼려는 상한이다. 마지막 확인이 가장 오래된 화물부터 돌려서 한 화물만 계속 도는 일이 없다
@@ -44,9 +43,9 @@ from backend.app.services import quota
 from backend.app.services.kakao import KakaoLinkError
 from backend.app.services.verdict import VERDICT_LABEL
 
-MAX_WATCH = 5      # 사용자당 지켜볼 수 있는 화물 수 (10-05 결정)
-RUN_LIMIT = 5      # 워커 한 번에 다시 판정하는 화물 수. ShipFinder 하루 한도 50회를 지키려는 상한이다
-# 배(vessel_mmsi)를 아는 화물 한 건을 다시 판정할 때 ShipFinder를 부르는 횟수 (10-06 점검, routers/agent.py에서 확인).
+MAX_WATCH = 5      # 사용자당 지켜볼 수 있는 화물 수
+RUN_LIMIT = 5      # 워커 한 번에 다시 판정하는 화물 수. ShipFinder 하루 한도를 지키려는 상한이다
+# 배(vessel_mmsi)를 아는 화물 한 건을 다시 판정할 때 ShipFinder를 부르는 횟수 (routers/agent.py 경로 기준).
 # resolved_mmsi가 있으면 _identify가 후보 검색을 건너뛰고(확정), _after_customs가 get_live_position 한 번만 부른다.
 # 규칙이 아니라 코드 경로를 센 값이라 rules.md가 아니라 여기 둔다. 판정 경로가 ShipFinder를 더 부르게 바뀌면 같이 고친다.
 # 배를 모르는 화물은 후보 검색(검색 1 + 후보 5척 x 위치·국적 = 최대 11회, mcp_server/tools/vessel_candidates.py)이라
@@ -114,12 +113,11 @@ ON CONFLICT (mmsi, ts) DO NOTHING
 
 
 def seed_position(conn, mmsi: int | None) -> bool:
-    """지켜보기를 켜는 순간, 이 api 프로세스가 이미 받아 둔 그 배 위치를 watch_positions에 첫 점으로 넣는다 (10-08).
+    """지켜보기를 켜는 순간, 이 api 프로세스가 이미 받아 둔 그 배 위치를 watch_positions에 첫 점으로 넣는다.
 
-    왜: 위치 이력은 수집 워커만 쌓는데, 워커 스케줄러는 ShipFinder 하루 한도 때문에 꺼져 있다(WORKER_SCHEDULE=off).
-    그래서 지켜보기를 켜도 감시 지도에 점이 하나도 없었다. 화물 판정·선박 자세히 보기가 MCP(get_live_position)로 받은 위치는
-    ShipFinderClient 클래스 캐시(shipfinder:pos:{mmsi})에 남아 있고, MCP가 같은 api 프로세스에 붙어 있어(/mcp) 여기서도 보인다.
-    그 값을 버리지 않고 쓴다. ShipFinder는 새로 부르지 않는다 (하루 50회 한도).
+    왜: 위치 이력은 수집 워커가 쌓는데, 워커 스케줄은 ShipFinder 하루 한도 때문에 꺼 둘 수 있다(WORKER_SCHEDULE=off).
+    화물 판정·선박 자세히 보기가 MCP(get_live_position)로 받은 위치는 ShipFinderClient 클래스 캐시(shipfinder:pos:{mmsi})에
+    남아 있고, MCP가 같은 api 프로세스에 붙어 있어(/mcp) 여기서도 보인다. 그 값을 쓰고 ShipFinder는 새로 부르지 않는다.
     캐시에 없거나(TTL rules.md api_cache_ttl_hours가 지났거나) 보고 시각(last_time)이 없으면 넣지 않는다:
     언제 위치인지 모르면 지나온 길에 못 놓는다 (worker/collector.py와 같은 규칙).
     실패해도 예외를 밖으로 내지 않는다. 지켜보기 켜기 자체는 그대로 돼야 한다. 넣었으면 True."""
@@ -164,15 +162,15 @@ def watch_state(conn, user_id: str, bl_no: str) -> dict:
 
 # ── 바뀐 판정 띠 ──
 
-# 감시 목록 지도에 잇는 지나온 길 점 수 (10-06). worker 수집 간격 6시간이면 3일치다. 화면이 그리기 무겁지 않을 만큼만
+# 감시 목록 지도에 잇는 지나온 길 점 수. worker 수집 간격 6시간이면 3일치다. 화면이 그리기 무겁지 않을 만큼만
 TRACK_POINTS = 12
 
 
 def watch_list(conn, user_id: str) -> dict:
-    """지켜보는 화물 목록과 배의 마지막 위치·지나온 길 (GET /api/watch, 10-06). 화면 web/lib/api.ts WatchItem 모양이다.
+    """지켜보는 화물 목록과 배의 마지막 위치·지나온 길 (GET /api/watch). 화면 web/lib/api.ts WatchItem 모양이다.
 
     - 줄 재료는 화물 표(user_cargo)의 마지막 조회 값이다: 등급·통관 단계·도착 예정·여유 일수·품명·선명·국적
-    - 위치는 watch_positions(017)에서 그 배의 최근 TRACK_POINTS개를 오래된 순으로. 마지막 점이 현재 위치다
+    - 위치는 watch_positions에서 그 배의 최근 TRACK_POINTS개를 오래된 순으로. 마지막 점이 현재 위치다
       (worker 수집 또는 조회할 때 쌓인 점, services/cargo._keep_position). 점이 없으면 위치 칸은 null이고 화면은 지도에 안 그린다
     - B/L은 가린 번호만, 화물을 가리키는 값은 지문(cargo_key)만 준다. 반출 끝난 화물(done)도 목록 뒤에 남는다(화면이 개수만 알린다)
     - updated_at: 줄들 중 가장 최근 조회 시각. 없으면 null"""
@@ -213,8 +211,8 @@ def _track(conn, mmsi: int) -> list[dict]:
 def pending_changes(conn, user_id: str) -> list[dict]:
     """사용자가 아직 못 본 판정 변화. 최근 것부터. 가린 번호만 담는다.
     to_verdict는 화물 표의 마지막 판정(last_verdict)이다.
-    reason: 마지막 확인 때의 여유 일수·통관 단계를 코드가 한 줄로 쓴 것 (10-06, 접속하면 먼저 말 걸기용). 판정이 왜 바뀌었는지의 원인이
-    아니라 그 시점의 상태다: 화물 표에는 원인을 따로 저장하지 않는다. 둘 다 없으면 None."""
+    reason: 마지막 확인 때의 여유 일수·통관 단계를 코드가 한 줄로 쓴 것 (접속하면 먼저 말 걸기용). 판정이 왜 바뀌었는지의 원인이
+    아니라 그 시점의 상태다 (화물 표에는 원인을 따로 저장하지 않는다). 둘 다 없으면 None."""
     rows = conn.execute(
         """SELECT bl_masked, label, changed_from, last_verdict, changed_at, last_days_margin, last_stage FROM user_cargo
            WHERE user_id = %s AND change_seen = false ORDER BY changed_at DESC NULLS LAST""",
@@ -264,13 +262,13 @@ def _no_vessel_count(conn) -> int:
 
 
 def eta_change_text(change) -> str | None:
-    """도착 예정 변화(services/port_facts.eta_change)를 알림 한 문장으로. 코드가 쓰는 문장이고 LLM은 관여하지 않는다 (10-08).
+    """도착 예정 변화(services/port_facts.eta_change)를 알림 한 문장으로. 코드가 쓰는 문장이고 LLM은 관여하지 않는다.
     날짜는 "10월 5일" 모양, 시간은 부호 없이 "늦어짐/당겨짐"으로 말한다. 변화가 없으면 None."""
     if change is None:
         return None
     way = "늦어졌습니다" if change.hours > 0 else "당겨졌습니다"
     if change.from_eta == change.to_eta:
-        # 시각으로 센 변화(10-08, user_cargo.last_eta_at)는 같은 날 안에서도 잡힌다. "5일에서 5일로"라고 쓰지 않는다
+        # 시각으로 센 변화(user_cargo.last_eta_at)는 같은 날 안에서도 잡힌다. "5일에서 5일로"라고 쓰지 않는다
         return f"도착 예정({change.to_eta.month}월 {change.to_eta.day}일)이 약 {abs(change.hours)}시간 {way}."
     return (f"도착 예정이 {change.from_eta.month}월 {change.from_eta.day}일에서 {change.to_eta.month}월 {change.to_eta.day}일로 "
             f"약 {abs(change.hours)}시간 {way}.")
@@ -278,7 +276,7 @@ def eta_change_text(change) -> str | None:
 
 def _notify(conn, user_id: str, name: str, old: str | None, new: str | None, eta_change=None) -> bool:
     """카카오톡으로 알린다. 보냈으면 True. 연결 안 됨은 조용히, 그 밖의 실패는 종류만 남기고 False.
-    old·new가 다르면 등급 변화 문장을, eta_change가 있으면 도착 예정 변화 문장을 넣는다 (10-08). 둘 다 있으면 한 메시지에 같이 쓴다."""
+    old·new가 다르면 등급 변화 문장을, eta_change가 있으면 도착 예정 변화 문장을 넣는다. 둘 다 있으면 한 메시지에 같이 쓴다."""
     from backend.app.routers.kakao import _web  # 화면 주소 규칙을 한 곳에 둔다 (순환을 피하려고 안에서 부른다)
 
     parts = []
@@ -303,7 +301,7 @@ def _notify(conn, user_id: str, name: str, old: str | None, new: str | None, eta
 def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, bool]:
     """화물 한 건을 다시 판정한다. (판정이 나왔나, 바뀌었나, 알렸나)를 돌려준다. 실패는 예외로 올려 부르는 쪽이 센다."""
     user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old, last_eta, *rest = row
-    last_eta_at = rest[0] if rest else None  # 024(10-08) 칸. 시각이 있으면 시간 단위로 센다
+    last_eta_at = rest[0] if rest else None  # 신뢰 ETA 시각 칸. 있으면 시간 단위로 센다
     bl_no = crypto.decrypt(bl_encrypted) if bl_encrypted else None
     if bl_no is None:  # 잠근 값이 비었거나 열쇠가 바뀌어 못 연다. 원문 없이는 조회할 수 없다
         raise WatchError("no_bl")
@@ -311,7 +309,7 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, boo
                            voyage_no=voyage_no, resolved_mmsi=mmsi, session_id=f"watch-{now:%Y%m%d}")
     from backend.app.routers.agent import is_released, previous_eta, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
 
-    # 지켜보기 재판정도 그 사용자의 LLM 사용량이다 (docs/specs/token-quota.md, 10-06 점검).
+    # 지켜보기 재판정도 그 사용자의 LLM 사용량이다 (docs/specs/token-quota.md).
     # user_id를 넘겨야 토큰이 그 사람 몫으로 쌓이고 Langfuse 트레이스에도 user_id가 붙는다 (SDD 5.11).
     # 오늘 한도를 다 쓴 사람의 화물은 재판정하지 않는다. 화면 조회를 막는 것과 같은 한도다
     try:
@@ -320,7 +318,7 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, boo
         raise WatchError("quota") from e
     # 저장된 확정 배(vessel_mmsi)는 후보 확인 검색 없이 쓴다. 워커 예산은 화물당 ShipFinder 1회라서다 (routers/agent.py trusted_vessel)
     trust = trusted_vessel.set(mmsi)
-    # 지난 확인 때 저장한 신뢰 ETA 날짜를 판정 흐름에 넘긴다. 판정 흐름이 바뀐 만큼을 eta_change로 센다 (10-08, routers/agent.previous_eta)
+    # 지난 확인 때 저장한 신뢰 ETA 날짜를 판정 흐름에 넘긴다. 판정 흐름이 바뀐 만큼을 eta_change로 센다 (routers/agent.previous_eta)
     before = previous_eta.set(last_eta_at or last_eta)
     try:
         with session_scope(request.session_id, user_id):
@@ -329,7 +327,7 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, boo
         previous_eta.reset(before)
         trusted_vessel.reset(trust)
     new = response.verdict
-    if new is None:  # 판정이 없는 결과로 기준 등급을 지우지 않는다 (위 "왜 이렇게 했나")
+    if new is None:  # 판정이 없는 결과로 기준 등급을 지우지 않는다 (모듈 설명 "설계 이유")
         return False, False, False
     cargo.upsert_assessment(conn, user_id, request, response, released=is_released(response), now=now)
     moved = getattr(response, "eta_change", None)  # 판정 흐름이 센 도착 예정 변화. 없으면 None
@@ -346,7 +344,7 @@ def run_watch(conn, *, limit: int = RUN_LIMIT, now: datetime | None = None, asse
     """지켜보는 화물을 다시 판정하고 결과 개수를 돌려준다: checked / changed / notified / failed / unjudged.
 
     known_vessel_only: 배(vessel_mmsi)를 아는 화물만 다시 판정한다. 수집 워커(worker/run.py)가 ShipFinder 예산을
-    화물당 SHIPFINDER_CALLS_PER_KNOWN_VESSEL회로 떼어 두고 부를 때 쓴다 (10-06 점검). 배를 모르는 화물은 후보 검색으로
+    화물당 SHIPFINDER_CALLS_PER_KNOWN_VESSEL회로 떼어 두고 부를 때 쓴다. 배를 모르는 화물은 후보 검색으로
     최대 11회를 써서 예산을 깬다. 그 화물은 skipped_no_vessel로 센다 (이 값일 때만 결과에 들어간다).
     사용자가 화면에서 다시 조회하면 배가 정해져 vessel_mmsi가 채워지고, 그다음부터 워커가 다시 판정한다.
 
