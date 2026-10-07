@@ -1,5 +1,5 @@
 'use client';
-/** 데모 둘러보기 안내 줄 (10-07). 화면 맨 위에 늘 보인다: 데모라는 것, 10초마다 움직인다는 것, 실제 서비스는 6시간마다라는 것, 데모 시각, 끝내기 */
+/** 데모 둘러보기 안내 줄. 화면 맨 위에 늘 보인다: 데모라는 것, 10초마다 움직인다는 것, 실제 서비스는 6시간마다라는 것, 데모 시각, 끝내기 */
 import {useEffect, useState} from 'react';
 import {REAL_INTERVAL_HOURS, TOUR_TICK_HOURS, TOUR_TICK_MS, exitTour, tourClock} from '@/lib/tour';
 

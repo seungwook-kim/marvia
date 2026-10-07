@@ -1,4 +1,4 @@
-/* Marvia 엔터프라이즈 테마 (10-07, docs/mockups/v2/A-enterprise-navy.html).
+/* Marvia 엔터프라이즈 테마 (docs/mockups/v2/A-enterprise-navy.html).
  * layout.tsx가 맨 마지막에 불러와 앞의 모든 화면 스타일을 같은 선택자로 덮는다. 동작(TSX)은 건드리지 않고 모양만 바꾼다.
  * 원칙: 짙은 남색 사이드바 + 흰 본문, 1px 회색 선, 모서리 4px 하나, 그림자 없음, 굵기 최대 700,
  * 강조색은 짙은 파랑 하나, 판정은 바탕을 칠하지 않고 작은 점 + 색 글자로만 (docs/mockups/v2/BRIEF_V2.md). 소개 랜딩(.lp)은 따로다 */
@@ -157,10 +157,10 @@ tbody tr:hover{background:var(--hover)}
 .ev-chip{background:var(--surface)}
 .ev-pop{box-shadow:var(--shadow-pop)}
 
-/* ---------- 화면 색 (10-07): 밝게 · 어둡게 · 눈 편하게 ----------
+/* ---------- 화면 색: 밝게 · 어둡게 · 눈 편하게 ----------
  * <html data-theme>을 lib/theme.ts가 정한다. "시스템 설정 따르기"는 운영체제 설정을 읽어 light/dark 중 하나를 넣는다.
  * 첫 화면이 깜빡이지 않게 layout.tsx의 작은 스크립트가 그리기 전에 먼저 넣는다. 설정 > 화면 색에서 바꾸면 바로 바뀐다.
- * 색은 위 토큰만 바꾼다. 화면 CSS에 직접 쓰던 흰색·회색은 토큰(--surface·--hover·--border·--text·--muted)으로 바꿔 두었다.
+ * 색은 위 토큰(--surface·--hover·--border·--text·--muted)만 바꾼다.
  * 소개 랜딩(.lp)은 사진과 글이 밝은 바탕 전제라 그대로 밝게 둔다. 지도 바탕 그림(타일)도 밝은 그대로다 */
 :root[data-theme="dark"]{
  color-scheme:dark;
@@ -193,7 +193,7 @@ tbody tr:hover{background:var(--hover)}
 [data-theme="dark"] .leaflet-container .leaflet-control-zoom a,[data-theme="dark"] .leaflet-tooltip.port-tooltip,[data-theme="dark"] .leaflet-tooltip.ship-tooltip,[data-theme="dark"] .leaflet-control-attribution{background:var(--surface)!important;color:var(--text)!important;border-color:var(--border)!important}
 
 .st-theme{grid-column:1/-1}
-/* 사이드바 묶음 (10-07): 업무 | 설정 | 운영자 전용(평가 지표·관리). 묶음 사이에 점선(절취선)을 긋고, 메뉴 사이를 조금 띄운다.
+/* 사이드바 묶음: 업무 | 설정 | 운영자 전용(평가 지표·관리). 묶음 사이에 점선(절취선)을 긋고, 메뉴 사이를 조금 띄운다.
  * 설정(/settings)과 운영자 묶음의 첫 메뉴(/metrics) 위에 선을 그린다. 동작 코드는 그대로 두고 모양으로만 나눈다 */
 @media(min-width:701px){
  .sidebar nav{gap:2px}
@@ -215,7 +215,7 @@ tbody tr:hover{background:var(--hover)}
 [data-theme="custom"] .nav-group-head .nav-link.active,[data-theme="custom"] .about-link.active{color:var(--nav-strong)}
 [data-theme="custom"] input,[data-theme="custom"] select,[data-theme="custom"] textarea{background:var(--surface);color:var(--text)}
 
-/* ---------- 설정 > 화면 색 (10-07 디자인 회의안: 설정 한 줄 + 세그먼트, 직접 설정일 때만 편집 줄) ----------
+/* ---------- 설정 > 화면 색 (설정 한 줄 + 세그먼트, 직접 설정일 때만 편집 줄) ----------
  * 접힘 약 64px, 펼침 약 120px. 박스·띠·그림자 없이 1px 선과 글자만. 간격 4/8/12/16/24, 글자 12/13/14 */
 .st-theme{grid-column:1/-1;padding:16px 20px}
 .st-theme .st-theme-row{display:flex;align-items:center;gap:16px 24px;flex-wrap:wrap}
@@ -253,7 +253,7 @@ tbody tr:hover{background:var(--hover)}
 @media(max-width:900px){.theme-seg{margin-left:0;width:100%}.theme-seg label{flex:1}}
 @media(max-width:700px){.theme-seg label{height:40px;padding:0 6px;font-size:var(--text-xs)}.theme-dot{display:none}.theme-color input[type=color]{width:32px;height:32px}.theme-status{margin-left:0;width:100%}}
 
-/* ---------- 데모 둘러보기 (10-07, lib/tour.ts) ---------- */
+/* ---------- 데모 둘러보기 (lib/tour.ts) ---------- */
 .tour-banner{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:8px 24px;background:var(--nav);color:var(--nav-text);font-size:var(--text-xs);border-bottom:1px solid var(--nav-line)}
 .tour-banner strong{color:#fff;font-size:var(--text-sm);font-weight:700}
 .tour-tick{color:#fff}

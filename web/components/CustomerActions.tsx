@@ -60,7 +60,7 @@ export function CustomerActions({customer, mode, onDone, onClose}: {
 
   const dest = customer.name_masked ? ` · ${customer.name_masked}` : '';
 
-  // 시안 4-6: 표 아래 카드. 마스킹 해제·수정은 좌우 두 장, 탈퇴 확인은 한 줄 바
+  // 표 아래 카드. 마스킹 해제·수정은 좌우 두 장, 탈퇴 확인은 한 줄 바
   return <div ref={root} className="customer-actions adm-detail" role="region" aria-label="고객 작업">
     {mode === 'unmask' && (raw
       ? <div className="adm-dcard unmask-result adm-unmask">

@@ -1,5 +1,5 @@
 'use client';
-/** 오늘의 화물 (/today, 10-07). 로그인한 사람 자신의 화물만 보이는 첫 화면이다.
+/** 오늘의 화물 (/today). 로그인한 사람 자신의 화물만 보이는 첫 화면이다.
  * 데이터는 모두 그 사람 것을 서버가 골라 준다(로그인 토큰 기준): 기억한 화물(GET /api/memory의 cargo), 지켜보는 화물(GET /api/watch),
  * 아직 확인하지 않은 판정 변동(GET /api/watch/changes, "모두 확인"을 누르면 POST /api/watch/changes/seen), 카카오 연결 상태(GET /api/kakao/status).
  * 체험 모드는 각 API가 돌려주는 가공 예시를 그대로 쓴다. 판정 등급은 서버가 저장한 last_verdict 그대로이고 화면이 다시 계산하지 않는다.
@@ -37,7 +37,7 @@ export function TodayBoard() {
   const [cargo, setCargo] = useState<CargoSummary[] | null>(null);
   const [watch, setWatch] = useState<WatchItem[]>([]);
   const [kakao, setKakao] = useState<KakaoStatus | null>(null);
-  // 아직 확인하지 않은 판정 변동. 사용자가 "모두 확인"을 누를 때까지 남는다 (10-07)
+  // 아직 확인하지 않은 판정 변동. 사용자가 "모두 확인"을 누를 때까지 남는다
   const [changes, setChanges] = useState<WatchChange[]>([]);
   const [acking, setAcking] = useState(false);
   const [ackError, setAckError] = useState('');
@@ -87,7 +87,7 @@ export function TodayBoard() {
     if (!no) { setFormError('B/L 번호를 넣어 주세요.'); return; }
     setFormError('');
     router.push('/');  // 결과는 물어보기 화면에 보인다
-    await lookup({bl_no: no, bl_type: null, sale_due_date: sale || null, session_id: ''});  // 구분 모름: 서버가 하우스·마스터를 차례로 본다 (10-08)
+    await lookup({bl_no: no, bl_type: null, sale_due_date: sale || null, session_id: ''});  // 구분 모름: 서버가 하우스·마스터를 차례로 본다
   }
 
   return <div className="today">

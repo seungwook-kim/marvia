@@ -1,9 +1,9 @@
-/** ETA field names match C1. trusted_eta is rendered, never recomputed by the UI.
- * 값이 없는 칸의 "확인되지 않음"은 보통 글꼴로 흐리게 둔다 (10-02 UI 점검 V4, 고정폭은 시각에만).
+/** 도착 예정 비교. 필드 이름은 C1과 같고, trusted_eta는 그대로 그리며 화면이 다시 계산하지 않는다.
+ * 값이 없는 칸의 "확인되지 않음"은 보통 글꼴로 흐리게 둔다 (고정폭은 시각에만).
  * "AI에게 근거 묻기"는 입력창에 후속 질문을 채우기만 한다. 보내기는 사용자가 한다 (lib/composer.ts).
- * 한 컴포넌트가 두 자리를 맡는다 (마누스 시안 2-2): part="schedule"은 상세 패널 3번 줄 "출항 ── 지금 ── 입항 예정"(판정 바로 아래, 한 단계 작게),
+ * 한 컴포넌트가 두 자리를 맡는다: part="schedule"은 상세 패널 3번 줄 "출항 ── 지금 ── 입항 예정"(판정 바로 아래, 한 단계 작게),
  * part="sources"는 펼쳐 보기 안의 출처별 도착 예정 비교다. 값은 응답에 있는 것만 쓰고 없으면 "확인되지 않음"이다.
- * 10-08: 일정 줄 아래에 서버가 센 사실 두 줄을 붙인다. 묘박지 대기(anchorage, 해수부 관제 이벤트)와 지난 조회 대비 도착 예정 변화(eta_change).
+ * 일정 줄 아래에 서버가 센 사실 두 줄을 붙인다. 묘박지 대기(anchorage, 해수부 관제 이벤트)와 지난 조회 대비 도착 예정 변화(eta_change).
  * 둘 다 판정 신호가 아니라 지난 사실이고, 화면은 서버 값을 글로 옮기기만 한다 */
 import {Check,Sparkles} from 'lucide-react';
 import {focusComposer} from '@/lib/composer';
@@ -19,7 +19,7 @@ export function EtaCompare({response:r,part='schedule'}:{response:AgentResponse;
   const a=r.anchorage,m=r.eta_change;
   const anchorText=a?(a.state==='anchored'?`${dateTime(a.anchored_at,true)} 부산 묘박지에 닻을 내리고 ${hoursText(a.waited_hours)}째 기다리는 중이에요 (해수부 관제 기록).`
    :`${dateTime(a.anchored_at,true)}부터 묘박지에서 ${hoursText(a.waited_hours)} 기다린 뒤 ${a.state==='berthed'?'부두에 댔어요':'닻을 올렸어요'} (해수부 관제 기록).`):null;
-  // 10-08: 서버가 시각으로 세면 같은 날 안의 변화도 온다. 그때는 "5일에서 5일로"라고 쓰지 않는다
+  // 서버가 시각으로 세면 같은 날 안의 변화도 온다. 그때는 "5일에서 5일로"라고 쓰지 않는다
   const moveWay=m?`약 ${hoursText(Math.abs(m.hours))} ${m.hours>0?'늦어졌어요':'당겨졌어요'}`:'';
   const moveText=m?(m.from_eta===m.to_eta?`지난 조회 때보다 도착 예정(${day(m.to_eta)})이 ${moveWay}.`:`지난 조회 때 ${day(m.from_eta)}이던 도착 예정이 ${day(m.to_eta)}로 ${moveWay}.`):null;
   return <><section className="schedule-row" aria-label="일정">

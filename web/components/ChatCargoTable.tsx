@@ -1,10 +1,10 @@
 'use client';
-/** 한 문장에 B/L이 2~3개일 때 말풍선 아래에 그리는 비교 카드 (10-05 정운 결정, Manus 2-3 시안으로 다시 짬).
+/** 한 문장에 B/L이 2~3개일 때 말풍선 아래에 그리는 비교 카드.
  * 줄 하나가 조회한 화물 하나다. 줄을 누르면 결과 칸이 그 화물로 바뀐다: 서버가 줄마다 준 agent·request를 단일 화물 답과 똑같이 넣는다 (AppProvider.showCargo).
  * 지금 결과 칸에 보이는 화물(첫 줄이 기본)은 request.bl_no와 줄의 request.bl_no가 같은 줄로 표시한다.
  * B/L은 사용자가 입력한 값 그대로다. 값(배 이름, 도착, 여유 일수)은 서버가 준 그대로이고 없는 값은 지어내지 않는다.
- * 시안 3칸: [화물·조회·판정] [선박·도착 예정] [여유·판매일·메모]. 칸 이름은 시안 그대로, 좁은 대화 칸(560px)에 맞춰 줄 안에서 두 줄로 쌓는다.
- * 시안의 실수 수정: 여유 일수를 작은 글씨가 아니라 크고 굵게(색은 판정 등급), 국적을 같이 보인다, 배지는 단일 답과 같은 크기.
+ * 3칸: [화물·조회·판정] [선박·도착 예정] [여유·판매일·메모]. 좁은 대화 칸(560px)에 맞춰 줄 안에서 두 줄로 쌓는다.
+ * 여유 일수는 크고 굵게(색은 판정 등급), 국적을 같이 보이고, 배지는 단일 답과 같은 크기다.
  */
 import {Check, CircleHelp} from 'lucide-react';
 import {useApp} from './AppProvider';
@@ -13,10 +13,10 @@ import {WatchVesselButton} from './WatchVesselButton';
 import {countryLabel, dateTime} from '@/lib/format';
 import type {ChatCargo} from '@/lib/types';
 
-/** 조회 상태 짧은 말. 시안 문구 ("조회 정상" · "정보 필요") 를 쓰고, 나머지는 화면 전체에서 쓰는 말과 맞춘다 */
+/** 조회 상태 짧은 말. "조회 정상" · "정보 필요"를 쓰고, 나머지는 화면 전체에서 쓰는 말과 맞춘다 */
 const ROW_STATUS: Record<string, string> = {ok: '조회 완료', partial: '일부만 확인', insufficient: '정보 확인 필요', failed: '조회 실패', unsupported: '지원 범위 밖'};
 
-/** 여유 일수를 크게 보인다. 색은 판정 등급을 따른다(초록 고정 아님). 판매일이 없으면 회색 "판매일 입력 필요" (Manus 2-3 수정) */
+/** 여유 일수를 크게 보인다. 색은 판정 등급을 따른다(초록 고정 아님). 판매일이 없으면 회색 "판매일 입력 필요" */
 function Margin({c}: {c: ChatCargo}) {
   if (c.days_margin === null || c.days_margin === undefined) return <span className="cmp-margin none">{c.sale_due_date ? '미확인' : '판매 예정일 입력 필요'}</span>;
   const late = c.days_margin < 0;
@@ -32,7 +32,7 @@ export function ChatCargoTable({cargos}: {cargos: ChatCargo[]}) {
       <thead><tr><th scope="col">화물 · 조회 · 판정</th><th scope="col">선박과 도착 예정</th><th scope="col">여유 · 판매 예정일 · 메모</th></tr></thead>
       <tbody>{cargos.map(c => {
         const on = request.bl_no === c.request.bl_no;
-        // 판정을 못 낸 줄은 "판정 없음" 대신 "정보 필요"와 이유를 보인다 (10-06 정운 화면: 무엇이 필요한지 몰랐다)
+        // 판정을 못 낸 줄은 "판정 없음" 대신 "정보 필요"와 이유를 보인다 (무엇이 필요한지 알 수 있게)
         const needs = c.status === 'insufficient';
         // 국적은 줄마다 따로 오지 않고 그 화물의 선박 정보(agent.vessel)에 있을 때만 보인다. 없으면 지어내지 않는다
         const flag = c.agent.vessel?.flag ? countryLabel(c.agent.vessel.flag) : null;

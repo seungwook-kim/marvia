@@ -1,12 +1,12 @@
 'use client';
-/** 입항 예정 선박 검색 결과 (docs/specs/chat-search.md vessel_search). 오른쪽 칸 구성 (10-06 개편, 정운 요청):
+/** 입항 예정 선박 검색 결과 (docs/specs/chat-search.md vessel_search). 오른쪽 칸 구성:
  * 맨 위에 큰 지도(VesselMap, 화물 상세 지도와 같은 모양과 지도 펼치기), 그 아래에 5칸짜리 가벼운 목록.
  * 줄을 누르면 지도가 그 배로 날아가고, 줄이 그 자리에서 펼쳐져 자세히(VesselDetail)가 나온다. 줄과 점은 서로 강조한다.
  * 위치는 배마다 ShipFinder를 한 번씩 불러야 알 수 있고 하루 50건 한도가 있다. 그래서 첫 줄(처음 고른 배)만 자동으로 받고 나머지는 누를 때 받는다.
  * 받은 결과는 서버가 10분 캐시하므로 여기서도 같은 시간 동안 들고 있고, 받아 온 배는 이 세션 동안 지도에 계속 점으로 남는다(cache, 모듈 변수).
  * 해수부 입항 신고 기준이라 "직전 기항지"를 그대로 보여 준다. 출발지가 아니라는 점은 줄 펼침의 출처 안내에 있다 (EC-04). 판정은 하지 않는다.
  * 수십 척이 나올 수 있어 화면에서 페이지로 나눈다. 한 페이지 10·30·50척 중 고른다(기본 10).
- * 표에 두지 못한 값(호출부호, 선박 종류, 다음에 들를 항구, 목적)은 펼친 줄 안으로 옮겼다. 가로로 밀리는 표가 되지 않게 5칸만 둔다.
+ * 표에 두지 못한 값(호출부호, 선박 종류, 다음에 들를 항구, 목적)은 펼친 줄 안에 둔다. 가로로 밀리는 표가 되지 않게 5칸만 둔다.
  */
 import {Fragment, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Ship, SlidersHorizontal} from 'lucide-react';
@@ -28,13 +28,13 @@ const COLUMNS: {key: keyof VesselItem; label: string; cls: string}[] = [
   {key: 'planned_departure', label: '부산 출항 예정', cls: 'c-etd'},
 ];
 
-/** 표 칸의 빈 값은 "확인되지 않음" 대신 줄표로 (좁은 칸, 시안) */
+/** 표 칸의 빈 값은 "확인되지 않음" 대신 줄표로 (좁은 칸) */
 const cell = (x: string | null | undefined) => x ? x : '-';
 const when = (x: string | null | undefined) => x ? dateTime(x, true) : '-';
 /** 줄과 지도 점을 잇는 이름 */
 const keyOf = (v: {call_sign: string | null; ship_name: string}) => `${v.call_sign ?? ''}|${v.ship_name}`;
 
-/** 자세히 결과의 배 번호를 지켜보기에 넘겨도 되는지 (10-08 입항 목록 지켜보기 422).
+/** 자세히 결과의 배 번호를 지켜보기에 넘겨도 되는지.
  * 자세히는 선명으로 찾은 첫 후보라 호출부호가 다른 배일 수 있다(services/vessel_detail.py). 호출부호가 정확히 같을 때만 넘기고,
  * 아니면 null을 넘겨 서버가 호출부호로 다시 찾게 한다(services/vessel_watch.resolve_mmsi). 다른 배를 지켜보게 하면 안 된다 */
 function detailMmsi(v: VesselItem, e: DetailEntry | undefined): number | null {
@@ -166,7 +166,7 @@ export function VesselList({data}: {data: ChatResponse}) {
               <td className="c-name"><div className="vl-name">
                 <button type="button" className="ship-link" onClick={e => { e.stopPropagation(); pick(v); }} aria-pressed={open} aria-expanded={open}>{v.ship_name}</button>
                 {/* 해수부 신고에는 MMSI가 없어 호출부호로 올린다(서버가 찾는다). 호출부호가 없는 배는 지켜볼 수 없어 버튼을 그리지 않는다.
-                    자세히를 이미 받았으면 그 배 번호를 같이 보낸다(detailMmsi, 10-08): 서버가 다시 찾지 않아 ShipFinder 호출이 준다 */}
+                    자세히를 이미 받았으면 그 배 번호를 같이 보낸다(detailMmsi): 서버가 다시 찾지 않아 ShipFinder 호출이 준다 */}
                 {v.call_sign ? <span className="vl-watch" onClick={e => e.stopPropagation()}><WatchVesselButton mmsi={detailMmsi(v, entries[k])} callSign={v.call_sign} name={v.ship_name} flag={v.nationality} eta={v.expected_arrival}/></span> : null}
               </div></td>
               <td className="c-flag">{cell(v.nationality)}</td>

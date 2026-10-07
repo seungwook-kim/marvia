@@ -1,5 +1,5 @@
-/* 담당 영역: 기능만 옮겨 온 화면 부품의 최소 스타일 (근거 칩·모음, 선박 후보 칩, 배 지켜보기 버튼·목록, 답 단계 요약, 서류 경과 초).
- * 원본 디자인은 가져오지 않고 지금 화면의 토큰(globals.css :root)으로만 짠다 */
+/* 담당 영역: 화면 부품의 최소 스타일 (근거 칩·모음, 선박 후보 칩, 배 지켜보기 버튼·목록, 답 단계 요약, 서류 경과 초).
+ * 토큰(globals.css :root)으로만 짠다 */
 
 /* ---------- 답 속 근거 칩과 상자 (EvidencePopover) ---------- */
 .ev-text{white-space:pre-wrap}
@@ -47,7 +47,7 @@
 .vl-name{display:flex;align-items:center;gap:6px}
 .cmp-watch{display:inline-flex;margin-left:6px}
 
-/* ---------- 감시 지도 목록의 배만 지켜보기 해제 버튼 (/watch, WatchMap, 10-08) ---------- */
+/* ---------- 감시 지도 목록의 배만 지켜보기 해제 버튼 (/watch, WatchMap) ---------- */
 /* 줄 전체가 버튼이라 해제 버튼은 줄 오른쪽 위(비어 있는 판정 배지 자리)에 겹쳐 둔다. .watch-list button의 큰 카드 모양을 되돌린다 */
 .watch-list li{position:relative}
 .watch-list .wm-unwatch{position:absolute;top:12px;right:12px;display:inline-flex;width:32px;height:32px;padding:0;align-items:center;justify-content:center;border-radius:var(--small-radius)}
@@ -62,7 +62,7 @@
 .steps-toggle:hover{color:var(--text-2)}
 
 
-/* ---------- 부산항 최근 입항 추세 참고 카드 (PortTrafficCard, /watch, IMF PortWatch, 10-08) ---------- */
+/* ---------- 부산항 최근 입항 추세 참고 카드 (PortTrafficCard, /watch, IMF PortWatch) ---------- */
 /* 참고 맥락이라 판정 색을 쓰지 않고 조용한 회색 글자로 둔다 */
 .port-traffic{margin-top:var(--space-5);padding:var(--space-4) var(--space-5);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;gap:var(--space-1)}
 .port-traffic-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;color:var(--text);font-size:var(--text-base)}

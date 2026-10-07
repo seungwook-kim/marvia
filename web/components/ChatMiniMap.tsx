@@ -1,6 +1,6 @@
 'use client';
-/** 채팅 말풍선 아래 작은 지도. 위치를 조회한 답일 때만 그려서, 아래 큰 지도까지 내려가지 않고도 배가 어디쯤인지 보이게 한다 (10-05 결정).
- * 지도 설정은 MapPanel과 같다: 바탕은 lib/basemap.ts의 세계 지도이고 안 되면 해안선으로 되돌린다(10-06), leaflet은 브라우저에서만 불러온다.
+/** 채팅 말풍선 아래 작은 지도. 위치를 조회한 답일 때만 그려서, 아래 큰 지도까지 내려가지 않고도 배가 어디쯤인지 보이게 한다.
+ * 지도 설정은 MapPanel과 같다: 바탕은 lib/basemap.ts의 세계 지도이고 안 되면 해안선으로 되돌린다, leaflet은 브라우저에서만 불러온다.
  * 배 한 점과 부산항 한 점만 보여 주고, 조작은 막는다(말풍선 안에서 스크롤을 가로채지 않게). 자세한 조작은 "크게 보기"로 큰 지도에서 한다.
  * 값은 서버가 준 위치 그대로다. 없는 값(이름, 거리, 수신 시각)은 지어내지 않고 문구에서 뺀다.
  */
@@ -26,7 +26,7 @@ export function ChatMiniMap({map: m}: {map: ChatMap}) {
   // 한 줄 설명. 있는 값만 이어 붙인다
   const sub = [m.distance_nm != null ? `부산까지 약 ${Math.round(m.distance_nm)}해리` : null, m.received_at ? `${dateTime(m.received_at, true)} 기준` : null].filter(Boolean).join(' · ');
 
-  // 큰 지도가 화면에 있을 때만 "크게 보기"를 보인다. 화물 결과가 없는 답(목록에서 고른 다른 배의 위치 등)에서는 눌러도 갈 곳이 없다 (10-05)
+  // 큰 지도가 화면에 있을 때만 "크게 보기"를 보인다. 화물 결과가 없는 답(목록에서 고른 다른 배의 위치 등)에서는 눌러도 갈 곳이 없다
   const [hasBig,setHasBig] = useState(false);
   useEffect(() => { setHasBig(!!document.getElementById('big-map')); }, []);
   useEffect(() => {
@@ -39,7 +39,7 @@ export function ChatMiniMap({map: m}: {map: ChatMap}) {
       const color = (n: string) => css.getPropertyValue(n).trim();
       const ship: L.LatLngTuple = [m.lat, m.lng];
       const port: L.LatLngTuple = [demo.port.lat, demo.port.lng];
-      // 조작을 모두 막은 고정 지도. 배와 부산항이 함께 들어오게 맞춘다 (먼저 화면 범위를 정한 뒤 선을 올린다, VesselMap 10-01 메모)
+      // 조작을 모두 막은 고정 지도. 배와 부산항이 함께 들어오게 맞춘다 (먼저 화면 범위를 정한 뒤 선을 올린다, VesselMap과 같은 순서)
       const map = L.map(host.current, {zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false, boxZoom: false, keyboard: false, minZoom: 4, maxZoom: 10, attributionControl: true});
       map.fitBounds(L.latLngBounds([ship, port]).pad(.5), {maxZoom: 8, animate: false});
       const base = addBasemap(L, map, () => { drawLocalGeography(L, map); });

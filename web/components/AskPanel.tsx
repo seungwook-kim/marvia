@@ -1,5 +1,5 @@
 'use client';
-/** E8 follow-up keeps the C2 session/B/L and renders the returned evidence with the answer. */
+/** 후속 질문 패널. C2 세션·B/L을 그대로 두고 돌아온 근거를 답과 함께 그린다. */
 import {useState,type FormEvent} from 'react';
 import {ArrowUp,MessageSquareText} from 'lucide-react';
 import {getAgentResponse,isLive} from '@/lib/api';

@@ -1,6 +1,6 @@
-/** Judgement is conditional on verdict, not on status. No client-side assessment. E4.
+/** Judgement is conditional on verdict, not on status. No client-side assessment.
  * days_margin = 판매 예정일 - 신뢰 입항 예정일 (서버 계산, SDD 5.8). 음수는 "입항이 판매일보다 늦다"는 뜻이지
- * "판매일이 이미 지났다"는 뜻이 아니다 (구현작업서 8절, 09-29 설명 오류 발견). 그래서 "초과" 대신 "늦음"으로 쓰고 한 줄 풀어 준다. */
+ * "판매일이 이미 지났다"는 뜻이 아니다. 그래서 "초과" 대신 "늦음"으로 쓰고 한 줄 풀어 준다. */
 import {Info} from 'lucide-react';
 import type {ReactNode} from 'react';
 import type {AgentResponse,AgentRequest} from '@/lib/types';
@@ -22,13 +22,13 @@ export function VerdictCard({response:r,request}:{response:AgentResponse;request
  const slack=m===null
   ?<span className="slack-empty">{request.sale_due_date?'미확인':'판매 예정일 입력 필요'}</span>
   :<strong className="slack-value">{m<0?`${Math.abs(m)}일 늦음`:`여유 ${m}일`}</strong>;
- // 등급 배지는 지도 위 카드(MapPanel)와 대화 답 말풍선에 크게 있다. 이 칸은 지금 할 일과 여유 일수가 주인공이다 (마누스 시안 2-2)
+ // 등급 배지는 지도 위 카드(MapPanel)와 대화 답 말풍선에 크게 있다. 이 칸은 지금 할 일과 여유 일수가 주인공이다
  return <section className={`verdict-hero ${r.verdict}`} aria-label="화물 판정">
   <div className="verdict-body">
    <div className="verdict-todo"><span className="verdict-label">지금 할 일</span>{r.actions.length?r.actions.map((a,i)=><p key={i}>{a}</p>):<p>지금 안내할 할 일이 없어요.</p>}</div>
    <div className={`verdict-slack ${m===null?'empty':r.verdict}`} aria-label="판매 예정일까지">{slack}{request.sale_due_date&&<small>판매 예정일 {day(request.sale_due_date)}</small>}</div>
   </div>
-  {/* 음수는 "입항이 판매일보다 늦다"는 뜻이다 (09-29 설명 오류). 판매일이 지났다는 뜻으로 읽히지 않게 이 한 줄은 남긴다 */}
+  {/* 음수는 "입항이 판매일보다 늦다"는 뜻이다. 판매일이 지났다는 뜻으로 읽히지 않게 이 한 줄은 남긴다 */}
   {m!==null&&m<0&&<p className="margin-note">믿을 만한 입항 예정일이 판매 예정일보다 늦어요. 판매 예정일이 이미 지났다는 뜻은 아니에요.</p>}
  </section>;
 }

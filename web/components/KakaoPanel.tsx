@@ -5,7 +5,7 @@
  * 서버에 넘김(POST /api/kakao/callback) → 결과 이름을 달아 이 화면(/settings?kakao=결과)으로 돌아온다. 이 구역은 그 결과를 한 번 보여 주고 주소에서 지운다.
  * 카카오가 서버로 바로 돌아오지 않고 /settings/kakao를 거치는 이유: 이 화면이 로그인 출입증을 붙여 보내야 서버가
  * "연결을 시작한 사람 = 지금 로그인한 사람"을 확인할 수 있다. 서버로 바로 오면 출입증이 없어서, 누군가 자기 연결 링크를 보내 주면
- * 내 카카오톡이 그 사람 계정에 붙을 수 있다 (10-02/10-05 결정).
+ * 내 카카오톡이 그 사람 계정에 붙을 수 있다.
  * 연결 해제는 되돌릴 수 없어서 화면 안에서 한 번 더 확인한다 (AccountPanel과 같은 방식). 오류 문장은 서버가 정한 한국어 안내를 그대로 보여 준다.
  * 키보드·화면 낭독기 사용자를 위해 눌렀을 때 포커스를 옮기고, 결과 글은 늘 있는 status/alert 칸에서만 바꾼다 (MemoryPanel과 같은 방식, focusKeys 아래).
  * 데모 모드와 로그인이 꺼진 서버에는 연결할 계정이 없어 안내만 한다.
@@ -123,7 +123,7 @@ export function KakaoPanel() {
       {status && status.configured && status.linked && <>
         <p className="kakao-state on">연결됨</p>
         <p className="st-sub">판정이 바뀌면 카카오톡 "나와의 채팅"으로도 알려 드려요.</p>
-        {/* 서버가 값을 보낸 것만 보여 준다. 아직 보낸 적이 없으면 마지막 발송 줄은 없다 (M7) */}
+        {/* 서버가 값을 보낸 것만 보여 준다. 아직 보낸 적이 없으면 마지막 발송 줄은 없다 */}
         {(status.linked_at || status.last_sent_at) && <p className="st-sub kakao-times">
           {status.linked_at && <>{dateTime(status.linked_at, true)}에 연결</>}
           {status.linked_at && status.last_sent_at && ' · '}

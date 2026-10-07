@@ -1,8 +1,8 @@
 'use client';
-/** AI 입력창 (docs/specs/chat-search.md). 홈 화면의 주 기능이라 가운데 넓은 자리에 둔다 (강사 피드백 10-02, 구현작업서 4절).
+/** AI 입력창 (docs/specs/chat-search.md). 홈 화면의 주 기능이라 가운데 넓은 자리에 둔다.
  * 문장은 POST /api/chat/stream으로 가고, 서버가 B/L을 가린 뒤 LLM이 의도(화물 조회·후속 질문·입항 선박 검색)를 고른다.
  * 기다리는 동안은 서버가 알린 실제 처리 단계만 보인다 (docs/specs/chat-progress.md). 타이머로 단계를 만들지 않는다.
- * 서류 사진(10-08 사용자 결정, 예전 "확인 화면에서 확인한 뒤 넣는다. 읽은 값으로 바로 조회하지 않는다"를 바꿈):
+ * 서류 사진:
  *   Claude 앱처럼 입력창에 사진·PDF를 붙인다(클립 버튼, 붙여넣기, 끌어 놓기). 한 번에 하나, 새로 붙이면 바뀐다. 읽은 값을 다시 보여 주지 않는다.
  *   보내면 사용자 말풍선에 미리보기와 쓴 글이 보이고, 사진을 읽어 B/L이 확실할 때만 바로 조회한다(AppProvider.askWithAttachment,
  *   판단은 lib/docAttach.ts 코드). 사진은 /api/document에만 가고 저장하지 않는다. 글 없이 사진만 보내도 된다.
@@ -26,7 +26,7 @@ import {stageLabels, type ProgressStage} from '@/lib/progress';
 const MAX = 500;  // routers/chat.py ChatRequest.message max_length
 
 /** 처음 보는 사람을 위한 예시 문장. 누르면 입력창에 채우기만 한다(보내기는 사용자가). 실제 모드는 누구나 바로 결과를 볼 수 있는
- * 입항 선박 검색만 둔다 (데모 B/L을 실제 사용자에게 보여 주지 않는다, 10-01). 데모 모드는 가공 B/L */
+ * 입항 선박 검색만 둔다 (데모 B/L을 실제 사용자에게 보여 주지 않는다). 데모 모드는 가공 B/L */
 const LIVE_EXAMPLES = ['이번 주 일본에서 부산 들어오는 배 보여줘', '상하이에서 출발해서 부산 오는 배 있어?', '2주 안에 베트남에서 들어오는 배 알려줘', '3일 안에 부산 들어오는 배 전부'];
 const DEMO_EXAMPLES = ['MRVDEMO1101 화물 괜찮아?', 'MRVDEMO1107 지금 조치해야 해?', '중국에서 부산 들어오는 배 보여줘'];
 /** 데모 둘러보기(lib/tour.ts)에서는 isLive가 실행 중에 바뀌므로 그때그때 고른다 */
@@ -49,12 +49,12 @@ function ChatAttachmentPreview({image}: {image: ChatImage}) {
     : <span className="chat-attach-file"><FileText size={16} aria-hidden="true"/>{image.name}</span>;
 }
 
-/** 답 글 속 http(s) 주소를 누를 수 있는 링크로 바꾼다. 단 코드가 붙인 줄만이다 (10-06 점검: LLM 문장 속 주소까지 링크가 되어,
- * 도구 결과·서류 글에 심은 주소가 답에 옮겨지면 누를 수 있는 링크로 보였다). 링크로 만드는 줄은 머리가 아래 셋인 줄뿐이다:
+/** 답 글 속 http(s) 주소를 누를 수 있는 링크로 바꾼다. 단 코드가 붙인 줄만이다 (LLM 문장 속 주소까지 링크로 만들면,
+ * 도구 결과·서류 글에 심은 주소가 답에 옮겨지면 누를 수 있는 링크가 된다). 링크로 만드는 줄은 머리가 아래 셋인 줄뿐이다:
  *   "웹 참고: 제목 (주소)"            services/chat.py WEB_NOTE. 주소는 서버가 가져온 검색 결과에서만 온다
  *   "확인처: ...", "진행 상황 직접 보기: ..."  services/referrals.py, 문구 원본은 skills/referrals/rules.md
  * 그 밖의 줄의 주소는 글자 그대로 둔다. 링크도 http·https만 만들고 새 탭으로 연다(noopener: 열린 쪽이 이 창을 못 건드리게).
- * 닫는 괄호는 주소에 넣지 않는다: "(https://...)"의 ")"가 주소 끝에 붙지 않게 (10-06 정운 지적: 웹 참고 링크가 안 눌림) */
+ * 닫는 괄호는 주소에 넣지 않는다: "(https://...)"의 ")"가 주소 끝에 붙지 않게 */
 const URL_PATTERN = /(https?:\/\/[^\s)]+)/g;
 const LINK_LINE_PREFIXES = ['웹 참고: ', '확인처: ', '진행 상황 직접 보기: '];
 function linkifyLine(line: string, key: number) {
@@ -81,12 +81,12 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   // 선박 후보 칩은 "가장 최근 되묻기 답"에만 붙이고, 그 되묻기가 아직 풀리지 않았을 때만 보인다 (결과 칸이 같은 되묻기 그대로일 때).
   // 후보를 골라 판정이 나오면 결과가 바뀌어 칩이 사라진다
   const chipTurn = result?.status === 'insufficient' ? thread.map((t, i) => t.role === 'assistant' && t.agent?.vessel_candidates.length ? i : -1).reduce((a, b) => Math.max(a, b), -1) : -1;
-  // 화물 카드가 실제로 보일 때만 "이 화물"로 안내한다. AppProvider.ask도 같은 조건으로 화물을 함께 보낸다 (10-02 UI 점검 F5)
+  // 화물 카드가 실제로 보일 때만 "이 화물"로 안내한다. AppProvider.ask도 같은 조건으로 화물을 함께 보낸다
   const cargoShown = view === 'cargo' && !!result && !!request.bl_no;
   // 하루 토큰 한도를 다 쓰면 입력·서류 사진을 막는다. 서버도 429로 막는다 (docs/specs/token-quota.md)
   const blocked = !!usage?.exhausted;
   const [text, setText] = useState('');
-  // 입력창에 붙인 서류 사진·PDF 하나 (10-08 사용자 결정). 보내면 AppProvider로 넘어가고 여기서는 비운다
+  // 입력창에 붙인 서류 사진·PDF 하나. 보내면 AppProvider로 넘어가고 여기서는 비운다
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [attachError, setAttachError] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -94,9 +94,9 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   const attachRef = useRef<Attachment | null>(null);
   attachRef.current = attachment;
   const [away, setAway] = useState(false);  // 입력창이 화면 밖이면 true
-  // 다른 입력칸에 글을 쓰는 중이면 true. 휴대폰에서 떠 있는 "이어서 물어보기" 버튼이 입력칸을 덮지 않게 그동안 숨긴다 (F18)
+  // 다른 입력칸에 글을 쓰는 중이면 true. 휴대폰에서 떠 있는 "이어서 물어보기" 버튼이 입력칸을 덮지 않게 그동안 숨긴다
   const [typing, setTyping] = useState(false);
-  // 입력창에 이미 글이 있을 때 예시·카드가 채우려던 문장. 덮어쓰지 않고 바꿀지 묻는다 (F11)
+  // 입력창에 이미 글이 있을 때 예시·카드가 채우려던 문장. 덮어쓰지 않고 바꿀지 묻는다
   const [offer, setOffer] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -122,7 +122,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
     return () => observer.disconnect();
   }, []);
 
-  // 다른 카드가 "AI에게 묻기"를 누르면 입력창으로 와서 글자를 채운다 (lib/composer.ts). 쓰던 글이 있으면 덮지 않고 묻는다 (F11)
+  // 다른 카드가 "AI에게 묻기"를 누르면 입력창으로 와서 글자를 채운다 (lib/composer.ts). 쓰던 글이 있으면 덮지 않고 묻는다
   const textRef = useRef(text);
   textRef.current = text;
   useEffect(() => onComposerRequest(t => {
@@ -219,7 +219,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   // 데모 둘러보기에서는 입력칸을 막고 예시를 누르면 바로 보낸다 (미리 만든 답, LLM 없음)
   function fill(example: string) { if (blocked) return; if (tour) { void send(example); return; } offerText(example); inputRef.current?.focus(); }
 
-  // 판정 답 말풍선 안의 배지·할 일 한 줄. 대화가 비어 있는데 결과만 있는 경우(데모 첫 화면, 저장된 판정 열기)도 같은 모양으로 그린다 (시안 2-2)
+  // 판정 답 말풍선 안의 배지·할 일 한 줄. 대화가 비어 있는데 결과만 있는 경우(데모 첫 화면, 저장된 판정 열기)도 같은 모양으로 그린다
   const verdictBlock = result?.verdict ? <div className="chat-verdict"><VerdictBadge verdict={result.verdict} size="lg"/>{result.actions[0] && <p className="chat-todo"><span>지금 할 일</span>{result.actions[0]}</p>}<button type="button" className="chat-show-detail" onClick={onShowDetail}>결과 보기</button></div> : null;
   // 대화가 없고 답할 글만 있는 첫 화면(.chat-seed는 .chat-turn이 아니다: 실제 주고받은 말만 .chat-turn으로 센다): 결과 칸의 answer를 그대로 답 말풍선으로 보인다 (지어내지 않는다, 서버 값)
   const seedAnswer = thread.length === 0 && view === 'cargo' && result && result.status !== 'insufficient' && result.answer ? result : null;
@@ -228,7 +228,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   const convEvidence = thread.flatMap((t, i) => t.role === 'assistant' && t.evidence ? t.evidence.map(e => ({...e, turn: i})) : []);
 
   return <section className="ask" aria-label="AI에게 묻기">
-    {/* 대화는 이 칸 안에서만 스크롤하고, 입력창은 아래에 고정한다 (시안 2-1·2-2). 페이지 전체는 움직이지 않는다 */}
+    {/* 대화는 이 칸 안에서만 스크롤하고, 입력창은 아래에 고정한다. 페이지 전체는 움직이지 않는다 */}
     <div className="chat-scroll" ref={threadRef} onScroll={onScroll} role="log" aria-label="대화" tabIndex={0}>
       {convEvidence.length > 0 && <div className="chat-evidence-bar"><ConversationEvidence evidence={convEvidence}/></div>}
       {empty ? <div className="chat-empty">
@@ -259,7 +259,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
       <div className={`composer-wrap ${dragging ? 'dragging' : ''}`} ref={wrapRef}
         onDragOver={onDragOver} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
         <form className="composer" onSubmit={submit}>
-          {/* 붙인 사진 칩 (Claude 앱처럼 입력칸 위). 읽은 값은 보여 주지 않는다 (10-08 사용자 결정) */}
+          {/* 붙인 사진 칩 (Claude 앱처럼 입력칸 위). 읽은 값은 보여 주지 않는다 */}
           {attachment && <div className="composer-attach">
             <span className="attach-chip">
               {attachment.pdf ? <span className="attach-thumb pdf" aria-hidden="true"><FileText size={18}/></span>
@@ -309,7 +309,7 @@ function StepsSummary({steps, tookMs}: {steps: {stage: ProgressStage; at: number
   </div>;
 }
 
-/** 답을 기다리는 동안의 표시. 단계는 서버가 알린 것만, 시간은 브라우저가 실제로 잰 값이다 (chat-progress.md AC-04).
+/** 답을 기다리는 동안의 표시. 단계는 서버가 알린 것만, 시간은 브라우저가 실제로 잰 값이다 (docs/specs/chat-progress.md).
  * 마지막으로 받은 단계가 진행 중이고, 그 앞은 다음 단계가 시작됐으니 끝난 것이다. 앞으로 올 단계는 미리 그리지 않는다. */
 function Pending({stages, since, readingDoc}: {stages: ProgressStage[]; since: number; readingDoc: boolean}) {
   const [now, setNow] = useState(() => Date.now());
@@ -320,7 +320,7 @@ function Pending({stages, since, readingDoc}: {stages: ProgressStage[]; since: n
       <strong>답을 준비하고 있어요</strong><span className="pending-dots" aria-hidden="true"><i/><i/><i/></span>
       <span className="mono pending-time">{seconds}초</span>
     </div>
-    {/* 첨부 사진을 읽는 중 (10-08). 브라우저가 실제로 보낸 POST /api/document를 기다리는 동안만 보인다. 읽는 데 20초쯤 걸린다(로컬 OCR + 소형 LLM) */}
+    {/* 첨부 사진을 읽는 중. 브라우저가 실제로 보낸 POST /api/document를 기다리는 동안만 보인다. 읽는 데 20초쯤 걸린다(로컬 OCR + 소형 LLM) */}
     {readingDoc
       ? <ol className="pending-steps" aria-live="polite" aria-label="답변 준비 단계"><li className="current">
           <span className="step-icon"><LoaderCircle size={16} className="spin"/></span><span className="step-name">서류 사진 읽기 · 보통 20초쯤 걸려요</span><span className="step-state">진행 중</span></li></ol>

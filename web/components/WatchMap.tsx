@@ -1,16 +1,16 @@
 'use client';
-/** 지켜보는 화물 (docs/specs/cargo-watch.md, 10-02). 내 화물 B/L마다 그 배의 마지막 위치를 한 지도에 서로 다른 마커로 보여 준다.
+/** 지켜보는 화물 (docs/specs/cargo-watch.md). 내 화물 B/L마다 그 배의 마지막 위치를 한 지도에 서로 다른 마커로 보여 준다.
  * - 위치는 watch_positions(017)의 점이다. 수집 워커는 ShipFinder 한도 때문에 꺼져 있어, 조회할 때(services/cargo._keep_position)와
- *   지켜보기를 켤 때(services/watch.seed_position, 10-08) 쌓인 점이 나온다. 서버가 없는 체험 모드만 예시 데이터다
+ *   지켜보기를 켤 때(services/watch.seed_position) 쌓인 점이 나온다. 서버가 없는 체험 모드만 예시 데이터다
  * - 반출이 끝난 화물(status done)은 지도에서 빼고 목록 아래에 개수만 알린다
  * - 마커에 마우스를 올리면 선명, 가린 B/L, 운송 화물 이름표, 판정, 통관 단계, 도착 예정, 위치 수신 시각이 뜬다.
  *   운송 화물은 사용자가 붙인 이름표만 쓴다. UNI-PASS 품명은 저장·표시하지 않는다 (SDD 3.5)
  * - 배마다 6시간 간격 위치 이력(track)을 그 배 색의 선으로 잇고, 찍힌 지점마다 작은 동그라미를 단다. 마우스를 올리면 시각과 속력
  * - 배끼리 화면에서 가까우면(CLUSTER_PX 안) 숫자 클러스터로 묶는다. 확대 단계가 바뀔 때마다 다시 묶는다.
  *   클러스터를 누르면 상세 창에 그 안의 배와 말풍선 내용 전부가 뜬다. 새 라이브러리(leaflet.markercluster) 없이 직접 묶는다
- * - B/L 없이 배만 지켜보는 줄(GET /api/watch/vessels, lib/watchVessel.ts)도 같은 지도·목록에 올린다 (10-08). 배만 지켜보기로만 켠 사람은
- *   지도가 아예 안 나오고 "지켜보는 화물이 없어요"만 보였다. B/L이 없으니 판정·통관·여유 칸은 비우고, 등급 없는 회색 점(VESSEL_COLOR)으로 그린다
- *   해제 버튼도 이 목록 줄 옆에 있다. 지도 아래 따로 그리던 목록(WatchedVessels)은 같은 배를 두 번 보여 줘서 지웠다 (10-08)
+ * - B/L 없이 배만 지켜보는 줄(GET /api/watch/vessels, lib/watchVessel.ts)도 같은 지도·목록에 올린다.
+ *   B/L이 없으니 판정·통관·여유 칸은 비우고, 등급 없는 회색 점(VESSEL_COLOR)으로 그린다
+ *   해제 버튼도 이 목록 줄 옆에 있다
  * 판정은 하지 않는다. 표시만 한다. */
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
 import {EyeOff, LocateFixed, Maximize2, X} from 'lucide-react';
@@ -25,7 +25,7 @@ import {VerdictBadge} from '@/components/Shared';
 const PALETTE = ['#1d4ed8', '#7c3aed', '#0f766e', '#c2410c', '#be185d', '#4d7c0f', '#0369a1', '#a21caf', '#b45309', '#334155'];
 const markerLetter = (i: number) => String.fromCharCode(65 + (i % 26));
 const colorOf = (i: number) => PALETTE[i % PALETTE.length];
-// 배만 지켜보는 줄의 점 색 (10-08). 판정이 없다는 뜻의 회색이고, 화물 색(PALETTE)과도 판정 색과도 겹치지 않는다
+// 배만 지켜보는 줄의 점 색. 판정이 없다는 뜻의 회색이고, 화물 색(PALETTE)과도 판정 색과도 겹치지 않는다
 const VESSEL_COLOR = '#9ca3af';
 // 화면에서 이 거리(px) 안에 있는 배끼리 한 클러스터로 묶는다. 핀 폭(34px)보다 조금 넓게
 const CLUSTER_PX = 44;
@@ -34,14 +34,14 @@ type MapItem = WatchItem & {vesselOnly?: boolean; mmsi?: number; dest?: string |
 /** 위치가 있어 지도에 올릴 수 있는 줄 */
 type Located = MapItem & {lat: number; lng: number};
 
-/** 배만 지켜보는 줄을 지도 줄 모양으로 (10-08). B/L이 없으니 판정·통관·여유·가린 B/L은 비운다.
+/** 배만 지켜보는 줄을 지도 줄 모양으로. B/L이 없으니 판정·통관·여유·가린 B/L은 비운다.
  * eta는 사용자가 채팅에서 본 글 그대로라(services/vessel_watch.py) 날짜가 아닐 수 있어 eta_text에 따로 둔다 */
 function fromVessel(v: WatchedVessel): MapItem {
   return {bl_masked: '', label: null, ship_name: v.name, status: 'active', verdict: null, stage: null, eta: null, days_margin: null,
     lat: v.lat, lng: v.lng, cog: v.cog, sog: v.sog, position_at: v.position_at, track: v.track, ship_flag: v.flag,
     vesselOnly: true, mmsi: v.mmsi, dest: v.dest, eta_text: v.eta};
 }
-/** 목록 key. 배만 지켜보는 줄은 가린 B/L이 비어 있어 서로 겹친다(처음 구현의 "같은 key" 경고). MMSI로 가른다 */
+/** 목록 key. 배만 지켜보는 줄은 가린 B/L이 비어 있어 서로 겹친다. MMSI로 가른다 */
 const keyOf = (item: MapItem) => item.vesselOnly ? `vessel-${item.mmsi}` : `cargo-${item.cargo_key ?? item.bl_masked}`;
 /** 점·칩 색. 배만 지켜보는 줄은 회색, 화물은 순서대로 PALETTE */
 const pinColor = (item: MapItem, i: number) => item.vesselOnly ? VESSEL_COLOR : colorOf(i);
@@ -58,9 +58,9 @@ function rowsOf(item: MapItem): [string, string][] {
     ['위치 받은 시각', dateTime(item.position_at, true)],
   ];
   return [
-    ['화물 이름', item.label ?? item.goods_name ?? '이름 없음'],  // 이름표가 없으면 UNI-PASS 품명 (10-06)
+    ['화물 이름', item.label ?? item.goods_name ?? '이름 없음'],  // 이름표가 없으면 UNI-PASS 품명
     ['B/L', item.bl_masked],
-    ['국적', item.ship_flag ?? '-'],  // 시안에 국적 칸이 있다. 값이 없으면 대시
+    ['국적', item.ship_flag ?? '-'],  // 값이 없으면 대시
     ['통관 단계', item.stage ?? '확인 안 됨'],
     ['도착 예정', item.eta ? dateTime(item.eta, true) : '확인 안 됨'],
     ['위치 받은 시각', dateTime(item.position_at, true)],
@@ -73,7 +73,7 @@ function motion(item: MapItem) {
 function esc(v: string) { return v.replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c] as string)); }
 function tip(item: MapItem, letter: string) {
   const move = motion(item);
-  // 시안: 말풍선 머리에 배 이름과 판정 배지. 판정이 없으면 배지를 그리지 않는다
+  // 말풍선 머리에 배 이름과 판정 배지. 판정이 없으면 배지를 그리지 않는다
   const badge = item.verdict ? `<span class="verdict-badge ${item.verdict}">${esc(verdictLabels[item.verdict])}</span>` : '';
   return `<div class="watch-tip"><header><strong>${esc(letter)} · ${esc(item.ship_name)}</strong>${badge}</header>${move ? `<span>${esc(move)}</span>` : ''}`
     + `<dl>${rowsOf(item).map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></div>`;
@@ -92,9 +92,9 @@ export function WatchMap() {
   const fitAll = useRef<() => void>(() => {});
   /** 마지막으로 보던 지도 중심·확대. 지도를 다시 그려도 화면이 튀지 않게 한다 */
   const view = useRef<{center: [number, number]; zoom: number} | null>(null);
-  // 배만 지켜보는 줄 (10-08). 못 읽으면 빈 목록으로 두고 화물 지도는 그대로 그린다. 체험 모드는 늘 빈 목록이다
+  // 배만 지켜보는 줄. 못 읽으면 빈 목록으로 두고 화물 지도는 그대로 그린다. 체험 모드는 늘 빈 목록이다
   const [vessels, setVessels] = useState<WatchedVessel[]>([]);
-  // 배만 지켜보는 줄의 해제 (10-08). 지도 아래 따로 있던 목록(WatchedVessels)을 지우면서 해제 버튼을 이 목록으로 옮겼다
+  // 배만 지켜보는 줄의 해제. 해제 버튼은 이 목록 줄 옆에 있다
   const [unwatching, setUnwatching] = useState<number | null>(null);
   const [unwatchError, setUnwatchError] = useState('');
   async function unwatch(mmsi: number) {
@@ -123,7 +123,7 @@ export function WatchMap() {
     return () => { alive = false; off(); };
   }, []);
 
-  // 지도에는 위치가 있는 줄만 올린다. 위치 수집 전 줄은 아래에 이름만 보여 준다 (GET /api/watch, 10-06). B/L 화물 뒤에 배만 지켜보는 줄
+  // 지도에는 위치가 있는 줄만 올린다. 위치 수집 전 줄은 아래에 이름만 보여 준다 (GET /api/watch). B/L 화물 뒤에 배만 지켜보는 줄
   const items: MapItem[] = [...(list?.items ?? []), ...vessels.map(fromVessel)];
   const active = items.filter((i): i is Located => i.status === 'active' && i.lat != null && i.lng != null);
   const waiting = items.filter(i => i.status === 'active' && (i.lat == null || i.lng == null));
@@ -146,18 +146,17 @@ export function WatchMap() {
       map.fitBounds(L.latLngBounds([...points, port]).pad(.25), {maxZoom: 8, animate: false});
       // 다시 그릴 때(데모의 10초 갱신, 경로 보기 켜고 끄기)는 보던 확대·위치를 그대로 둔다
       if (view.current) map.setView(view.current.center, view.current.zoom, {animate: false});
-      // 바탕은 세계 지도, 못 쓰면 해안선 (lib/basemap.ts, 10-06)
-      // 바탕은 세계 지도, 못 쓰면 해안선. 데모는 10초마다 다시 그려 깜빡이지 않게 레포의 해안선 바탕을 바로 쓴다
+      // 바탕은 세계 지도, 못 쓰면 해안선 (lib/basemap.ts). 데모는 10초마다 다시 그려 깜빡이지 않게 레포의 해안선 바탕을 바로 쓴다
       const base = tour ? (drawLocalGeography(L, map), {dispose() {}}) : addBasemap(L, map, () => { drawLocalGeography(L, map); });
       map.attributionControl.setPrefix(false);
       // 부산항 마커는 배 핀보다 아래층에 두고, 이름표(툴팁 층)는 늘 핀 위에 떠서 배가 같은 자리에 있어도 가려지지 않는다
       L.marker(port, {icon: L.divIcon({className: 'port-marker', html: '<span>⚑</span>', iconSize: [28, 28], iconAnchor: [14, 14]}), interactive: false, zIndexOffset: -1000})
         .addTo(map).bindTooltip('부산항', {permanent: true, direction: 'bottom', offset: [0, 12], className: 'port-tooltip'});
 
-      // 경로 동그라미는 배 핀·클러스터보다 아래 층에 둔다. 같은 층이면 위도 순으로 겹쳐 클러스터를 가려 누를 수 없었다 (10-02 확인)
+      // 경로 동그라미는 배 핀·클러스터보다 아래 층에 둔다. 같은 층이면 위도 순으로 겹쳐 클러스터를 가려 누를 수 없다
       map.createPane('watch-track').style.zIndex = '550';  // overlay(선) 400 < 경로 점 550 < 마커 600
       // 경로: 지난 위치를 오래된 순으로 선으로 잇고, 현재 위치를 뺀 지점마다 작은 동그라미 (마지막 점은 큰 핀).
-      // 평소에는 모든 배 경로를 흐리게 깔고, 고른 배(핀·목록·클러스터 상세에서 누름)의 경로만 진하게 보인다 (10-02 사용자 결정).
+      // 평소에는 모든 배 경로를 흐리게 깔고, 고른 배(핀·목록·클러스터 상세에서 누름)의 경로만 진하게 보인다.
       // 경로 점에는 말풍선을 달지 않는다
       const trackLines: (L.Polyline | null)[] = [];
       const trackHits: (L.Polyline | null)[] = [];  // 보이지 않는 굵은 선. 가는 선에 마우스를 맞추기 쉽게 한다
@@ -217,7 +216,7 @@ export function WatchMap() {
       const layer = L.layerGroup().addTo(map);
 
       // 목록에서 연 말풍선은 마우스를 떼도 저절로 안 닫힌다. 한 번에 하나만 열어 두고,
-      // 다른 배를 고르거나, 다른 마커에 마우스를 올리거나, 지도 빈 곳을 누르면 닫는다 (10-02 사용자 발견: 말풍선이 쌓였다)
+      // 다른 배를 고르거나, 다른 마커에 마우스를 올리거나, 지도 빈 곳을 누르면 닫는다 (말풍선이 쌓이지 않게)
       let opened: L.Marker | null = null;
       const closeOpened = () => { opened?.closeTooltip(); opened = null; };
       markers.forEach(m => m.on('mouseover', () => { if (opened && opened !== m) closeOpened(); }));
@@ -270,8 +269,8 @@ export function WatchMap() {
         map.once('moveend', after);
         setTimeout(after, 700);  // 이미 그 자리라 지도가 안 움직이면 moveend가 오지 않는다
         // 그 배가 다른 배와 떨어져 보이는(클러스터에서 빠지는) 가장 낮은 확대 단계를 찾는다.
-        // 경로 전체가 들어오는 단계가 그보다 낮으면 경로를 포기하고 배를 가운데 두고 그 단계로 확대한다 (10-02 사용자 발견:
-        // 클러스터 안의 배를 목록에서 누르면 경로 범위에만 맞춰져 그 배로 가지 않았다)
+        // 경로 전체가 들어오는 단계가 그보다 낮으면 경로를 포기하고 배를 가운데 두고 그 단계로 확대한다.
+        // 경로 범위에만 맞추면 클러스터 안의 배를 목록에서 눌러도 그 배로 가지 않는다
         const here = L.latLng(active[i].lat, active[i].lng);
         const apartAt = (z: number) => active.every((o, j) => j === i
           || map.project(here, z).distanceTo(map.project(L.latLng(o.lat, o.lng), z)) >= CLUSTER_PX);
@@ -293,7 +292,7 @@ export function WatchMap() {
   }, [list, vessels, showTrack]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const total = active.length + waiting.length;
-  // 시안 3-3(PC)·3-6(휴대폰): 왼쪽 지도 카드(위에 기준 시각·모든 배 보기·경로 체크), 오른쪽 "내 화물" 목록 카드. 휴대폰은 지도 → 목록 순으로 쌓는다
+  // 왼쪽 지도 카드(위에 기준 시각·모든 배 보기·경로 체크), 오른쪽 "내 화물" 목록 카드. 휴대폰은 지도 → 목록 순으로 쌓는다
   return <section className="watch wm" aria-labelledby="watch-title">
     <div className="wm-head"><h2 id="watch-title">지켜보는 화물 지도</h2></div>
     {!list ? <div className="wm-skeleton" role="status" aria-label="지켜보는 화물을 불러오고 있어요."><div className="wm-sk-map"/><div className="wm-sk-list"><i/><i/><i/><i/></div></div>

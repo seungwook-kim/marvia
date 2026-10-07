@@ -1,5 +1,5 @@
-/** Every VesselInfo/Position field remains visible, including null identifiers. E4.
- * "펼쳐 보기" 안의 원자료 칸이라 작게: 선명 한 줄 + 값 표. 시안에 따로 없는 화면이라 선박 자세히 카드(VesselDetail)와 같은 말투로 맞췄다. */
+/** Every VesselInfo/Position field remains visible, including null identifiers.
+ * "펼쳐 보기" 안의 원자료 칸이라 작게: 선명 한 줄 + 값 표. 말투는 선박 자세히 카드(VesselDetail)와 맞춘다. */
 import {Ship} from 'lucide-react';
 import type {AgentResponse} from '@/lib/types';
 import {countryLabel,dateTime,navStatusLabel,shipTypeLabel,shown} from '@/lib/format';

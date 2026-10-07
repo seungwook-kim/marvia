@@ -1,4 +1,4 @@
-/** 화면 색 고르기 (10-07). 설정 > 화면 색에서 고르고, 바로 <html data-theme>에 반영한다.
+/** 화면 색 고르기. 설정 > 화면 색에서 고르고, 바로 <html data-theme>에 반영한다.
  * - system: 운영체제 설정(prefers-color-scheme)을 따라 light/dark를 넣고, 설정이 바뀌면 따라 바꾼다
  * - light / dark / comfort(눈 편하게): 그대로 넣는다 (색 값은 app/styles/enterprise.css)
  * - custom(직접 만들기): 사용자가 고른 강조색·바탕색·사이드바색·글자 진하기에서 나머지 색을 계산해 <html style>의 CSS 변수로 넣는다

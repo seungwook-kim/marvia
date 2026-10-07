@@ -1,9 +1,9 @@
-/** 로그인 (작업 G3 화면 쪽). 구글 로그인은 Supabase Auth가 하고, 화면은 받은 출입증(JWT)을 백엔드에 붙인다.
+/** 로그인. 구글 로그인은 Supabase Auth가 하고, 화면은 받은 출입증(JWT)을 백엔드에 붙인다.
  *
  * 백엔드 backend/app/auth.py와 짝이다. 그쪽이 SUPABASE_URL로 로그인을 켜고 끄듯, 화면도 두 값이 있을 때만 켠다.
  * - NEXT_PUBLIC_SUPABASE_URL: Supabase 프로젝트 주소 (비밀 아님)
  * - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 브라우저용 공개 키 (비밀 아님. service_role/secret 키는 절대 넣지 않는다)
- * 둘 중 하나라도 없으면 로그인 기능이 꺼지고, 화면은 예전처럼 세션 ID로만 돈다 (채점용 compose와 같은 길).
+ * 둘 중 하나라도 없으면 로그인 기능이 꺼지고, 화면은 세션 ID로만 돈다 (로컬 compose와 같은 길).
  */
 import {createClient, type Session, type SupabaseClient} from '@supabase/supabase-js';
 
@@ -60,7 +60,7 @@ export async function accessToken(): Promise<string | null> {
 /** 로그인 뒤 돌아올 주소. 지금 보던 페이지에서 # 뒷부분만 뗀다.
  * Supabase는 돌아올 주소 끝에 #access_token=...을 덧붙인다. 주소에 이미 #이 있으면(/settings#) ##access_token이 되어
  * supabase-js가 "#access_token"이라는 이름으로 읽고 출입증을 못 찾는다(로그인이 안 된 것처럼 보임). 그 상태에서 다시 로그인하면
- * 토큰이 붙은 주소 전체가 돌아올 주소로 넘어가 Supabase 인증 로그에 토큰이 남는다 (10-02 로컬 테스트에서 확인). */
+ * 토큰이 붙은 주소 전체가 돌아올 주소로 넘어가 Supabase 인증 로그에 토큰이 남는다. */
 export function returnAddress(loc: Pick<Location, 'origin' | 'pathname' | 'search'>): string {
   return `${loc.origin}${loc.pathname}${loc.search}`;
 }

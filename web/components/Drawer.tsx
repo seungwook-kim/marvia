@@ -1,5 +1,5 @@
 'use client';
-/** 오른쪽에서 열리는 상세 패널. 서류 사진 확인과 선박 자세히 보기에 쓴다 (Marvia_Claude_구현작업서 4절 6항, 5절 효과 명세).
+/** 오른쪽에서 열리는 상세 패널. 서류 사진 확인과 선박 자세히 보기에 쓴다.
  * AI 입력창은 여기로 옮기지 않는다. 입력은 홈 가운데에 그대로 있고, 드로어는 입력을 돕거나 한 대상을 자세히 볼 때만 연다.
  *
  * 접근성 (WAI-ARIA Authoring Practices, Dialog (Modal) 패턴):
@@ -7,7 +7,7 @@
  * - 뒤 화면(.app-shell)은 inert로 막아 마우스·키보드·스크린리더가 닿지 않게 한다
  * - 닫으면 열기 전 포커스(누른 버튼)로 돌아간다
  * 열림·닫힘 효과(오른쪽에서 밀려 들어오고 어둠 막이 흐려짐, 320ms/200ms)는 globals.css 끝 "움직임" 구역에 있고 prefers-reduced-motion이면 꺼진다.
- * 모양(흰 서랍, 연한 어둠 막, 작은 그림자)은 globals.css 끝 "Marvia 토스형 프레임" 구역. 동작은 그대로다.
+ * 모양(흰 서랍, 연한 어둠 막, 작은 그림자)은 globals.css 끝 "Marvia 토스형 프레임" 구역.
  */
 import {useCallback, useEffect, useId, useRef, useState, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';

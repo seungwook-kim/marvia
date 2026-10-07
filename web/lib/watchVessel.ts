@@ -1,7 +1,6 @@
-/** B/L 없이 배(MMSI)만 지켜보기의 API 클라이언트 (10-08 정운 실사용 57번, 백엔드 routers/watch.py /api/watch/vessels).
+/** B/L 없이 배(MMSI)만 지켜보기의 API 클라이언트 (백엔드 routers/watch.py /api/watch/vessels).
  *
- * 왜 api.ts가 아니라 새 파일인가: api.ts는 다른 작업이 같이 고치는 중이라 겹치지 않게 따로 뒀다. 출입증 붙이기·주소 규칙은
- * api.ts의 call과 같다(accessToken, NEXT_PUBLIC_API_BASE). 오류는 서버가 준 안내 문장(detail)을 그대로 올린다.
+ * 출입증 붙이기·주소 규칙은 api.ts의 call과 같다(accessToken, NEXT_PUBLIC_API_BASE). 오류는 서버가 준 안내 문장(detail)을 그대로 올린다.
  * 판정·통관은 없다. 배 이름·국적·목적지·도착 예정은 채팅에서 사용자가 본 글 그대로 보낸다 (서버가 길이만 자른다).
  */
 import {accessToken} from './auth';
@@ -45,17 +44,17 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   } finally { clearTimeout(timer); }
 }
 
-// 켜고 끈 일을 같은 화면의 다른 버튼·목록에 알린다 (WatchToggle이 AppProvider로 하는 것과 같은 목적, 여기서는 api.ts를 안 건드리려고 자체 구독)
+// 켜고 끈 일을 같은 화면의 다른 버튼·목록에 알린다 (WatchToggle이 AppProvider로 하는 것과 같은 목적의 자체 구독)
 type Listener = () => void;
 const listeners = new Set<Listener>();
 export const onVesselWatchChange = (fn: Listener) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
 const notify = () => listeners.forEach(fn => fn());
 
-/** GET /api/watch/vessels. 체험 모드면 빈 목록 */
 // 데모 둘러보기(lib/tour.ts): 서버를 부르지 않고 이 페이지 메모리에서만 켜고 끈다. 새로 고치면 비워진다
 const tourVessels = new Map<number, WatchedVessel>();
 let tourNextMmsi = 990000001;  // 호출부호만 있는 배(입항 예정 목록)에 데모용 번호를 붙인다
 
+/** GET /api/watch/vessels. 체험 모드면 빈 목록 */
 export async function listWatchedVessels(): Promise<WatchedVessel[]> {
   // 데모: 추가한 배는 시뮬레이터가 정한 가상 위치·지나온 길로 지도에 나온다 (lib/tour.ts tourVesselPosition)
   if (tour) return [...tourVessels.values()].map(v => { const p = tourVesselPosition(v.mmsi); return p ? {...v, lat: p.lat, lng: p.lng, sog: p.sog, cog: p.cog, position_at: p.position_at, track: p.track} : v; });

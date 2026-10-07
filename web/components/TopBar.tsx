@@ -1,7 +1,7 @@
 'use client';
 /** 조회 입력 폼 (SDD 5.13 TopBar, 계약 C2). 백엔드와 같은 B/L 정규화·검사를 먼저 해서 400을 줄인다.
- * 판매 예정일은 선택이다 (09-29 계약 변경). 요청에 status나 fixture ID 같은 칸을 더하지 않는다.
- * 서류 사진 버튼은 지웠다 (10-08 사용자 결정): 사진은 채팅 입력창에 첨부하고 확인 화면 없이 조회한다 (ChatBar). 이 폼은 지금 화면에 쓰이지 않는다.
+ * 판매 예정일은 선택이다. 요청에 status나 fixture ID 같은 칸을 더하지 않는다.
+ * 서류 사진은 채팅 입력창(ChatBar)에 첨부하고 확인 화면 없이 조회한다. 이 폼은 지금 화면에 쓰이지 않는다.
  */
 import {useEffect, useState, type FormEvent} from 'react';
 import {ArrowRight, Camera, Check, ChevronDown, LoaderCircle, Search, X} from 'lucide-react';
@@ -30,7 +30,7 @@ export function TopBar() {
     setErrors(next);
     if (Object.keys(next).length) return;
     setBl(no); selectFixture(null); setChoice('');
-    // 서류에서 확인한 출항일은 그 서류의 B/L을 조회할 때만 싣는다 (10-06). 서버가 화물 표 출항 칸에 적는다
+    // 서류에서 확인한 출항일은 그 서류의 B/L을 조회할 때만 싣는다. 서버가 화물 표 출항 칸에 적는다
     const departed_on = docHints?.departed_on && docHints.bl_no === no ? docHints.departed_on : null;
     void lookup({bl_no: no, bl_type: type, sale_due_date: date || null, session_id: request.session_id, departed_on});
   }
@@ -61,7 +61,7 @@ export function TopBar() {
       </div>
       <div className="form-field">
         <label htmlFor="bl-type">구분</label>
-        {/* 기본은 "모름" (10-08). 빈 값을 null로 보내면 서버가 하우스, 마스터 순서로 둘 다 조회한다 */}
+        {/* 기본은 "모름". 빈 값을 null로 보내면 서버가 하우스, 마스터 순서로 둘 다 조회한다 */}
         <select id="bl-type" value={type ?? ''} onChange={e => setType((e.target.value || null) as AgentRequest['bl_type'])} disabled={loading}><option value="">모름 (자동으로 찾기)</option><option value="MASTER">Master B/L</option><option value="HOUSE">House B/L</option></select>
       </div>
       <div className="form-field">
@@ -85,8 +85,8 @@ export function TopBar() {
       {docHints.departed_on && <> · 출항 <strong>{docHints.departed_on}</strong></>}
       <button type="button" onClick={() => setDocHints(null)} aria-label="서류 값 지우기"><X size={14}/></button></p>}
     {!isLive && process.env.NODE_ENV === 'development' && <div className="dev-switch"><span className="mono">DEV</span><label htmlFor="fixture">상태 미리보기</label><select id="fixture" value={choice} onChange={e => chooseDemo(e.target.value)} disabled={loading}><option value="">B/L에 맞는 예시</option>{data.demo.choices.map(c => <option key={c.id} value={c.id}>{c.id} · {c.label}</option>)}</select></div>}
-    {/* 진행 단계는 화면 타이머다. 백엔드는 진행 이벤트를 보내지 않는다 (REST 응답 하나) */}
-    {/* 타이머 3단계 표시는 지웠다. 서버의 실제 단계 소식으로 바꿨다 (docs/specs/chat-progress.md). 이 폼은 지금 쓰이지 않는다 */}
+    {/* 진행 단계 표시는 이 폼에 없다. 채팅이 서버의 실제 단계 소식을 보인다 (docs/specs/chat-progress.md) */}
+    {/* 이 폼은 지금 화면에 쓰이지 않는다 */}
     {error && <p role="alert" className="request-error">{error} <span>아래에 결과가 있다면 이전 조회의 결과예요.</span></p>}
   </section>;
 }

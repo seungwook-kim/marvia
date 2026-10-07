@@ -1,7 +1,7 @@
 'use client';
 /** 평가 지표 (운영자 전용). 실제 모드는 GET /api/metrics(evals/results의 실행 결과), 데모는 fixture.
  * 값이 없으면 0이 아니라 미측정으로 보인다 (CLAUDE.md: 실행하지 않은 숫자를 만들지 않는다).
- * 게이트 통과·미통과는 신호등 색이 아니라 아이콘+글자로 구분한다 (초록·노랑·빨강은 순항·주의·긴급 전용, 10-06 결정). */
+ * 게이트 통과·미통과는 신호등 색이 아니라 아이콘+글자로 구분한다 (초록·노랑·빨강은 순항·주의·긴급 전용). */
 import {useEffect,useState} from 'react';
 import {ArrowUpRight,CircleCheck,CircleX,FlaskConical,Hourglass,Info} from 'lucide-react';
 import {getMetrics} from '@/lib/api';
@@ -26,7 +26,7 @@ function Val({value}:{value:number|null|undefined}){
   return typeof value==='number'?<span className="mx-val">{value}<small>%</small></span>:<span className="mx-val none">측정 전</span>;
 }
 
-/** 비교표 항목 옆 ⓘ. 재료(4차 A-51)에 뜻이 있는 항목만 단다. 누르면 아래에 한 줄 설명 */
+/** 비교표 항목 옆 ⓘ. 뜻 설명이 있는 항목만 단다. 누르면 아래에 한 줄 설명 */
 const TERM_HELP: Record<string, string> = {grounded: '설명이 근거와 일치한 비율'};
 
 export function MetricsPage(){
@@ -37,7 +37,7 @@ export function MetricsPage(){
   const m=live??data.metrics;
   const runs=(m.experiments??[]) as Array<Record<string,unknown>>;
   const datasetSize=(m as {dataset_size?:number|null}).dataset_size;
-  // 시안 4-8의 열 이름. 서버 필드 baseline=기준선(a), model_a=서비스(b), model_b=비교 모델(c)
+  // 열 이름. 서버 필드 baseline=기준선(a), model_a=서비스(b), model_b=비교 모델(c)
   return <div className="page mx-page">
     <div className="page-heading adm-heading">
       <div><span className="eyebrow">운영자</span><h1>평가 지표</h1><p>서비스 구성(b)의 평가 결과와 합격 기준을 확인해요.</p></div>

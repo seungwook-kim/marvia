@@ -1,9 +1,9 @@
 'use client';
-/** 설정·내 정보 화면. 시안(4-1~4-5, 3-5)이 다섯 화면으로 나눈 것을 /settings 안의 하위 탭으로 옮겼다.
+/** 설정·내 정보 화면. /settings 안을 하위 탭으로 나눈다.
  * 하위 이동은 제목 아래의 밑줄 탭 줄이 맡고, 고른 탭 밑의 막대가 미끄러지듯 따라간다.
- * 판단 기준은 읽기 전용 (SDD 5.13). 설정 키·파일 경로·모델 설정은 일반 사용자에게 내지 않는다 (10-02 화면 용어 점검).
+ * 판단 기준은 읽기 전용 (SDD 5.13). 설정 키·파일 경로·모델 설정은 일반 사용자에게 내지 않는다.
  * 카카오에서 돌아오면(?kakao=) 연결 상태가 있는 "설정" 탭을 연다. KakaoPanel이 그 값을 읽고 주소에서 지우므로 여기서는 지우지 않는다.
- * 탭 종류는 TABS가 정하고, 각 탭 안의 화면은 기존 컴포넌트(ProfileForm·MemoryPanel·KakaoPanel·AccountPanel). 조회 이력은 왼쪽 메뉴 /history에만 있다를 그대로 쓴다 (동작·접근성 유지).
+ * 탭 종류는 TABS가 정하고, 각 탭 안은 기존 컴포넌트(ProfileForm·MemoryPanel·KakaoPanel·AccountPanel)를 그대로 쓴다. 조회 이력은 왼쪽 메뉴 /history에만 있다.
  */
 import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {Info, LockKeyhole} from 'lucide-react';
@@ -32,7 +32,7 @@ export function SettingsPage(){
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const want = p.get('tab');
-    // 조회 이력은 왼쪽 메뉴(/history) 하나로 합쳤다 (10-07). 예전 주소 ?tab=history는 그쪽으로 보낸다
+    // 조회 이력은 왼쪽 메뉴(/history) 하나에만 있다. 예전 주소 ?tab=history는 그쪽으로 보낸다
     if (want === 'history') { router.replace('/history'); return; }
     if (p.get('kakao') !== null) setTab('rules');
     else if (TABS.some(t => t.key === want)) setTab(want as Tab);
@@ -94,7 +94,7 @@ function RulesTab(){
   </div>;
 }
 
-/** 화면 색 (10-07, 디자인 회의안). 설정 한 줄: 제목 + 세그먼트 5칸. "직접 설정"일 때만 편집 줄 하나가 열린다.
+/** 화면 색. 설정 한 줄: 제목 + 세그먼트 5칸. "직접 설정"일 때만 편집 줄 하나가 열린다.
  * 고르면 바로 화면 전체에 반영되고 이 기기에 저장된다 (lib/theme.ts). 로그인 없이도 쓸 수 있다 */
 const SHORT: Record<ThemePref, string> = {system: '시스템', light: '밝게', dark: '어둡게', comfort: '눈 편하게', custom: '직접 설정'};
 /** 세그먼트 칸 앞의 작은 색 점. 시스템은 밝은 칸과 어두운 칸 반반 */
@@ -167,7 +167,7 @@ function ColorField({label, value, onChange}: {label: string; value: string; onC
   </label>;
 }
 /** 운영자용 모델·프롬프트 설정. isOperator일 때만 그려진다(위 RulesTab). 값이 있는 줄만 보이고, 하나도 없으면 한 줄로 알린다.
- * 전에는 다섯 줄이 모두 "확인되지 않음"으로 채워져 고장처럼 보였다 (10-02 UI 점검 V7). 값을 지어내지 않는다 */
+ * 값을 지어내지 않는다 */
 function ModelCard({rows}:{rows:[string,unknown][]}){
   const known = rows.filter(([, v]) => v !== null && v !== undefined && v !== '');
   return <section className="st-card"><h2>모델과 프롬프트</h2>{known.length

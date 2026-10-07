@@ -1,7 +1,7 @@
 /* 담당 영역: 내 화물 화면의 틀(대화 + 상세 40:60), 대화 말풍선, 입력창, 대화 목록. 토큰은 globals.css :root, 이 파일은 globals.css 뒤에 불러와져 같은 선택자를 덮는다.
- * 마누스 안A 화면1·2, 2-1·2-2·2-3·2-7이 기준이다. 대화가 왼쪽에서 스스로 스크롤하고 입력창은 아래에 고정, 상세는 오른쪽에서 스스로 스크롤한다. */
+ * 대화가 왼쪽에서 스스로 스크롤하고 입력창은 아래에 고정, 상세는 오른쪽에서 스스로 스크롤한다. */
 
-/* ---- 움직임 토큰·키프레임 (3차 다듬기). 150ms 눌림·hover / 220ms 나타남 / 320ms 패널·지도. 움직임 줄이기를 켜면 globals.css가 animation·transition을 전부 끈다 ---- */
+/* ---- 움직임 토큰·키프레임. 150ms 눌림·hover / 220ms 나타남 / 320ms 패널·지도. 움직임 줄이기를 켜면 globals.css가 animation·transition을 전부 끈다 ---- */
 :root{--t-fast:150ms;--t-enter:220ms;--t-panel:320ms}
 @keyframes m-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes m-fade{from{opacity:0}to{opacity:1}}
@@ -41,7 +41,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .chat-app.split .pane-icon{display:grid}
 .pane-head~.request-error{margin:8px 28px 0}
 
-/* 오른쪽 칸 머리: 선박 표·안내 답일 때 제목과 "내 화물 결과로 돌아가기" (시안 2-3) */
+/* 오른쪽 칸 머리: 선박 표·안내 답일 때 제목과 "내 화물 결과로 돌아가기" */
 .detail-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:0 4px 16px}
 .detail-head h2{font-size:var(--text-lg);font-weight:700;color:var(--text)}
 .detail-head .button{min-height:40px;gap:8px;border-radius:var(--small-radius);background:transparent;color:var(--brand);border:0;font-weight:700}
@@ -63,7 +63,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .chat-dock{flex:none;padding:8px 0 20px}
 .chat-app.split .chat-dock{padding:12px 20px 18px;border-top:1px solid var(--border);background:var(--surface)}
 
-/* 처음 화면: 가운데 안내 + 할 일 세 가지 (안A 화면1). 대화가 생기면 사라진다 */
+/* 처음 화면: 가운데 안내 + 할 일 세 가지. 대화가 생기면 사라진다 */
 .chat-empty{margin:auto;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:24px 0}
 .chat-empty-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:4px;background:var(--surface);color:var(--text-2)}
 .chat-empty h2{margin-top:10px;font-size:var(--text-xl);font-weight:700;letter-spacing:-.02em;color:var(--text)}
@@ -83,7 +83,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .composer-foot{padding-top:4px;border-top:0}
 .composer .doc-trigger{color:var(--text-2);font-size:var(--text-sm);font-weight:600}
 .composer .doc-trigger:hover:not(:disabled){color:var(--brand)}
-/* 사진 첨부 (10-08 사용자 결정, Claude 앱처럼): 클립 버튼, 입력칸 위의 작은 칩, 끌어 놓는 동안 테두리 강조. 확인 화면은 없다 */
+/* 사진 첨부: 클립 버튼, 입력칸 위의 작은 칩, 끌어 놓는 동안 테두리 강조. 확인 화면은 없다 */
 .composer-wrap.dragging{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 .composer .attach-trigger{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;margin-left:-8px;border:0;border-radius:4px;background:transparent;color:var(--text-2);cursor:pointer}
 .composer .attach-trigger:hover:not(:disabled){color:var(--brand);background:var(--brand-soft)}
@@ -131,7 +131,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .chat-app.split .chat-turn.user .chat-bubble{background:var(--bg)}
 .chat-turn.assistant .chat-bubble,.chat-seed .chat-bubble{padding:0;background:none;border:0;border-radius:0}
 .chat-turn.assistant,.chat-seed{width:100%;max-width:100%;list-style:none}
-/* 예전 전역 규칙이 p에 입힌 말풍선 모양을 걷어낸다 */
+/* 전역 규칙이 p에 입힌 말풍선 모양을 걷어낸다 */
 .chat-turn.assistant .chat-bubble p,.chat-seed .chat-bubble p,.chat-turn.user .chat-bubble p{background:none;border:0;padding:0;border-radius:0;color:var(--text)}
 .chat-body{gap:12px}
 .chat-link{color:var(--brand);text-decoration:underline;text-underline-offset:3px}
@@ -143,7 +143,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .chat-todo span{font-size:var(--text-sm);font-weight:500;color:var(--muted)}
 .chat-show-detail{display:none;padding:4px 0;background:none;color:var(--brand);font-size:var(--text-sm);font-weight:700}
 
-/* ---- 진행 단계: 상자 없이 글과 점. 서버가 알린 단계만, 상태를 글자로 (시안 2-1). 답이 올 자리는 흐릿한 줄로 먼저 잡는다 ---- */
+/* ---- 진행 단계: 상자 없이 글과 점. 서버가 알린 단계만, 상태를 글자로. 답이 올 자리는 흐릿한 줄로 먼저 잡는다 ---- */
 .pending-card{margin-top:20px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;overflow:visible;animation:m-rise var(--t-enter) var(--ease) backwards}
 .pending-head{justify-content:flex-start;gap:10px;font-size:var(--text-base);font-weight:700}
 .pending-time{margin-left:auto;font-size:var(--text-sm);font-weight:500;color:var(--muted)}
@@ -187,7 +187,7 @@ body[data-split] .conv-toggle{display:inline-flex}
 .conv-error{color:var(--danger)}
 
 
-/* ---- 좁은 화면(900px 이하): 대화가 화면 전체, 상세는 아래에서 올라오는 시트 (시안 2-7) ---- */
+/* ---- 좁은 화면(900px 이하): 대화가 화면 전체, 상세는 아래에서 올라오는 시트 ---- */
 @media (max-width:900px){
   .chat-app.split .pane-head{padding:12px 16px}
   .pane-icon{display:grid}

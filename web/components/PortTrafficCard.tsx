@@ -1,5 +1,5 @@
 'use client';
-/** 부산항 최근 입항 추세 참고 카드 (IMF PortWatch, 10-08 결정). GET /api/port/busan/traffic을 읽어 한 줄로 보여 준다.
+/** 부산항 최근 입항 추세 참고 카드 (IMF PortWatch). GET /api/port/busan/traffic을 읽어 한 줄로 보여 준다.
  * - 자료는 약 5일 늦게, 주 단위로 갱신된다. 그래서 "지금 붐빈다"가 아니라 "지난주 입항이 평소보다 많았다" 수준의 맥락이다.
  *   카드에 이 점과 "화물 판정에 쓰지 않는다"를 같이 적는다. 판정 카드와 헷갈리지 않게 등급 색도 쓰지 않는다
  * - 평균·비율·이름(busy/normal/quiet)은 서버(services/port_traffic.py)가 계산한다. 화면은 표시만 한다

@@ -1,6 +1,6 @@
 'use client';
-/** Leaflet 지도. 바탕은 OpenFreeMap 세계 지도(lib/basemap.ts), 안 되면 레포의 Natural Earth 해안선으로 되돌린다 (10-06 정운 승인).
- * The line points toward Busan; it is explicitly not a measured track or searoute.
+/** Leaflet 지도. 바탕은 OpenFreeMap 세계 지도(lib/basemap.ts), 안 되면 레포의 Natural Earth 해안선으로 되돌린다.
+ * 배에서 부산으로 긋는 선은 방향 표시일 뿐 실제 항적이나 searoute 경로가 아니다.
  */
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
@@ -18,7 +18,7 @@ type Box={bt:number;bl:number;bw:number;bh:number;top:number;left:number;width:n
 const EASE='cubic-bezier(.2,.8,.2,1)';
 /** from 칸에서 to 칸으로(to를 기준 크기로) 옮기는 transform. 원점은 왼쪽 위(CSS transform-origin) */
 function flip(from:DOMRect,to:DOMRect){return `translate(${from.left-to.left}px,${from.top-to.top}px) scale(${from.width/to.width},${from.height/to.height})`;}
-/** 상세 패널의 맨 위 지도. 지도 위에 작은 카드(등급 배지 + 지켜보기 + 선명(국적) + 부산까지 거리)가 떠 있다 (마누스 시안 2-2, 01_공통 "상세 패널").
+/** 상세 패널의 맨 위 지도. 지도 위에 작은 카드(등급 배지 + 지켜보기 + 선명(국적) + 부산까지 거리)가 떠 있다.
  * watch는 page.tsx가 로그인·실제 모드일 때만 넘기는 WatchToggle이다. 품명(customs.goods_name)은 있을 때만 선명 앞에 붙는다. */
 export function MapPanel({response:r,watch}:{response:AgentResponse;watch?:ReactNode}) {
  const host=useRef<HTMLDivElement>(null);const card=useRef<HTMLDivElement>(null); const reset=useRef<()=>void>(()=>{});const slot=useRef<HTMLDivElement>(null),frame=useRef<HTMLDivElement>(null),toggle=useRef<HTMLButtonElement>(null),mapRef=useRef<LeafletMap|null>(null),closing=useRef(false),touched=useRef(false),baseRef=useRef<Basemap|null>(null);
@@ -28,7 +28,7 @@ export function MapPanel({response:r,watch}:{response:AgentResponse;watch?:React
    // 펼치기는 오른쪽 위, 확대·축소·맞추기는 왼쪽 아래 아이콘 단추(map-tools, map-zoom)가 맡는다. 아래 오른쪽은 떠 있는 카드가 쓰므로 저작자 표시는 왼쪽 아래로 보낸다
    const map=L.map(host.current,{zoomControl:false,scrollWheelZoom:false,minZoom:4,maxZoom:10,attributionControl:false});
    mapRef.current=map;touched.current=false;map.on('dragstart',()=>{touched.current=true;});L.control.attribution({position:'bottomleft',prefix:false}).addTo(map);
-   // 직접 쓴 바다·나라 이름은 세계 지도를 못 쓰는 되돌림 때만 올라온다(세계 지도에는 이름이 이미 있다, 10-06). 그 이름이 배와 부산항 표시(마커와 이름표)에 겹치면 그 이름만 숨긴다. 확대·이동 때마다 다시 계산한다
+   // 직접 쓴 바다·나라 이름은 세계 지도를 못 쓰는 되돌림 때만 올라온다(세계 지도에는 이름이 이미 있다). 그 이름이 배와 부산항 표시(마커와 이름표)에 겹치면 그 이름만 숨긴다. 확대·이동 때마다 다시 계산한다
    const labels:{el:()=>HTMLElement|undefined;ll:L.LatLngTuple}[]=[];const hideNearLabels=()=>{const pts=[port,...(position?[position]:[])].map(q=>map.latLngToContainerPoint(q));
     labels.forEach(l=>{const el=l.el();if(!el)return;const q=map.latLngToContainerPoint(l.ll);el.classList.toggle('map-place-hide',pts.some(a=>Math.abs(q.x-a.x)<110&&Math.abs(q.y-a.y)<46));});};
    map.on('zoomend moveend',hideNearLabels);
@@ -36,7 +36,7 @@ export function MapPanel({response:r,watch}:{response:AgentResponse;watch?:React
    const home=()=>{if(!position){map.setView(port,6);return;}const w=host.current?.clientWidth??0,c=card.current,cw=(c?.offsetWidth??0)+24,ch=(c?.offsetHeight??0)+24;const side=w>cw*1.5;
     map.invalidateSize();map.fitBounds(L.latLngBounds([position,port]),{maxZoom:8,animate:false,paddingTopLeft:[56,72],paddingBottomRight:side?[cw+16,56]:[56,ch+44]});hideNearLabels();};
 home();reset.current=home;
-   // 바탕: 세계 지도. 못 쓰면(WebGL 없음, 4초 안에 안 옴, 오류) 예전 해안선과 격자, 손으로 쓴 이름표로 되돌린다. 모두 마커·경로 밑에 깔린다
+   // 바탕: 세계 지도. 못 쓰면(WebGL 없음, 4초 안에 안 옴, 오류) 해안선과 격자, 손으로 쓴 이름표로 되돌린다. 모두 마커·경로 밑에 깔린다
    baseRef.current=addBasemap(L,map,()=>{
     for(let lat=25;lat<42;lat+=1)L.polyline([[lat,118],[lat,144]],{color:color('--map-muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
     for(let lng=119;lng<144;lng+=1)L.polyline([[25,lng],[42,lng]],{color:color('--map-muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
@@ -58,7 +58,7 @@ home();reset.current=home;
  /** 지도 펼치기: 지도 칸이 작은 자리에서 작업 공간 전체(상단바 아래, 두 칸 모두)로 커진다. 지도 칸(frame)을 fixed로 바꾼 뒤
   * 원래 자리(slot)의 크기로 되돌려 놓고 transform을 풀어 주는 FLIP 방식이라 레이아웃을 매 프레임 다시 계산하지 않는다. 움직임 줄이기를 켰으면 바로 바뀐다. */
  const reduced=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches;
- /** 칸 크기가 바뀐 뒤 Leaflet과 MapLibre 캔버스를 새 크기에 맞춘다. 맞추지 않으면 세계 지도 타일이 옛 크기에 머문다 (10-06) */
+ /** 칸 크기가 바뀐 뒤 Leaflet과 MapLibre 캔버스를 새 크기에 맞춘다. 맞추지 않으면 세계 지도 타일이 옛 크기에 머문다 */
  function settle(){mapRef.current?.invalidateSize({animate:false});baseRef.current?.resize();}
  function open(){
   if(big)return;const m=document.querySelector('main')?.getBoundingClientRect();if(!m)return;
@@ -93,7 +93,7 @@ home();reset.current=home;
   if(!els.length)return;const first=els[0],last=els[els.length-1];
   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
  }
- // 오래된 위치는 문장 대신 "6시간 전 위치" 같은 작은 배지로 알린다 (판단에 영향 주는 주의, 01_공통 작은 글씨 규칙)
+ // 오래된 위치는 문장 대신 "6시간 전 위치" 같은 작은 배지로 알린다 (판단에 영향 주는 주의)
  const hrs=p&&stale?Math.floor((Date.now()-new Date(p.last_time).getTime())/3.6e6):0;
  const staleText=Number.isNaN(hrs)||hrs<1?'오래된 위치':hrs>=48?`${Math.floor(hrs/24)}일 전 위치`:`${hrs}시간 전 위치`;
  const distance=r.eta?.distance_nm;
@@ -101,7 +101,7 @@ home();reset.current=home;
  return <section id="big-map" tabIndex={-1} className={`map-section ${stale?'map-stale':''}${big?' big':''}`}><h2 className="sr-only">{stale?'마지막 수신 위치':p?'선박과 부산항의 위치':'부산항 기준 지도'}</h2>
   {big&&box&&<div className={`map-backdrop${out?' out':''}`} style={{top:box.bt,left:box.bl,width:box.bw,height:box.bh}} onClick={close} aria-hidden="true"/>}
   <div ref={slot} className="map-slot"><div ref={frame} className={`map-frame${big?' is-overlay':''}`} style={big&&box?{top:box.top,left:box.left,width:box.width,height:box.height}:undefined} role={big?'dialog':undefined} aria-modal={big?true:undefined} aria-label={big?'지도 크게 보기':undefined} onKeyDown={trap}><div ref={host} className="leaflet-host" role="region" aria-label="부산항과 선박 수신 위치 지도"/>
-  {/* 왼쪽 위: 판단에 영향 주는 주의는 문장 대신 작은 배지로 (예정일 2곳 다름 등, 01_공통 작은 글씨 규칙). 점선이 실제 항적이 아니라는 안내는 ⓘ 뒤로 접었다 */}
+  {/* 왼쪽 위: 판단에 영향 주는 주의는 문장 대신 작은 배지로 (예정일 2곳 다름 등). 점선이 실제 항적이 아니라는 안내는 ⓘ 뒤로 접었다 */}
   <div className="map-chips">{!p&&<span className="map-chip">선박 위치가 없어 부산항 기준으로 보여 줘요</span>}{r.conflicts.map((c,i)=><InfoTip key={i} label={`${conflictBadge(c.signals)} 설명`} badge={conflictBadge(c.signals)}><strong>{sourceLabels[c.chosen]??c.chosen} 기준</strong> · {c.why}</InfoTip>)}{p&&<InfoTip label="점선 설명">점선은 대략적인 방향이에요. 실제 항적이 아니에요.</InfoTip>}</div>
   {/* 아이콘 단추: 펼치기(오른쪽 위)와 확대·축소·맞추기(왼쪽 아래). 글자 없이 아이콘만 쓰므로 이름(aria-label)과 툴팁(title)을 단다 */}
   <div className="map-tools">

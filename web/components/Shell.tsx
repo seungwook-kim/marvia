@@ -1,7 +1,7 @@
 'use client';
-/** 고정 사이드바와 상단 바. 로그인이 켜져 있으면 로그인 전에는 본문 대신 LoginScreen을 보여 준다 (G3, 소개 페이지는 예외).
- * 흰 레일 + 연회색 바탕 + 파랑 #2962F5 (10-06 토스형 개편, web/DESIGN.md). 태블릿에서는 아이콘만 남으므로 링크마다 aria-label로 이름을 유지한다.
- * 영어 보조 글자·홍보 문구·영문 푸터는 화면에서 뺐다 (10-06 시안 정리). 접속 상태는 사이드바 아래 한 줄로만 둔다.
+/** 고정 사이드바와 상단 바. 로그인이 켜져 있으면 로그인 전에는 본문 대신 LoginScreen을 보여 준다 (소개 페이지는 예외).
+ * 흰 레일 + 연회색 바탕 + 파랑 #2962F5 (web/DESIGN.md). 태블릿에서는 아이콘만 남으므로 링크마다 aria-label로 이름을 유지한다.
+ * 접속 상태는 사이드바 아래 한 줄로만 둔다.
  * 메뉴는 GET /api/me의 is_operator로 나눈다. 숨김은 편의이고 권한은 서버가 막는다 (OperatorOnly, 관리 API 403). */
 import Link from 'next/link';
 import {usePathname, useRouter} from 'next/navigation';
@@ -15,31 +15,30 @@ import {SUSPENDED_MESSAGE} from '@/lib/api';
 import {useApp} from './AppProvider';
 import {isLive, tour} from '@/lib/api';
 import {TourBanner} from './TourBanner';
-// operatorOnly: 운영자에게만 보이는 탭 (10-01). 평가 지표는 일반 사용자에게 필요 없는 시스템 품질 화면이다
-// 내 화물은 드롭다운이다: 화물 조회(/)와 감시·지도(/watch) (docs/specs/cargo-watch.md, 10-02)
+// operatorOnly: 운영자에게만 보이는 탭. 평가 지표는 일반 사용자에게 필요 없는 시스템 품질 화면이다
+// 내 화물은 드롭다운이다: 화물 조회(/)와 감시·지도(/watch) (docs/specs/cargo-watch.md)
 const cargoMenu=[{href:'/',label:'화물 조회',icon:Search},{href:'/watch',label:'지켜보는 화물',icon:Radar}];
-// 화물 현황(/cargo, 10-06)은 내 화물 바로 아래 따로 둔다: 하위 메뉴가 아니라 B/L 표를 보는 독립 화면이라 접은 메뉴에서도 아이콘으로 바로 열린다
-// 오늘의 화물(/today, 10-07)은 로그인한 사람 자신의 화물 요약이라 맨 위에 둔다.
+// 화물 현황(/cargo)은 내 화물 바로 아래 따로 둔다: 하위 메뉴가 아니라 B/L 표를 보는 독립 화면이라 접은 메뉴에서도 아이콘으로 바로 열린다
+// 오늘의 화물(/today)은 로그인한 사람 자신의 화물 요약이라 맨 위에 둔다.
 // 설정부터 아래(설정 · 평가 지표 · 관리)는 업무 메뉴와 점선으로 나눈다 (enterprise.css .nav-link[href="/settings"])
 const links=[{href:'/today',label:'오늘의 화물',icon:LayoutDashboard},{href:'/',label:'내 화물',icon:Boxes,sub:cargoMenu},{href:'/cargo',label:'화물 현황',icon:Table2},{href:'/history',label:'조회 이력',icon:History},{href:'/settings',label:'설정',icon:Settings2},{href:'/metrics',label:'평가 지표',icon:ChartNoAxesCombined,operatorOnly:true}];
 // 운영자에게만 보이는 탭 (docs/specs/operator-admin.md). 숨김은 편의이고 권한은 서버가 막는다
 /** 이 탭에서 로그인한 사람이 앱에 들어온 적이 있는지 (sessionStorage, 값은 user id) */
 const ENTRY_KEY='marvia-entered';
 const adminLink={href:'/admin',label:'관리',icon:ShieldUser};
-/** 상단 경로 표시. 메뉴에 안 보이는 화면(운영자가 아닌 사람이 주소로 연 /metrics·/admin)도 제 이름을 보인다.
- * 전에는 보이는 메뉴에서만 찾아 없으면 "Marvia 소개"가 나왔다 (10-02 UI 점검 F16) */
+/** 상단 경로 표시. 메뉴에 안 보이는 화면(운영자가 아닌 사람이 주소로 연 /metrics·/admin)도 제 이름을 보인다. */
 function crumb(path:string){if(path==='/watch')return '내 화물 / 지켜보는 화물';if(path==='/about')return 'Marvia 소개';return [...links,adminLink].find(l=>l.href===path)?.label??'Marvia';}
 export function Shell({children}:{children:React.ReactNode}) {
  const path=usePathname();const {data,authEnabled,authReady,user,reset,isOperator,profileComplete,meReady,suspended,conversationsOn,savedId}=useApp();const router=useRouter();
- // 로그인한 사람이 이 탭에서 앱에 처음 들어오면 첫 화면은 오늘의 화물이다 (10-07). 로그인 직후·새 탭·주소 직접 입력이 해당된다.
- // 앱 안에서 화물 조회(/)를 누르거나 대화 주소(?c=)로 온 것은 그대로 둔다. 로그인 기능이 꺼진 체험·채점 환경은 지금처럼 / 가 첫 화면이다
+ // 로그인한 사람이 이 탭에서 앱에 처음 들어오면 첫 화면은 오늘의 화물이다. 로그인 직후·새 탭·주소 직접 입력이 해당된다.
+ // 앱 안에서 화물 조회(/)를 누르거나 대화 주소(?c=)로 온 것은 그대로 둔다. 로그인 기능이 꺼진 체험·채점 환경은 / 가 첫 화면이다
  useEffect(()=>{if(!authEnabled||!authReady||!user)return;let entered=false;try{entered=window.sessionStorage.getItem(ENTRY_KEY)===user.id;window.sessionStorage.setItem(ENTRY_KEY,user.id);}catch{/* 저장소를 못 쓰면 매번 첫 진입으로 본다 */}if(!entered&&path==='/'&&!new URLSearchParams(window.location.search).get('c'))router.replace('/today');},[authEnabled,authReady,user?.id]);// eslint-disable-line react-hooks/exhaustive-deps
 const nav=isOperator?[...links,adminLink]:links.filter(l=>!l.operatorOnly);const [menu,setMenu]=useState(false);const menuRef=useRef<HTMLDivElement>(null);const [convOpen,setConvOpen]=useState(false);
  // 좁은 화면(900px 이하)이나 접은 메뉴는 사이드바에 대화 목록을 둘 자리가 없다. 상단바 버튼이 여는 패널로 같은 목록을 보인다. Esc로 닫는다
  useEffect(()=>{if(!convOpen)return;const k=(e:KeyboardEvent)=>{if(e.key==='Escape')setConvOpen(false);};window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[convOpen]);
  // 내 화물 화면이 40:60으로 나뉘면 사이드바 대화 목록을 접는다(CSS). 화면 안의 버튼이 같은 패널을 다시 열도록 이벤트를 듣는다 (styles/chat.css)
  useEffect(()=>{const open=()=>setConvOpen(true);window.addEventListener('marvia:conversations',open);return()=>window.removeEventListener('marvia:conversations',open);},[]);
- // 계정 메뉴는 Esc와 바깥 클릭으로 닫힌다 (10-02 UI 점검 F17). 열려 있을 때만 듣는다
+ // 계정 메뉴는 Esc와 바깥 클릭으로 닫힌다. 열려 있을 때만 듣는다
  useEffect(()=>{if(!menu)return;const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')setMenu(false);};const onDown=(e:PointerEvent)=>{if(menuRef.current&&!menuRef.current.contains(e.target as Node))setMenu(false);};document.addEventListener('keydown',onKey);document.addEventListener('pointerdown',onDown);return()=>{document.removeEventListener('keydown',onKey);document.removeEventListener('pointerdown',onDown);};},[menu]);
  // 메뉴 접기(아이콘만)와 내 화물 하위 메뉴 펼침. 접기는 이 브라우저에만 기억한다 (저장이 막혀도 기본 넓은 메뉴로 동작)
  const [collapsed,setCollapsed]=useState(false);const [cargoOpen,setCargoOpen]=useState(true);
@@ -55,7 +54,7 @@ const nav=isOperator?[...links,adminLink]:links.filter(l=>!l.operatorOnly);const
  const blocked=authEnabled&&!!user&&meReady&&suspended&&path!=='/about';
  const initial=(user?.name??user?.email??'M').trim().charAt(0).toUpperCase();
  async function logout(){setMenu(false);await signOut();reset();}
- // 로그인 전 첫 화면은 소개 랜딩(LoginScreen = IntroContent)을 사이드바·상단 줄 없이 전체 화면으로 보인다 (원본 10-07 정운 25번과 같은 동작)
+ // 로그인 전 첫 화면은 소개 랜딩(LoginScreen = IntroContent)을 사이드바·상단 줄 없이 전체 화면으로 보인다
  if(gated&&authReady)return <div className="entry-shell"><a className="skip-link" href="#main">본문으로 건너뛰기</a><main id="main" tabIndex={-1}><LoginScreen/></main></div>;
  return <div className={`app-shell ${collapsed?'rail-collapsed':''}`}><a className="skip-link" href="#main">본문으로 건너뛰기</a><aside className="sidebar"><div className="brand-row"><Link href="/today" className="brand" aria-label="Marvia 오늘의 화물"><img src="/brand/marvia-symbol.svg" alt="" width={36} height={36}/><span className="brand-text"><strong>Marvia</strong><small>수입 화물 비서</small></span></Link><button type="button" className="rail-toggle" onClick={toggleRail} aria-label={collapsed?'메뉴 펼치기':'메뉴 접기'} aria-expanded={!collapsed} title={collapsed?'메뉴 펼치기':'메뉴 접기'}>{collapsed?<PanelLeftOpen size={20} strokeWidth={1.75}/>:<PanelLeftClose size={20} strokeWidth={1.75}/>}</button></div><nav aria-label="주 메뉴">{nav.map(({href,label,icon:Icon,...rest})=>{const sub=(rest as {sub?:typeof cargoMenu}).sub;const on=sub?sub.some(s=>s.href===path):path===href;
   // 내 화물: 넓은 메뉴에서는 바로 밑에 하위 항목(화물 조회·감시·지도)이 펼쳐진다. 접은 메뉴에서는 아이콘에 마우스를 올리면 옆으로 뜬다

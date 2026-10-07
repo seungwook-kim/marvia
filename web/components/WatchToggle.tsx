@@ -1,5 +1,5 @@
 'use client';
-/** 지도 위 작은 카드 안의 "지켜보기" 칸 (예전에는 판정 카드 바로 아래). 켜 두면 판정이 바뀐 것을 다음 접속 때 알리고, 카카오톡을 연결했으면 카톡으로도 보낸다 (backend 지켜보기 API).
+/** 지도 위 작은 카드 안의 "지켜보기" 칸. 켜 두면 판정이 바뀐 것을 다음 접속 때 알리고, 카카오톡을 연결했으면 카톡으로도 보낸다 (backend 지켜보기 API).
  *
  * 흐름: 마운트될 때 상태를 읽는다(POST /api/cargo/watch/state) → 버튼으로 켜고 끈다(PUT /api/cargo/watch).
  * 상태를 읽고도 바로 버튼을 못 보이는 이유: 조회 결과의 화물 기록은 응답을 준 뒤 서버가 비동기로 저장한다.
@@ -8,8 +8,8 @@
  * B/L 번호는 URL이 아니라 요청 본문으로만 보내고(api.ts), 이 화면의 글에도 번호를 쓰지 않는다 (마스킹 값은 상위 카드가 이미 보인다).
  * 새 결과(trace_id)마다 page.tsx가 key를 바꿔 이 칸이 처음 상태로 다시 시작한다.
  * 키보드·화면 낭독기: 버튼은 켜짐/꺼짐이 바뀌어도 같은 요소로 남아 포커스를 잃지 않고, 결과 글은 늘 있는 status/alert 칸에서만 바꾼다 (KakaoPanel과 같은 방식).
- * 대화로 켜고 끈 결과는 AppProvider의 watching으로 받아 같은 상태를 보인다 (10-06 결정).
- * 출처: G5 작업 리스트, 10-05 결정. 데모 모드·로그인이 꺼진 서버·비로그인에서는 page.tsx가 아예 그리지 않는다.
+ * 대화로 켜고 끈 결과는 AppProvider의 watching으로 받아 같은 상태를 보인다.
+ * 데모 모드·로그인이 꺼진 서버·비로그인에서는 page.tsx가 아예 그리지 않는다.
  */
 import {useEffect, useRef, useState} from 'react';
 import {Eye, EyeOff, LoaderCircle} from 'lucide-react';
@@ -60,7 +60,7 @@ export function WatchToggle({blNo}: {blNo: string}) {
     return () => { alive = false; clearTimeout(timer); };
   }, [blNo, reload]);
 
-  // 대화로 켜고 끈 결과(말풍선 버튼, "응")가 오면 이 버튼도 새로고침 없이 따라간다 (10-06 결정)
+  // 대화로 켜고 끈 결과(말풍선 버튼, "응")가 오면 이 버튼도 새로고침 없이 따라간다
   const sharedNow = shared[watchKey(blNo)];
   useEffect(() => { if (sharedNow !== undefined) setWatching(sharedNow); }, [sharedNow]);
 
@@ -75,7 +75,7 @@ export function WatchToggle({blNo}: {blNo: string}) {
     finally { setBusy(false); }
   }
 
-  // 지도 위 작은 카드 안에 들어가는 작은 칸이다 (마누스 시안 3-4). 상태는 실제 서버 값만 보이고, 켜져 있으면 "지켜보는 중" 배지를 분명히 단다.
+  // 지도 위 작은 카드 안에 들어가는 작은 칸이다. 상태는 실제 서버 값만 보이고, 켜져 있으면 "지켜보는 중" 배지를 분명히 단다.
   // 켜짐/꺼짐 설명 문장은 ⓘ 뒤로 접었다 (사용법 문장은 화면에 늘어놓지 않는다). 버튼 글자는 짧게 두고 낭독용 이름은 원래 문구를 쓴다
   return <section className="watch-toggle" aria-label="화물 지켜보기">
     <div className="watch-row">

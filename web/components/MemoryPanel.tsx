@@ -4,10 +4,10 @@
  * GET /api/memory로 Marvia가 기억한 화물과 메모를 보여 주고, 메모 한 줄(DELETE /api/memory/items/{id})이나
  * 메모 전부(DELETE /api/memory)를 지운다. 지우기는 되돌릴 수 없어서 화면 안에서 한 번 더 확인한다 (AccountPanel과 같은 방식).
  * "모두 지우기"는 메모(user_memory)만 지운다. 화물 목록(user_cargo)은 "내 조회 기록 지우기"나 회원 탈퇴 때 지워지고,
- * 끝난 화물은 반출 후 3년 보관 뒤 그 메모와 함께 지워진다 (10-02 결정 D2, D3).
+ * 끝난 화물은 반출 후 3년 보관 뒤 그 메모와 함께 지워진다.
  * 키보드·화면 낭독기 사용자를 위해 눌렀을 때 포커스를 옮기고, 결과 글은 늘 있는 status/alert 칸에서만 바꾼다 (focusKeys, 아래).
  * 원본 B/L은 서버가 보내지 않는다. 가린 번호와 이름표만 보인다.
- * 데모 모드는 가공 예시를 보여 주고 지우기는 막는다. 로그인이 꺼진 서버는 기억을 만들지 않는다 (EC-08).
+ * 데모 모드는 가공 예시를 보여 주고 지우기는 막는다. 로그인이 꺼진 서버는 기억을 만들지 않는다.
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {LoaderCircle, Trash2, X, Check} from 'lucide-react';
@@ -33,7 +33,7 @@ function itemText(item: MemoryItem): string {
   const f = item.fields;
   if (item.kind === 'schedule') return `${f.cycle ?? ''} · ${f.task ?? ''}`;
   if (item.kind === 'contact') {
-    // B/L·A/N 출처 거래처는 10-08 사용자 결정으로 서류 사진에서 확인 없이 읽어 저장한다. 확인 전 값임을 밝힌다
+    // B/L·A/N 출처 거래처는 서류 사진에서 확인 없이 읽어 저장한다. 확인 전 값임을 밝힌다
     const from = f.source === '사용자' ? '직접 알려 줌' : `${f.source} 사진에서 읽음(확인 전)`;
     return `${[f.company, f.role, f.duty, f.phone].filter(Boolean).join(' · ')} (${from})`;
   }
@@ -80,14 +80,14 @@ function CargoRow({c}: {c: CargoSummary}) {
   const rows: [string, React.ReactNode][] = [];
   if (c.sale_due_date) rows.push(['판매 예정일', day(c.sale_due_date)]);
   if (c.forwarder_eta) rows.push(['포워더가 알려 준 입항 예정일', day(c.forwarder_eta)]);
-  // 통관 단계는 서버가 저장한 UNI-PASS 단계 이름 그대로 (진행 칸). 시각은 시·분까지 (M4)
+  // 통관 단계는 서버가 저장한 UNI-PASS 단계 이름 그대로 (진행 칸). 시각은 시·분까지
   if (c.last_stage) rows.push(['통관 단계', c.last_stage]);
   if (c.last_checked_at && c.last_verdict) rows.push(['마지막 확인', `${kstMonthDayTime(c.last_checked_at)} 판정`]);
   // 보조 정보는 한 줄로 합친다: B/L 종류와 거래 조건
-  // 구분을 아직 모르는 줄(서류만 넣고 조회 전, 10-08)은 구분을 적지 않는다
+  // 구분을 아직 모르는 줄(서류만 넣고 조회 전)은 구분을 적지 않는다
   const kind = c.bl_type === 'HOUSE' ? 'House B/L' : c.bl_type === 'MASTER' ? 'Master B/L' : null;
   const cond = conditions(c);
-  // 서류 사진에서 확인 없이 읽은 조건이면 출처를 밝힌다 (10-08 사용자 결정, 026 doc_facts_at)
+  // 서류 사진에서 확인 없이 읽은 조건이면 출처를 밝힌다 (doc_facts_at)
   const fromDoc = cond.length && c.doc_facts_at ? ['서류 사진에서 읽음(확인 전)'] : [];
   const sub = [...(kind ? [kind] : []), ...cond, ...fromDoc].join(' · ');
   return <li className="memory-cargo">

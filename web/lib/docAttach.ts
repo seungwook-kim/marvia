@@ -1,13 +1,12 @@
-/** 채팅 입력창에 붙인 서류 사진을 보낸 뒤 "무엇을 할지"를 코드로 정한다 (10-08 사용자 결정).
+/** 채팅 입력창에 붙인 서류 사진을 보낸 뒤 "무엇을 할지"를 코드로 정한다.
  *
- * 예전에는 읽은 값을 확인 화면(DocumentPanel)에 다시 보여 주고 사용자가 고친 값만 입력창에 넣었다. 10-08에 사용자가 이 규칙을 바꿨다:
- * Claude 앱처럼 사진은 입력창에 붙어만 있고, 보내기를 누르면 OCR이 B/L 번호를 찾아 바로 조회한다. 읽은 값은 다시 보여 주지 않는다.
+ * 사진은 입력창에 붙어만 있고, 보내기를 누르면 OCR이 B/L 번호를 찾아 바로 조회한다. 읽은 값은 다시 보여 주지 않는다.
  * 판단은 LLM이 아니라 이 파일의 코드가 한다. 재료는 서버가 코드로 정한 bl_status·important(routers/document.py)다.
  *   ok        → 사용자 글 + B/L(+MRN)을 채팅으로 보낸다. 서버가 B/L을 가린 뒤 조회한다(services/chat.mask_bls). 화면에는 가린 번호만 말한다
  *   uncertain → 조회하지 않는다. 직접 입력을 부탁하고, 사용자가 쓴 글이 있으면 B/L 없이 그 글만 보낸다
  *   none      → 쓴 글이 있으면 그 글만 보내고, 없으면 B/L·A/N 사진을 부탁한다
  * 중요한 칸(선명·항차·입항 예정일·출항일)은 값이 아니라 이름만 말한다.
- * B/L 조건·화물 인도 연락처는 10-08 사용자 결정으로 확인 화면 없이 서버가 저장한다(services/doc_facts.py, 로그인 + B/L 검사 통과일 때만).
+ * B/L 조건·화물 인도 연락처는 확인 화면 없이 서버가 저장한다(services/doc_facts.py, 로그인 + B/L 검사 통과일 때만).
  * 화면은 저장한 칸 이름(facts_saved)만 "운임 조건·인코텀즈를 저장해 두었어요"처럼 말하고 값은 말하지 않는다. 값은 채팅에서 물으면 서버 코드가 답한다.
  */
 import {maskBl} from './format';
@@ -21,9 +20,9 @@ export interface AttachDecision {
   message: string | null;
   /** 답보다 먼저 대화에 넣을 코드 문장. 읽은 값은 담지 않는다(B/L은 가린 값만). null이면 없음 */
   note: string | null;
-  /** 검사를 통과한 항차·입항 예정일·출항일. ok일 때만 있다 (예전 확인 화면이 넘기던 DocHints와 같은 쓰임) */
+  /** 검사를 통과한 항차·입항 예정일·출항일. ok일 때만 있다 (DocHints와 같은 쓰임) */
   hints: AttachHints | null;
-  /** 이번 조회에 함께 보낼 출항일. 서버가 화물 현황 표 출항 칸에 적는다 (routers/chat.py ChatDocument, 10-06) */
+  /** 이번 조회에 함께 보낼 출항일. 서버가 화물 현황 표 출항 칸에 적는다 (routers/chat.py ChatDocument) */
   document: ChatDocument | null;
 }
 
@@ -55,7 +54,7 @@ const SAVED_ORDER: Saved[] = ['freight_term', 'incoterm', 'original_bl', 'to_ord
 const SAVED_NAMES: Record<Saved, string> = {freight_term: '운임 조건', incoterm: '인코텀즈', original_bl: '원본 B/L 여부',
   to_order_bank: '은행 지시식 여부', contact: '화물 인도 연락처'};
 
-/** "운임 조건·인코텀즈를 저장해 두었어요. 채팅에서 물으면 알려 드려요." 저장한 칸 이름만 말한다 (10-08 사용자 결정). 없으면 null */
+/** "운임 조건·인코텀즈를 저장해 두었어요. 채팅에서 물으면 알려 드려요." 저장한 칸 이름만 말한다. 없으면 null */
 export function savedLine(keys: Saved[] | undefined): string | null {
   const names = SAVED_ORDER.filter(k => keys?.includes(k)).map(k => SAVED_NAMES[k]);
   if (!names.length) return null;
@@ -69,7 +68,7 @@ function hasFinal(word: string): boolean {
   return code >= 0 && code <= 11171 && code % 28 !== 0;
 }
 
-/** "선박 이름과 입항 예정일은 읽었어요." 같은 한 줄. 칸 이름만 말하고 값은 말하지 않는다 (10-08: 읽은 내용을 다시 보여 주지 않는다) */
+/** "선박 이름과 입항 예정일은 읽었어요." 같은 한 줄. 칸 이름만 말하고 값은 말하지 않는다 (읽은 내용을 다시 보여 주지 않는다) */
 export function importantLine(keys: Important[]): string | null {
   const names = keys.map(k => IMPORTANT_NAMES[k]);
   if (!names.length) return null;

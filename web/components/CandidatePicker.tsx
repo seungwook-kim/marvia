@@ -1,7 +1,7 @@
 'use client';
-/** 되묻기: 같은 이름의 배가 여러 척이거나 정보가 모자랄 때 후보를 고르고 부족한 값을 채운다 (Manus 2-3 시안으로 다시 짬).
- * E6 sends only C2 resolved_mmsi/voyage_no/forwarder_eta as requested.
- * 10-08: B/L 구분은 되묻지 않는다. 서버가 하우스·마스터를 둘 다 조회하고, 둘 다 없으면 되묻기가 아니라 실패로 끝낸다.
+/** 되묻기: 같은 이름의 배가 여러 척이거나 정보가 모자랄 때 후보를 고르고 부족한 값을 채운다.
+ * 요청에는 C2의 resolved_mmsi/voyage_no/forwarder_eta만 더해 보낸다.
+ * B/L 구분은 되묻지 않는다. 서버가 하우스·마스터를 둘 다 조회하고, 둘 다 없으면 되묻기가 아니라 실패로 끝낸다.
  * 후보는 한 줄 카드(이름 · 국적/목적지/마지막 수신 · 후보 이유)와 오른쪽 "선택" 버튼이다. 눌러서 고르고 아래 "확인하고 판정 진행"으로 보낸다.
  * 라디오 입력은 화면 밖에 그대로 두어 키보드(방향키·스페이스)와 스크린리더 동작을 지킨다.
  */
@@ -13,7 +13,7 @@ import {useApp} from './AppProvider';
 import {isLive} from '@/lib/api';
 export function CandidatePicker({response:r,request,onResolve,busy}:{response:AgentResponse;request:AgentRequest;onResolve:(req:AgentRequest)=>void;busy:boolean}) {
  const {docHints}=useApp();
- // 첨부한 서류 사진에서 읽고 서버 검사를 통과한 항차·입항 예정일이 있으면 미리 채운다 (lib/docAttach.ts, 10-08). 사용자가 고칠 수 있다
+ // 첨부한 서류 사진에서 읽고 서버 검사를 통과한 항차·입항 예정일이 있으면 미리 채운다 (lib/docAttach.ts). 사용자가 고칠 수 있다
  const [selected,setSelected]=useState<number|null>(null),[voyage,setVoyage]=useState(docHints?.voyage_no??''),[eta,setEta]=useState(docHints?.forwarder_eta??''),[error,setError]=useState('');
  function submit(e:FormEvent){e.preventDefault();if(!selected&&!voyage.trim()&&!eta){setError('후보를 고르거나 필요한 추가 정보를 입력해 주세요.');return;}setError('');onResolve({...request,follow_up_question:null,resolved_mmsi:selected,voyage_no:voyage.trim()||null,forwarder_eta:eta||null});}
  const known=['voyage_no','forwarder_eta'];

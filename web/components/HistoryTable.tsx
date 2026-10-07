@@ -1,5 +1,5 @@
 'use client';
-/** 조회 이력 (A12 요약 필드). 맨 위에 판정 분포 막대 하나와 그 범례(누르면 그 판정만 거른다), 아래에 한 줄이 한 건인 조용한 목록.
+/** 조회 이력. 맨 위에 판정 분포 막대 하나와 그 범례(누르면 그 판정만 거른다), 아래에 한 줄이 한 건인 조용한 목록.
  * 한 건 = B/L과 한 줄 메모(시각·처리 상태·배 일치·판정 방식)와 오른쪽 판정 배지. 서버가 보내는 것은 요약뿐이라(판정·상태·배 일치·판정 방식)
  * 근거 문장은 지어내지 않고, 맨 아래 한 줄로 "다시 조회하면 확인" 안내만 붙인다.
  * 오프라인(데모) 스냅샷은 GET /history 응답과 달라서 행 끝의 열기 아이콘 버튼으로만 다시 불러온다. */
@@ -19,9 +19,9 @@ const GRADES = ['fine','watch','act',null] as const;
 
 export function HistoryTable(){
  const {data,replay,loading}=useApp();const router=useRouter();const [history,setHistory]=useState<HistoryResponse|null>(null);const [error,setError]=useState(''),[query,setQuery]=useState(''),[verdict,setVerdict]=useState(''),[status,setStatus]=useState(''),[period,setPeriod]=useState('all');
- // 기간을 고르면 실제 모드는 서버에 since를 보내 그 기간만 읽는다 (M3). 데모는 아래 화면 거름만 쓴다
+ // 기간을 고르면 실제 모드는 서버에 since를 보내 그 기간만 읽는다. 데모는 아래 화면 거름만 쓴다
  useEffect(()=>{let active=true;const since=isLive&&period!=='all'?new Date(Date.now()-Number(period)*86400000).toISOString():undefined;getHistory(undefined,since).then(v=>{if(active)setHistory(v);}).catch(()=>{if(active)setError('이력을 불러오지 못했어요.');});return()=>{active=false;};},[data.demo.session_id,period]);
- // 검색은 대소문자를 가리지 않는다. 결과 화면 머리의 B/L은 소문자로 입력해도 대문자로 보인다 (10-02 UI 점검 F15)
+ // 검색은 대소문자를 가리지 않는다. 결과 화면 머리의 B/L은 소문자로 입력해도 대문자로 보인다
  const q=query.replace(/\s/g,'').toUpperCase();
  const rows=(history?.items??[]).filter(r=>(r.bl_masked??'').toUpperCase().includes(q)&&(!status||r.status===status)&&(!verdict||(verdict==='none'?!r.verdict:r.verdict===verdict))&&(period==='all'||((isLive?Date.now():new Date(data.demo.reference_time).valueOf())-new Date(r.created_at).valueOf())<=Number(period)*86400000));
  function open(id:string|null){if(!id||!replay(id)){setError(isLive?'지난 조회는 요약만 보관해요. 자세히 보려면 같은 B/L로 다시 조회해 주세요.':'이 항목은 자세한 내용이 저장되어 있지 않아요.');return;}router.push('/');}

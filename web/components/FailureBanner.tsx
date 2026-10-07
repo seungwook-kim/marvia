@@ -1,6 +1,6 @@
 'use client';
-/** partial/failed/unsupported use distinct wording and recoveries. No fake retry counts.
- * 지원 범위 밖은 B/L·양륙항을 고쳐 다시 묻도록 AI 입력창으로 돌려보낸다 (예전 #bl 입력칸은 ChatBar로 바뀌어 없다, 10-02). */
+/** partial/failed/unsupported는 문구와 복구 방법을 따로 둔다. 재시도 횟수를 지어내지 않는다.
+ * 지원 범위 밖은 B/L·양륙항을 고쳐 다시 묻도록 AI 입력창으로 돌려보낸다. */
 import {CircleHelp,RefreshCw,ShieldAlert,MapPinOff} from 'lucide-react';
 import type {AgentResponse} from '@/lib/types';
 import {dateTime,statusLabels} from '@/lib/format';

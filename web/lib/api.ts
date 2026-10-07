@@ -28,14 +28,14 @@ import adminFixture from './fixtures/admin.json';
 import memoryFixture from './fixtures/memory.json';
 import {tourAck, tourCargo, tourChanges, tourClock, tourWatchItems} from './tour';
 
-/** 끝 슬래시를 뗀 백엔드 주소. 비어 있으면 데모 모드다. */
 /** 정지된 계정에 서버가 403 account_suspended를 줄 때 보여 줄 문장. getMe가 이 문장으로 정지를 알아본다 */
 export const SUSPENDED_MESSAGE = '운영자가 이 계정을 일시 정지했어요. 문의가 필요하면 운영자에게 연락해 주세요.';
 
+/** 끝 슬래시를 뗀 백엔드 주소. 비어 있으면 데모 모드다. */
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '').trim().replace(/\/+$/, '');
 /** 서버를 부르는 실제 모드인지. 데모 둘러보기(lib/tour.ts)를 켜면 startTour()가 false로 바꾼다 (ES 모듈 live binding이라 가져다 쓴 곳도 같이 바뀐다) */
 export let isLive = API_BASE !== '';
-/** 데모 둘러보기 중인지 (10-07). 켜지면 서버·DB·LLM을 부르지 않고 가공 데이터와 시뮬레이터만 쓴다 */
+/** 데모 둘러보기 중인지. 켜지면 서버·DB·LLM을 부르지 않고 가공 데이터와 시뮬레이터만 쓴다 */
 export let tour = false;
 export function startTour() { isLive = false; tour = true; }
 
@@ -48,10 +48,10 @@ const DOCUMENT_TIMEOUT_MS = 60_000;
 export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 /** 실제 모드의 예시 B/L. 백엔드 REPLAY_MODE 데모와 같다 (scripts/make_demo.py). 앞 10건은 라이브 시연용 모의 화물
- * (scripts/demo_live.py, 10-06 정운 결정), 뒤 3건은 평가셋 데모 3건이다 (README "키 없이 데모").
- * sale_in_days: 판매 예정일을 "오늘(한국) + N일"로 채운다 (10-06). 서버 데모는 해수부 입항 예정을 "오늘 + 일"로 못 박아 만들어서
- * (scripts/demo_live.py finalize) 이 날짜를 넣으면 표의 등급과 여유 일수가 나온다. 값은 evals/fixtures/demo_live.jsonl의
- * demo_sale_in_days와 같아야 하고 backend/tests/test_demo_live.py가 맞는지 본다. 없는 예시는 비운다(09-29 선택 입력, 비워도 같은 등급).
+ * (scripts/demo_live.py), 뒤 3건은 평가셋 데모다 (README "키 없이 데모").
+ * sale_in_days: 판매 예정일을 "오늘(한국) + N일"로 채운다. 서버 데모가 입항 예정을 "오늘 + 일"로 고정해 두어
+ * 이 날짜를 넣어야 표의 등급과 여유 일수가 나온다. 값은 evals/fixtures/demo_live.jsonl의 demo_sale_in_days와 같아야 하고
+ * backend/tests/test_demo_live.py가 확인한다. 판매 예정일은 선택 입력이라 없는 예시는 비운다.
  */
 export const liveExamples = [
   {id: 'DEMOQD2610001', label: '순항 · 황해 항해 중', bl_no: 'DEMOQD2610001', bl_type: 'HOUSE' as const, sale_in_days: 10},
@@ -86,8 +86,8 @@ export function newSessionId(): string { return crypto.randomUUID(); }
  */
 export function currentSessionId(): string {
   if (!isLive) return demo.session_id;
-  // 대화 하나가 chat session_id 하나다 (10-06 결정). 대화를 열거나 새로 시작하면 AppProvider가 이 값을 정한다.
-  // 그래서 다음 /api/chat 요청과 Langfuse 세션이 그 대화로 이어진다. 정하지 않았으면 아래의 브라우저 값을 쓴다
+  // 대화 하나가 chat session_id 하나다. 대화를 열거나 새로 시작하면 AppProvider가 이 값을 정해
+  // 다음 /api/chat 요청과 Langfuse 세션이 그 대화로 이어진다. 정하지 않았으면 브라우저 값을 쓴다
   if (activeSession) return activeSession;
   if (typeof window === 'undefined') return '';
   try {
@@ -104,12 +104,12 @@ export function currentSessionId(): string {
 
 /* ---------- 실제 모드 ---------- */
 
-/** FastAPI 오류 본문({detail})을 사람이 읽을 문장으로 바꾼다. 상태 코드는 SDD 8절 표. */
-// 422 응답의 칸 이름(C2 요청 필드)을 화면 말로. 모르는 칸은 "입력한 값"으로 쓴다 (10-02 화면 용어 점검)
+/** 422 응답의 칸 이름(C2 요청 필드)을 화면 말로. 모르는 칸은 "입력한 값"으로 쓴다 */
 const FIELD_NAMES: Record<string, string> = {
   bl_no: 'B/L 번호', sale_due_date: '판매 예정일', bl_type: 'B/L 구분', voyage_no: '항차 번호',
   forwarder_eta: '포워더가 알려 준 입항 예정일', follow_up_question: '질문', message: '입력한 문장', resolved_mmsi: '선택한 선박',
 };
+/** FastAPI 오류 본문({detail})을 사람이 읽을 문장으로 바꾼다. 상태 코드는 SDD 8절 표. */
 async function errorMessage(res: Response): Promise<string> {
   let detail = '';
   try {
@@ -132,7 +132,6 @@ async function errorMessage(res: Response): Promise<string> {
   return detail || '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.';
 }
 
-/** 타임아웃을 건 fetch. 연결 자체가 안 되면 주소를 알려 줘서 백엔드가 떠 있는지 확인하게 한다. */
 /** 연결 자체가 안 될 때 다시 시도하는 간격. 서버 재시작(몇 초) 중에 보낸 요청이 바로 실패하지 않게 한다 */
 const RETRY_DELAYS_MS = [1500, 3000];
 
@@ -205,7 +204,7 @@ export function errorStatus(e: unknown): number | undefined {
   return typeof s === 'number' ? s : undefined;
 }
 
-/* ---------- 대화 목록 (10-06 결정) ---------- */
+/* ---------- 대화 목록 ---------- */
 // 로그인해야 쓸 수 있다(401). DB가 없으면 503. 호출하는 쪽이 이 둘을 "목록 없음"으로 본다. 데모 모드에는 저장된 대화가 없다.
 
 /** GET /api/conversations. 최근 순, 서버가 최대 50개까지 준다 */
@@ -220,12 +219,11 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
   return (await call(`/api/conversations/${encodeURIComponent(id)}`, {}, HISTORY_TIMEOUT_MS)).json();
 }
 
-/** DELETE /api/conversations/{id} */
-/** 사진 첨부 턴의 화면에 보인 말풍선 (10-08). 대화 기록은 이 값으로 남는다(처리용 message에는 사진에서 읽은 B/L이 붙는다).
+/** 사진 첨부 턴의 화면에 보인 말풍선. 대화 기록은 이 값으로 남는다(처리용 message에는 사진에서 읽은 B/L이 붙는다).
  * 서버 routers/chat.py ChatShown과 같은 모양 */
 export interface ChatShown { text: string; attachment_name: string | null; note: string | null }
 
-/** POST /api/conversations/{id}/attachment-turns. 채팅을 부르지 않고 끝난 사진 첨부 턴(B/L 없음·불확실, 쓴 글 없음)을 대화에 남긴다 (10-08).
+/** POST /api/conversations/{id}/attachment-turns. 채팅을 부르지 않고 끝난 사진 첨부 턴(B/L 없음·불확실, 쓴 글 없음)을 대화에 남긴다.
  * 대화 기록은 부가 기능이라 실패해도 화면을 막지 않는다. 체험 모드·로그인 전에는 부르지 않는다 */
 export async function saveAttachmentTurn(text: string, attachmentName: string, note: string): Promise<boolean> {
   if (!isLive) return false;
@@ -236,6 +234,7 @@ export async function saveAttachmentTurn(text: string, attachmentName: string, n
   } catch { return false; }
 }
 
+/** DELETE /api/conversations/{id} */
 export async function deleteConversation(id: string): Promise<{deleted: boolean}> {
   if (!isLive) throw new Error('체험 모드에는 지울 대화가 없어요.');
   return liveDelete(`/api/conversations/${encodeURIComponent(id)}`);
@@ -281,7 +280,7 @@ async function demoAgentResponse(req: AgentRequest): Promise<AgentResponse> {
   if ((req.follow_up_question?.length ?? 0) > 300) throw new Error('질문은 300자 이내로 입력해 주세요.');
   const key = `${req.session_id}:${normalized}`;
   const choice = demo.choices.find(c => c.request.bl_no === normalized);
-  // 구분 "모름"(null, 10-08)은 서버처럼 어느 구분이든 찾으므로 예시의 구분과 달라도 된다
+  // 구분 "모름"(null)은 서버처럼 어느 구분이든 찾으므로 예시의 구분과 달라도 된다
   if (choice && ((req.sale_due_date ?? null) !== choice.request.sale_due_date || (req.bl_type != null && req.bl_type !== choice.request.bl_type))) {
     throw new Error('저장된 예시와 조회 조건이 달라요. 예시 화물을 다시 선택하면 저장된 판매 예정일·B/L 구분으로 돌아가요.');
   }
@@ -337,11 +336,11 @@ async function demoChat(message: string, context: AgentRequest | null): Promise<
     // 데모에서도 작은 지도가 보이게, 위치가 있는 예시 화물은 그 위치를 map으로 함께 돌려준다 (실제 모드는 서버가 채운다)
     const pos = agent.position;
     const map = pos ? {lat: pos.lat, lng: pos.lng, ship_name: agent.vessel?.name ?? null, distance_nm: agent.eta?.distance_nm ?? null, received_at: pos.last_time, source: 'shipfinder'} : null;
-    // 10-08 정운 실사용 58번: 데모에서도 답 속 근거 표시가 보이게 정상 답에는 모의 근거를 붙인다 (모의값. 실제 모드는 서버가 채운다)
+    // 데모에서도 답 속 근거 표시가 보이게 정상 답에는 모의 근거를 붙인다 (실제 모드는 서버가 채운다)
     return {...empty, kind: 'cargo', ...demoEvidence(agent.answer, agent.status), agent, request, map};
   }
   // 화물을 보고 있을 때 "배 지금 어디쯤이야?"처럼 그 화물의 배를 묻는 문장은 후속 질문이다. 선박 검색은 지역·목록을 찾는
-  // 문장 모양일 때만 고른다 (10-02 UI 점검 F6). 실제 모드는 서버 LLM이 의도를 고르므로 이 규칙은 데모에만 있다
+  // 문장 모양일 때만 고른다. 실제 모드는 서버 LLM이 의도를 고르므로 이 규칙은 데모에만 있다
   const searchLike = /(들어오는|들어올|오는|입항하는|입항할|입항 예정)\s*(배|선박)|(배|선박)\s*(보여|알려|목록|전부|있어|찾아)|중국|일본|베트남|상하이|싱가포르|대만|홍콩|태국/.test(message);
   if (/배|선박|입항/.test(message) && (!context || searchLike)) {
     await pause();
@@ -375,7 +374,7 @@ export async function sendChat(message: string, context: AgentRequest | null, hi
 const HISTORY_MAX_TURNS = 6;
 const HISTORY_MAX_CHARS = 500;
 
-/** 긴 줄은 앞과 끝을 함께 남긴다 (10-06). 지켜보기 제안("이 화물을 지켜볼까요?")은 답 끝에 붙는데 앞에서만 자르면 잘려 나가서,
+/** 긴 줄은 앞과 끝을 함께 남긴다. 지켜보기 제안("이 화물을 지켜볼까요?")은 답 끝에 붙는데 앞에서만 자르면 잘려 나가서,
  * 다음 턴의 "응"을 서버가 제안에 대한 대답으로 알아보지 못한다. 띄어쓰기 자리에서만 잘라 B/L 번호가 반쯤 남지 않게 한다
  * (반쪽 번호는 B/L 모양이 아니라 서버가 가리지 못한다) */
 function clip(text: string): string {
@@ -532,7 +531,7 @@ export async function deleteMemoryItem(id: string): Promise<{deleted: number}> {
   return liveDelete(`/api/memory/items/${encodeURIComponent(id)}`);
 }
 
-/* ---------- 카카오톡 "나에게 보내기" 알림 (10-02/10-05 결정, backend/app/routers/kakao.py) ---------- */
+/* ---------- 카카오톡 "나에게 보내기" 알림 (backend/app/routers/kakao.py) ---------- */
 
 /** GET /api/kakao/status. 연결 버튼을 보여 줄지 정한다. 데모 모드에는 연결할 실제 카카오톡이 없다. */
 export async function getKakaoStatus(): Promise<KakaoStatus> {
@@ -566,7 +565,7 @@ export async function unlinkKakao(): Promise<{linked: boolean}> {
   return liveDelete('/api/kakao/link');
 }
 
-/* ---------- 화물 지켜보기 (G5 작업 리스트, 10-05 결정, 백엔드 routers의 watch) ---------- */
+/* ---------- 화물 지켜보기 (backend/app/routers/watch.py) ---------- */
 
 /** B/L은 URL에 넣지 않는다(서버·프록시 로그에 남는다). 본문 JSON으로만 보낸다. 조회 때와 같게 공백 제거·대문자로 맞춘다 */
 export const watchKey = (blNo: string) => blNo.replace(/\s/g, '').toUpperCase();
@@ -601,7 +600,7 @@ export async function markWatchChangesSeen(): Promise<{cleared: number}> {
   return (await call('/api/watch/changes/seen', {method: 'POST'}, HISTORY_TIMEOUT_MS)).json();
 }
 
-/* ---------- 내 화물 현황 표 (10-06, 수입자가 손으로 쓰던 표) ---------- */
+/* ---------- 내 화물 현황 표 (수입자가 손으로 쓰던 표를 대신한다) ---------- */
 
 /** 데모 모드의 가짜 표. 값은 전부 지어낸 것이다(MRVDEMO B/L, DEMO 신용장). 실제 번호를 쓰지 않는다 (CLAUDE.md) */
 const demoRow = (n: number, extra: Partial<CargoSheetRow>): CargoSheetRow => ({
@@ -685,7 +684,7 @@ export async function downloadCargoSheet(): Promise<{blob: Blob; filename: strin
 /** GET /api/me. 탭을 나누는 데만 쓴다. 관리 API는 서버가 다시 확인한다.
  * 데모 모드는 관리 화면도 볼 수 있게 운영자로 둔다(가공 데이터). 못 읽으면 일반 사용자로 본다. */
 export async function getMe(): Promise<MeResponse> {
-  // 데모 둘러보기는 일반 사람이 보는 화면이라 운영자 메뉴(평가 지표·관리)를 보이지 않는다 (10-07)
+  // 데모 둘러보기는 일반 사람이 보는 화면이라 운영자 메뉴(평가 지표·관리)를 보이지 않는다
   if (tour) return {user_id: 'demo', email: null, is_operator: false, profile_complete: true};
   if (!isLive) return {user_id: 'demo', email: null, is_operator: true, profile_complete: true};
   try { return await (await call('/api/me', {}, HISTORY_TIMEOUT_MS)).json(); }
@@ -793,20 +792,19 @@ export function getReplaySnapshot(requestId: string) {
 /** 번들 Natural Earth 지형. 지도 타일 서버를 부르지 않는다 (THIRD_PARTY.md). */
 export function getGeography() { return geography; }
 
-
 /** 감시·지도 화면의 화물 한 건 (docs/specs/cargo-watch.md). 위치는 worker가 6시간마다 모은 마지막 값이다 */
 export interface WatchItem {
   bl_masked: string; label: string | null; ship_name: string; status: 'active' | 'done';
   verdict: 'fine' | 'watch' | 'act' | null; stage: string | null; eta: string | null; days_margin: number | null;
-  /** 위치는 수집 전이면 null이다 (GET /api/watch, 10-06). 지도는 위치 있는 화물만 그린다 */
+  /** 위치는 수집 전이면 null이다. 지도는 위치 있는 화물만 그린다 */
   lat: number | null; lng: number | null; cog: number | null; sog: number | null; position_at: string | null;
   /** 6시간마다(또는 조회할 때마다) 저장한 위치 이력, 오래된 순. 마지막 점이 현재 위치(lat·lng)와 같다 */
   track?: {lat: number; lng: number; at: string; sog: number | null}[];
-  /** 서버 목록에만 있는 칸 (10-06): 화물 지문, UNI-PASS 품명, 배 국적 */
+  /** 서버 목록에만 있는 칸: 화물 지문, UNI-PASS 품명, 배 국적 */
   cargo_key?: string; goods_name?: string | null; ship_flag?: string | null;
 }
 export interface WatchList { items: WatchItem[]; updated_at: string | null; sample: boolean }
-/** 내 감시 화물 목록. 서버(isLive)면 GET /api/watch (10-06), 데모 모드면 가공 예시를 돌려준다(sample).
+/** 내 감시 화물 목록. 서버(isLive)면 GET /api/watch, 데모 모드면 가공 예시를 돌려준다(sample).
  * 서버는 선명을 모르면 null을 주므로 화면 글자가 비지 않게 가린 B/L로 채운다 */
 export async function getWatchList(): Promise<WatchList> {
   // 데모 둘러보기: 10초마다 움직이는 시뮬레이터 위치 (lib/tour.ts)
