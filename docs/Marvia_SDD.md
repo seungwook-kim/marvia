@@ -23,7 +23,7 @@
 계획과 달라진 점: 프론트 폴더는 `frontend/`가 아니라 `web/`이다. `evals/dataset/` 폴더는 만들지 않고 `evals/dataset.jsonl` 한 파일(30건)이다. `worker/arrivals.py`와 `worker/targets.json`, `backend/app/clients/searoute_client.py`는 만들지 않았다(수집은 `collector.py`가 한 파일에서 하고 대상은 DB `targets` 표에 둔다. searoute는 `mcp_server/tools/distance.py`가 직접 쓴다).
 
 ```
-proj2-5/
+marvia/
   backend/
     requirements.txt        app, worker가 같은 base 이미지를 쓰므로 공통
     requirements-doc.txt    서류 사진 OCR 패키지. app 이미지에만 설치

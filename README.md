@@ -196,7 +196,7 @@ AgentResponse (ok | partial | insufficient | failed)
 ### 한 줄로 띄우기
 
 ```bash
-git clone https://github.com/aihuman-7th/proj2-5.git && cd proj2-5
+git clone https://github.com/seungwook-kim/marvia.git && cd marvia
 cp .env.example .env     # 키를 채운다 (아래 표 참고)
 docker compose up        # api :8000 (/api/agent, /mcp), worker, postgres
 ```

@@ -39,7 +39,7 @@
 레포 구조 (실제):
 
 ```
-proj2-5/
+marvia/
   backend/app/    FastAPI (라우터, 서비스, 스키마, 클라이언트, 관측, 프롬프트 사본)
   mcp_server/     FastMCP 도구 4종 (/mcp는 API 서버 안의 경로)
   skills/         Skill 문서 5종 (ais-reliability, customs-stages, port-busan, cargo-verdict, referrals) + 임계값 (10-06)
