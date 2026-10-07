@@ -9,6 +9,10 @@
  */
 import type {ReactNode} from 'react';
 import {Anchor, BellRing, FileSearch, Info, ShieldCheck, Ship, Stamp} from 'lucide-react';
+
+/** 사진을 화면 너비에 맞는 크기로 (가장 먼저 그려지는 첫 화면 사진이 무거웠다, 10-07 점검) */
+const HERO_SRCSET = '/landing/port-800.webp 800w, /landing/port-1280.webp 1280w, /landing/port-1440.webp 1440w, /landing/port-1920.webp 1920w';
+const SEA_SRCSET = '/landing/sea-800.webp 800w, /landing/sea-1280.webp 1280w, /landing/sea-1920.webp 1920w';
 import {isLive} from '@/lib/api';
 
 /** 평가셋 30건 실측 (10-07, b_20261007_0935.json). 숫자 줄과 출처 문장이 이 값 하나를 쓴다 */
@@ -67,7 +71,7 @@ export function IntroContent({action, navRight, footer}: {action: ReactNode; nav
 
     {/* 첫 화면: 항만으로 들어오는 배 사진에 굵은 제목. 배가 오른쪽에 있어 왼쪽 글과 겹치지 않고, 글자가 읽히게 왼쪽을 어둡게 덮는다 */}
     <section className="lp-hero" id="top">
-      <img className="lp-hero-img" src="/landing/port.jpg" alt="" width={1800} height={1201} fetchPriority="high"/>
+      <img className="lp-hero-img" src="/landing/port-1440.webp" srcSet={HERO_SRCSET} sizes="100vw" alt="" width={1440} height={961} fetchPriority="high"/>
       <div className="lp-hero-shade" aria-hidden="true"/>
       <div className="lp-hero-in">
         <p className="lp-eyebrow light">수입 화물 비서</p>
@@ -109,7 +113,7 @@ export function IntroContent({action, navRight, footer}: {action: ReactNode; nav
 
     {/* 데이터 출처: 넓은 사진 띠 위에 세 곳 */}
     <section className="lp-band" aria-labelledby="lp-src">
-      <img className="lp-band-img" src="/landing/hero.jpg" alt="" width={2000} height={1330} loading="lazy"/>
+      <img className="lp-band-img" src="/landing/sea-1280.webp" srcSet={SEA_SRCSET} sizes="100vw" alt="" width={1280} height={851} loading="lazy"/>
       <div className="lp-band-shade" aria-hidden="true"/>
       <div className="lp-wrap lp-band-in">
         <p className="lp-eyebrow light">데이터 출처</p>
