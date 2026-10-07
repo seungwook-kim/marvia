@@ -7,6 +7,8 @@
   4.   나머지 6칸                   services/llm.extract_doc_fields (소형 모델, LLM_MODEL)
   5.   칸 검사                      doc_ocr.check_fields, B/L 조건·연락처는 doc_ocr.check_conditions (10-02 결정 6)
   6.   바로 조회해도 되나            bl_status_of, important_of (10-08 사용자 결정, 코드가 정한다)
+  7.   B/L 조건·거래처 자동 저장      services/doc_facts.save_from_document (10-08 사용자 결정: 로그인 + bl_status ok일 때
+                                   검사를 통과한 칸만. 확인 화면 POST /api/memory/document-facts는 없앴다). 저장한 칸 이름만 facts_saved로
 여기서 판정하지 않고 LLM SDK를 import하지 않는다 (CLAUDE.md). 뽑은 값으로 /api/agent·/api/chat을 부르지도 않는다.
 10-08 사용자 결정: 채팅 입력창에 사진을 붙여 보내면 확인 화면 없이, 화면이 bl_status가 ok일 때만 그 B/L로 채팅 조회를 보낸다
 (web/components/ChatBar.tsx, AppProvider.askWithAttachment). 예전 "읽은 값으로 바로 조회하지 않는다"는 이 결정으로 바뀌었다.
@@ -24,7 +26,7 @@ from backend.app.observability.langfuse import request_span, session_scope
 from backend.app.observability.logging import current_request_id, log_failure
 from backend.app.routers.agent import quota_guard
 from backend.app.schemas.document import DocumentFields, DocumentResponse, FieldResult, OcrInfo
-from backend.app.services import doc_ocr, llm
+from backend.app.services import doc_facts, doc_ocr, llm
 
 router = APIRouter(prefix="/api", tags=["document"])
 
@@ -104,6 +106,10 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
     shown, extra_checks = doc_ocr.check_conditions(conditions, evidence, ocr.lines)
     fields = DocumentFields(**{k: FieldResult(value=values[k], checks=checks[k]) for k in doc_ocr.FIELDS},
                             **{k: FieldResult(value=shown[k], checks=extra_checks[k]) for k in doc_ocr.CONDITION_FIELDS})
+    bl_status = bl_status_of(fields)
+    # 확인 화면 없이 저장한다 (10-08 사용자 결정). 틀린 번호의 화물 줄에 남의 조건을 적지 않게 B/L이 검사를 통과했을 때만.
+    # 저장 실패는 서류 응답을 막지 않는다 (doc_facts가 종류만 로그로 남기고 빈 목록을 돌려준다)
+    saved = doc_facts.save_from_document(user_id, fields.bl_no.value, fields, doc_kind) if bl_status == "ok" else []
     return DocumentResponse(
         status=status,
         needs_review=any(checks.values()) or any(extra_checks.values()),
@@ -113,8 +119,9 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
         mrn=doc_ocr.take_mrn(ocr.lines),  # 세관에 아직 없는 화물의 대체 조회용 (mrn-fallback)
         doc_kind=doc_kind,
         llm_error=llm_error,
-        bl_status=bl_status_of(fields),
+        bl_status=bl_status,
         important=important_of(fields),
+        facts_saved=saved,
     )
 
 

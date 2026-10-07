@@ -71,7 +71,9 @@
           "noted_at": "2026-10-01"
         }
       ],
-      "summary": null
+      "summary": null,
+      "doc_facts_at": null,
+      "doc_facts_source": null
     },
     {
       "bl_masked": "MRV*****105",
@@ -90,7 +92,9 @@
       "last_eta": null,
       "last_stage": "반출신고",
       "pending": [],
-      "summary": "09.22 MRV*****105 반출 완료"
+      "summary": "09.22 MRV*****105 반출 완료",
+      "doc_facts_at": null,
+      "doc_facts_source": null
     }
   ],
   "full": false,

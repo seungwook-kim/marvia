@@ -6,7 +6,8 @@
 10-08 사용자 결정: 채팅 입력창 사진 첨부는 확인 화면 없이 bl_status가 ok일 때만 바로 조회한다 (bl_status, important 추가, 선택 칸).
 10-02 (정운 승인, 결정 6): B/L 조건 세 칸 + 인코텀즈와 화물 인도 연락처(회사·역할·회사 전화) 칸을 더했다.
 이 칸들은 서류에 없는 경우가 흔해서(도착 통지서엔 운임 조건이 없기도 하다) 비어도 missing을 걸지 않는다.
-값이 있을 때만 검사(not_in_text, format, ambiguous)를 건다. 사용자가 확인 화면에서 고른 값만 저장된다 (POST /api/memory/document-facts).
+값이 있을 때만 검사(not_in_text, format, ambiguous)를 건다. 10-08 사용자 결정으로 확인 화면을 없앴다: 로그인 사용자의 사진이고
+B/L이 검사를 통과하면(bl_status ok) 검사를 통과한 칸만 서버가 바로 저장하고 저장한 칸 이름을 facts_saved로 알린다 (services/doc_facts.py).
 """
 from __future__ import annotations
 
@@ -85,3 +86,6 @@ class DocumentResponse(BaseModel):
     # 10-08: 검사를 통과한 "중요한 칸"의 이름만 (vessel, voyage, eta, etd). 값은 넣지 않는다.
     # 사진을 다시 보여 주지 않기로 해서(10-08 사용자 결정), 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다
     important: list[Literal["vessel", "voyage", "eta", "etd"]] = Field(default_factory=list)
+    # 10-08 사용자 결정 (additive, 선택): 이번 사진에서 저장한 B/L 조건·거래처의 칸 이름만 (값 없음). 확인 화면 없이 저장했으므로
+    # 화면이 "운임 조건·인코텀즈를 저장해 두었어요"라고 알린다 (web/lib/docAttach.ts). 로그인 안 함·DB 없음·B/L 검사 걸림이면 빈 목록
+    facts_saved: list[Literal["original_bl", "to_order_bank", "freight_term", "incoterm", "contact"]] = Field(default_factory=list)

@@ -53,7 +53,7 @@ BOOL_FIELDS = {"todo": {"done"}}
 REQUIRED = {"preference": {"text"}, "schedule": {"cycle", "task"}, "contact": {"company", "role", "source"},
             "worry": {"text"}, "todo": {"text"}}
 SOURCES = ("B/L", "A/N", "사용자")  # 역할 목록 ROLES와 전화·금액 모양은 services/pii_patterns.py
-# 대화에서 기억 뽑기가 낸 거래처는 출처가 "사용자"뿐이다. B/L·A/N 출처는 서류 확인 저장(document-facts)만 쓴다 (Spec "넣지 않는 것")
+# 대화에서 기억 뽑기가 낸 거래처는 출처가 "사용자"뿐이다. B/L·A/N 출처는 서류 사진 자동 저장(services/doc_facts, 10-08)만 쓴다 (Spec "넣지 않는 것")
 CHAT_SOURCE = "사용자"
 
 # ── 상한 (Spec "보관과 크기" 설정값). 바꿀 곳은 여기 한 곳이다 ──
@@ -512,9 +512,10 @@ def forget_user(conn, user_id: str) -> int:
 
 
 def add_contact(conn, user_id: str, contact: dict, cargo_key: str | None, today: date) -> str:
-    """서류 사진에서 사용자가 확인한 거래처를 메모장에 더한다 (10-02 결정 7). 출처는 B/L 또는 A/N.
+    """서류 사진에서 읽은 거래처를 메모장에 더한다 (10-02 결정 7). 출처는 B/L 또는 A/N.
 
-    칸 검사는 기억 뽑기와 같은 규칙(_check_fields)을 쓰되 사용자 문장 대조는 하지 않는다. 사용자가 확인 화면에서 본 값이다.
+    칸 검사는 기억 뽑기와 같은 규칙(_check_fields)을 쓰되 사용자 문장 대조는 하지 않는다. 10-08 사용자 결정으로 확인 화면 없이
+    services/doc_facts.save_from_document가 부르고, 그 전에 doc_ocr.check_conditions(서류 글자 대조)를 통과한 값만 온다.
     같은 회사·전화번호가 이미 있으면 새로 더하지 않는다. 화물이 있으면 화물별 칸에 붙인다.
     """
     fields = {k: v for k, v in contact.items() if v is not None}

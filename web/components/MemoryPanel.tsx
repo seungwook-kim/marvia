@@ -33,7 +33,8 @@ function itemText(item: MemoryItem): string {
   const f = item.fields;
   if (item.kind === 'schedule') return `${f.cycle ?? ''} · ${f.task ?? ''}`;
   if (item.kind === 'contact') {
-    const from = f.source === '사용자' ? '직접 알려 줌' : `${f.source}에서`;
+    // B/L·A/N 출처 거래처는 10-08 사용자 결정으로 서류 사진에서 확인 없이 읽어 저장한다. 확인 전 값임을 밝힌다
+    const from = f.source === '사용자' ? '직접 알려 줌' : `${f.source} 사진에서 읽음(확인 전)`;
     return `${[f.company, f.role, f.duty, f.phone].filter(Boolean).join(' · ')} (${from})`;
   }
   if (item.kind === 'todo') return `${f.text ?? ''}${f.done ? ' (끝남)' : ''}`;
@@ -85,7 +86,10 @@ function CargoRow({c}: {c: CargoSummary}) {
   // 보조 정보는 한 줄로 합친다: B/L 종류와 거래 조건
   // 구분을 아직 모르는 줄(서류만 넣고 조회 전, 10-08)은 구분을 적지 않는다
   const kind = c.bl_type === 'HOUSE' ? 'House B/L' : c.bl_type === 'MASTER' ? 'Master B/L' : null;
-  const sub = [...(kind ? [kind] : []), ...conditions(c)].join(' · ');
+  const cond = conditions(c);
+  // 서류 사진에서 확인 없이 읽은 조건이면 출처를 밝힌다 (10-08 사용자 결정, 026 doc_facts_at)
+  const fromDoc = cond.length && c.doc_facts_at ? ['서류 사진에서 읽음(확인 전)'] : [];
+  const sub = [...(kind ? [kind] : []), ...cond, ...fromDoc].join(' · ');
   return <li className="memory-cargo">
     <div className="mc-head"><strong>{name}</strong>{c.last_verdict ? <VerdictBadge verdict={c.last_verdict}/> : <span className="mc-none">판정 이력 없음</span>}</div>
     <p className="mc-cond">{sub}</p>

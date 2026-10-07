@@ -10,9 +10,6 @@ from backend.app.routers import memory as memory_router
 from backend.tests.test_routers import _login
 
 BL = "MOCKBL20261002"
-FACTS = {"bl_no": BL, "bl_type": "HOUSE", "source": "B/L", "original_bl": "required", "to_order_bank": True,
-         "freight_term": "collect", "incoterm": "FOB",
-         "contact": {"company": "가나다물류", "role": "포워더", "phone": "051-000-0000"}}
 
 
 class FakeConn:
@@ -31,13 +28,11 @@ def db(monkeypatch):
 
 @pytest.mark.parametrize("method, path, body", [
     ("get", "/api/memory", None), ("delete", "/api/memory", None), ("delete", "/api/memory/items/c1", None),
-    ("post", "/api/memory/document-facts", FACTS),
 ])
 def test_login_required_everywhere(monkeypatch, db, method, path, body):
     """로그인 꺼진 환경(EC-08)과 헤더 없는 요청은 401. 서비스까지 가지 않는다."""
     monkeypatch.setattr(memory_router.memory, "view", lambda *a: pytest.fail("로그인 없이 읽으면 안 된다"))
     monkeypatch.setattr(memory_router.memory, "delete_all", lambda *a: pytest.fail("로그인 없이 지우면 안 된다"))
-    monkeypatch.setattr(memory_router.cargo, "apply_document_facts", lambda *a: pytest.fail("로그인 없이 쓰면 안 된다"))
     kwargs = {"json": body} if body else {}
     with TestClient(app) as client:
         assert getattr(client, method)(path, **kwargs).status_code == 401  # 로그인 꺼짐
@@ -107,36 +102,8 @@ def test_delete_failure_is_not_hidden(monkeypatch):
         assert client.delete("/api/memory/items/c1", headers=headers).status_code == 503
 
 
-def test_document_facts_saves_conditions_and_contact(monkeypatch, db):
-    """확인한 B/L 조건은 화물 표에, 거래처는 출처 B/L 메모로 (10-02 결정 7)."""
-    headers = _login(monkeypatch)
-    calls = []
-    monkeypatch.setattr(memory_router.cargo, "apply_document_facts",
-                        lambda conn, user_id, bl_no, bl_type, facts: calls.append(("cargo", bl_no, bl_type, facts)) or "k1")
-    monkeypatch.setattr(memory_router.cargo, "get_row", lambda conn, user_id, key: {"cargo_key": key})
-    monkeypatch.setattr(memory_router.memory, "add_contact",
-                        lambda conn, user_id, contact, key, today: calls.append(("contact", contact, key)) or "saved")
-    with TestClient(app) as client:
-        body = client.post("/api/memory/document-facts", json=FACTS, headers=headers).json()
-    assert body == {"conditions_saved": True, "contact": "saved"}
-    assert calls[0] == ("cargo", BL, "HOUSE", {"original_bl": "required", "to_order_bank": True,
-                                               "freight_term": "collect", "incoterm": "FOB"})
-    assert calls[1] == ("contact", {"company": "가나다물류", "role": "포워더", "phone": "051-000-0000", "source": "B/L"}, "k1")
-
-
-def test_document_facts_without_source_skips_contact(monkeypatch, db):
-    headers = _login(monkeypatch)
-    monkeypatch.setattr(memory_router.cargo, "apply_document_facts", lambda *a: "k1")
-    monkeypatch.setattr(memory_router.memory, "add_contact", lambda *a: pytest.fail("출처를 모르면 저장하지 않는다"))
-    with TestClient(app) as client:
-        body = client.post("/api/memory/document-facts", json={**FACTS, "source": None}, headers=headers).json()
-    assert body == {"conditions_saved": True, "contact": "skipped"}
-
-
-@pytest.mark.parametrize("over", [{"original_bl": "maybe"}, {"freight_term": "cod"}, {"incoterm": "EXW"},
-                                  {"bl_no": "short"}, {"contact": {"company": "가나다물류", "role": "은행"}}])
-def test_document_facts_rejects_values_outside_lists(monkeypatch, db, over):
-    """허용 값 밖은 계약에서 422. 마이그레이션 015 CHECK와 같은 목록이다."""
+def test_confirm_screen_endpoint_is_gone(monkeypatch, db):
+    """확인 화면용 POST /api/memory/document-facts는 10-08 사용자 결정으로 없앴다. 자동 저장은 tests/test_doc_facts.py가 본다."""
     headers = _login(monkeypatch)
     with TestClient(app) as client:
-        assert client.post("/api/memory/document-facts", json={**FACTS, **over}, headers=headers).status_code == 422
+        assert client.post("/api/memory/document-facts", json={"bl_no": BL}, headers=headers).status_code in (404, 405)

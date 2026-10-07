@@ -580,6 +580,31 @@
       "ref": "PendingChange"
      }
     },
+    "doc_facts_at": {
+     "anyOf": [
+      {
+       "type": "string",
+       "format": "datetime"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "doc_facts_source": {
+     "anyOf": [
+      {
+       "enum": [
+        "B/L",
+        "A/N",
+        "document"
+       ]
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
     "summary": {
      "anyOf": [
       {
@@ -608,6 +633,8 @@
     "last_eta",
     "last_stage",
     "pending",
+    "doc_facts_at",
+    "doc_facts_source",
     "summary"
    ]
   },
@@ -1112,6 +1139,18 @@
        "etd"
       ]
      }
+    },
+    "facts_saved": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "original_bl",
+       "to_order_bank",
+       "freight_term",
+       "incoterm",
+       "contact"
+      ]
+     }
     }
    },
    "required": [
@@ -1124,7 +1163,8 @@
     "doc_kind",
     "llm_error",
     "bl_status",
-    "important"
+    "important",
+    "facts_saved"
    ]
   },
   "EtaChange": {
