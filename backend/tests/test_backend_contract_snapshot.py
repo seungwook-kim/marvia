@@ -1,6 +1,5 @@
-"""화면 계약 스냅샷(web/scripts/backend-contract.json)이 지금 Pydantic 모델과 같은지 본다 (10-08).
+"""화면 계약 스냅샷(web/scripts/backend-contract.json)이 지금 Pydantic 모델과 같은지 본다.
 
-스냅샷이 손으로 옮긴 사본이던 때는 응답 칸이 늘어도 아무도 몰랐다(customs_detail, departed_on, llm_error 누락).
 모델을 바꾸고 `python -m scripts.make_backend_contract`를 다시 돌리지 않으면 여기서 걸린다. 그다음
 `python -m scripts.fill_web_fixtures`로 화면 예시 데이터의 빠진 칸을 채우고 `node scripts/verify-contract.mjs`(web/)로 확인한다.
 """

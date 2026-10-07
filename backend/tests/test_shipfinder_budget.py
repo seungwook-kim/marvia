@@ -1,4 +1,4 @@
-"""ShipFinder 호출 아끼기 테스트 (clients/shipfinder.py, 10-08 결정). 하루 50회 한도라 같은 값을 다시 부르지 않는지 본다.
+"""ShipFinder 호출 아끼기 테스트 (clients/shipfinder.py). 하루 50회 한도라 같은 값을 다시 부르지 않는지 본다.
 
 가공 fixture(evals/fixtures/shipfinder/)로 키 없이 돈다. 요청 수는 MockTransport가 센다.
 """
@@ -48,7 +48,7 @@ def test_position_fetched_again_after_window():
 
 
 def test_failure_fallback_still_serves_cache_after_window():
-    # 재사용 기간이 지난 뒤 빈도 초과면 전처럼 마지막 성공 값으로 대신하고 그 시각을 알린다 (SDD 5.2)
+    # 재사용 기간이 지난 뒤 빈도 초과면 마지막 성공 값으로 대신하고 그 시각을 알린다 (SDD 5.2)
     calls = []
     client = _client(calls, fail_after=0)
     old = datetime.now(timezone.utc) - timedelta(minutes=rule("position_reuse_minutes") + 1)
@@ -99,4 +99,4 @@ def test_candidates_then_live_position_calls_position_once(monkeypatch):
     cands = vessel_candidates.get_vessel_candidates("TEST STAR", call_sign="TST01")["candidates"]
     pos = live_position.get_live_position(cands[0]["mmsi"])
     assert "error" not in pos and pos["cached_at"] is None
-    assert sorted(calls) == ["VesselFlagInfo", "VesselPositionSingle", "VesselSearch"]  # 전에는 위치가 2번
+    assert sorted(calls) == ["VesselFlagInfo", "VesselPositionSingle", "VesselSearch"]  # 위치는 한 번만

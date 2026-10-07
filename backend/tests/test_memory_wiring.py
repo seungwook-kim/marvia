@@ -148,12 +148,12 @@ def test_follow_up_lookup_separates_same_masked_number(monkeypatch):
     rows = [({"answer": "다른 화물"}, crypto.encrypt(other)), ({"answer": "내 화물"}, crypto.encrypt(mine))]
     assert agent_router._same_cargo(rows, mine) == {"answer": "내 화물"}
     assert agent_router._same_cargo(rows[:1], mine) is None                      # 다른 화물로 확인된 줄만 있으면 다시 조회
-    assert agent_router._same_cargo([({"answer": "옛 줄"}, None)], mine) == {"answer": "옛 줄"}  # 원본이 없던 줄은 예전처럼
+    assert agent_router._same_cargo([({"answer": "옛 줄"}, None)], mine) == {"answer": "옛 줄"}  # 원본이 없는 옛 줄은 그대로 쓴다
     assert agent_router._same_cargo([], mine) is None
 
 
 def test_chat_lookup_gets_previous_line(monkeypatch):
-    """10-02 결정 4: 로그인 사용자가 다시 조회한 화물이면 답 끝에 코드가 쓴 한 줄. 후속 질문에는 안 붙인다."""
+    """로그인 사용자가 다시 조회한 화물이면 답 끝에 코드가 쓴 한 줄. 후속 질문에는 안 붙인다."""
     notes = []
     monkeypatch.setattr(svc.memory, "lookup_notes",
                         lambda user_id, bl: notes.append((user_id, bl)) or ["지난 조회(10.01)에서는 주의, 여유 3일이었어요."])
@@ -189,7 +189,7 @@ def test_memory_id_rule_unit():
     assert validate.check_memory_ids(["UC1234 화물은 괜찮습니다", "abc1 x"]) == []         # 낱말 안의 글자는 아니다
 
 
-# ── 10-02 검증 반영: F7 회색 지대 기억 차단, F8 V7·V9·V10 근거, V12 조건부 ──
+# ── 회색 지대 기억 차단, V7·V9·V10 근거, V12 조건부 ──
 
 from datetime import date, datetime, timezone  # noqa: E402
 
@@ -210,7 +210,7 @@ STALE_BLOCKS = memory.compose_blocks([STALE_ROW], MEMO_ITEMS, {"k1": STALE_ROW})
 
 
 def test_gray_zone_judge_gets_no_memory(fake, monkeypatch):
-    """F7 (결정 5): 회색 지대(raise_only)는 LLM이 등급을 올릴 수 있어 기억 블록을 주지 않는다. 고정 등급(fixed)에는 준다."""
+    """회색 지대(raise_only)는 LLM이 등급을 올릴 수 있어 기억 블록을 주지 않는다. 고정 등급(fixed)에는 준다."""
     fake(candidates=[_candidate(440999001)], position=POSITION)
     headers = _login(monkeypatch)
     _with_memory(monkeypatch)
@@ -228,7 +228,7 @@ def test_gray_zone_judge_gets_no_memory(fake, monkeypatch):
 
 
 def test_user_supplied_text_keeps_only_what_user_gave():
-    """F8: V7 근거는 사용자가 준 값(받아야 하는 날, 포워더 입항일, 메모 항목)만. 지난 조회 칸은 뺀다."""
+    """V7 근거는 사용자가 준 값(받아야 하는 날, 포워더 입항일, 메모 항목)만. 지난 조회 칸은 뺀다."""
     kept = validate.user_supplied_text(STALE_BLOCKS)
     assert "2026-10-31" in kept and "2026-10-21" in kept and "11월 14일" in kept
     for stale in ("2026-10-27", "13", "반입신고", "원본 B/L 필요", "마스터 B/L"):
@@ -242,7 +242,7 @@ def _answer_response(text: str):
 
 
 def test_stale_last_eta_in_answer_is_v7_violation():
-    """F8: 지난 조회의 도착 예정일(27)이나 여유(13)를 말하면 V7 위반. 사용자가 준 날짜(31, 21)는 통과."""
+    """지난 조회의 도착 예정일(27)이나 여유(13)를 말하면 V7 위반. 사용자가 준 날짜(31, 21)는 통과."""
     allowed = validate.user_supplied_text(STALE_BLOCKS)
     stale = validate.check(_answer_response("지난번 도착 예정은 10월 27일이었습니다."), extra=allowed)
     assert [v.rule for v in stale] == ["V7"] and "27" in stale[0].detail
@@ -253,7 +253,7 @@ def test_stale_last_eta_in_answer_is_v7_violation():
 
 
 def test_memo_word_no_longer_whitelists_v9_v10():
-    """F8: 메모 줄에 심은 낱말은 V9(영문)·V10(질문 옮기기)의 근거가 아니다. 근거는 결과·Skill 문서뿐이다."""
+    """메모 줄에 심은 낱말은 V9(영문)·V10(질문 옮기기)의 근거가 아니다. 근거는 결과·Skill 문서뿐이다."""
     response = _answer_response("")  # 검사할 글은 texts로 따로 준다 (응답 answer에 있으면 dump로 스스로 근거가 된다, test_guard와 같은 방식)
     words = validate.check_judge_text(["Kraken 화물입니다."], response, "", "")
     assert [v.rule for v in words] == ["V9"]
@@ -264,7 +264,7 @@ def test_memo_word_no_longer_whitelists_v9_v10():
 
 
 def test_judge_retries_when_answer_uses_stale_value(fake, monkeypatch):
-    """F8 연결: 판정 답이 낡은 값(27)을 쓰면 V7로 다시 묻는다 (fixed 모드, 기억 블록 있음)."""
+    """판정 답이 낡은 값(27)을 쓰면 V7로 다시 묻는다 (fixed 모드, 기억 블록 있음)."""
     fake(candidates=[_candidate(440999001)], position=POSITION)
     _signals(monkeypatch, {"eta_conflict": "triggered"})
     headers = _login(monkeypatch)
@@ -280,7 +280,7 @@ def test_judge_retries_when_answer_uses_stale_value(fake, monkeypatch):
 
 
 def test_follow_up_retries_on_stale_value_and_memo_word(fake, monkeypatch):
-    """F8 연결: 후속 답도 낡은 값(V7)이나 메모에만 있는 낱말(V9)을 쓰면 다시 묻는다."""
+    """후속 답도 낡은 값(V7)이나 메모에만 있는 낱말(V9)을 쓰면 다시 묻는다."""
     fake()
     headers = _login(monkeypatch)
     _with_memory(monkeypatch, STALE_BLOCKS)
@@ -324,7 +324,7 @@ def test_memory_id_rule_runs_only_when_memory_was_passed(fake, monkeypatch):
 
 
 def test_follow_up_memo_word_does_not_pass_v10(fake, monkeypatch):
-    """F8 연결: 질문과 메모 줄에 같이 있는 낱말을 답이 옮기면 V10 위반이다. 메모가 근거가 되지 못한다."""
+    """질문과 메모 줄에 같이 있는 낱말을 답이 옮기면 V10 위반이다. 메모가 근거가 되지 못한다."""
     fake()
     headers = _login(monkeypatch)
     _with_memory(monkeypatch, STALE_BLOCKS.replace("Kraken", "해적만세"))
@@ -346,7 +346,7 @@ def test_follow_up_memo_word_does_not_pass_v10(fake, monkeypatch):
 
 
 def test_chat_never_appends_memo_full_notice(monkeypatch):
-    """D1 (10-02 결정): 메모장이 가득 찼다는 줄은 채팅 답에 붙지 않는다. lookup_notes가 다른 줄을 돌려줘도 지난 조회 줄만 나간다."""
+    """메모장이 가득 찼다는 줄은 채팅 답에 붙지 않는다. lookup_notes가 다른 줄을 돌려줘도 지난 조회 줄만 나간다."""
     monkeypatch.setattr(svc.memory, "lookup_notes", lambda user_id, bl: [
         "지난 조회(10.01)에서는 주의, 여유 3일이었어요.", "메모장이 가득 찼어요. 설정의 '내 기억'에서 정리해 주세요."])
     _route(monkeypatch, intent="cargo", bl_ref="[BL1]", bl_type="MASTER")

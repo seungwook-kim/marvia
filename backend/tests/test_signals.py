@@ -1,4 +1,4 @@
-"""C-4 1층 신호 판정 테스트. 신호 7종 × triggered·clear·unknown (SDD 9절)."""
+"""1층 신호 판정 테스트. 신호 7종 × triggered·clear·unknown (SDD 9절)."""
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -77,14 +77,14 @@ KST = timezone(timedelta(hours=9))
 @pytest.mark.parametrize(
     "ais_kst, expected, gap",
     [
-        (datetime(2026, 9, 25, 14, 0, tzinfo=KST), "clear", 0.0),       # 신고한 날 안 → 차이 0 (옛 계산은 14시간이라 켜졌다)
+        (datetime(2026, 9, 25, 14, 0, tzinfo=KST), "clear", 0.0),       # 신고한 날 안 → 차이 0 (00:00을 시각으로 보면 14시간)
         (datetime(2026, 9, 24, 23, 0, tzinfo=KST), "clear", 1.0),       # 전날 밤 23시 → 그날 시작까지 1시간
         (datetime(2026, 9, 26, 20, 0, tzinfo=KST), "triggered", 20.0),  # 다음 날 20시 → 그날 끝(24시)에서 20시간
     ],
 )
 def test_eta_conflict_date_only_plan(ais_kst, expected, gap):
     """해수부 입항 예정이 한국 시각 정확히 00:00이면 날짜만 신고한 값으로 보고 그날 하루를 범위로 비교한다.
-    09-27 실측: 부산 입항 신고 838건 중 2~9%가 00:00. 00:00을 시각으로 보면 가짜로 켜진다."""
+    부산 입항 신고 중 일부가 00:00으로 온다. 00:00을 시각으로 보면 가짜로 켜진다."""
     schedule = {"planned_arrival": datetime(2026, 9, 25, 0, 0, tzinfo=KST).isoformat(), "actual_arrival": None}
     result = compute(_position(ais_eta=ais_kst.isoformat()), schedule, None, None, now=NOW)
     assert _state(result, "eta_conflict") == expected
@@ -251,14 +251,14 @@ def test_distance_and_calc_eta_carried():
 
 
 def test_trusted_eta_falls_back_to_forwarder_eta():
-    """해수부·AIS 도착일이 없으면 사용자가 알려 준 포워더 A/N 입항 예정일(한국 날짜 0시)을 쓴다 (09-29 D6)."""
+    """해수부·AIS 도착일이 없으면 사용자가 알려 준 포워더 A/N 입항 예정일(한국 날짜 0시)을 쓴다."""
     found = trusted_eta(_position(ais_eta=None), None, date(2026, 10, 1))
     assert found is not None and found.astimezone(timezone(timedelta(hours=9))).date() == date(2026, 10, 1)
     assert trusted_eta(_position(ais_eta=None), {"planned_arrival": NOW.isoformat()}, date(2026, 10, 1)) == NOW  # 해수부가 먼저
 
 
 def test_sales_date_signal_says_when_sale_date_missing():
-    """판매일을 안 넣으면 판매일 초과 신호는 unknown, 값으로 이유를 알린다 (선택 입력, 09-29 결정)."""
+    """판매일을 안 넣으면 판매일 초과 신호는 unknown, 값으로 이유를 알린다 (선택 입력)."""
     result = compute(_position(), {"planned_arrival": NOW.isoformat()}, None, None, None, now=NOW)
     signal = next(s for s in result.signals if s.id == "sales_date_exceeded")
     assert signal.state == "unknown" and signal.value == "판매 예정일 입력 없음"

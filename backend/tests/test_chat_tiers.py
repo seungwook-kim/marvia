@@ -1,4 +1,4 @@
-"""채팅 에이전트의 세 층 답 테스트 (10-05 결정, services/chat.py _agent, validate.check_chat_reply 3층 인자).
+"""채팅 에이전트의 세 층 답 테스트 (services/chat.py _agent, validate.check_chat_reply 3층 인자).
 
 세 층: Skill 문서(1층) → 웹 검색(2층) → 모델 일반 지식(3층, answer_kind=general, 꼬리표를 코드가 붙임) → 마지막에야 "자료에 없다".
 키 없이 돈다. llm.chat_agent와 llm.web_search는 가짜다. 웹 글·주소는 모의값(example.test)이다.
@@ -57,7 +57,7 @@ def test_general_answer_passes_without_quote_and_gets_fixed_tag(monkeypatch, web
     _no_classic(monkeypatch)
     r = _ask("마스터 b/l 하우스 b/l? 그게 뭐야?")
     assert len(calls) == 1 and r.kind == "message"
-    assert r.reply == GENERAL  # 근거 조각(skill_quote)이 빈 문자열이어도 나간다. 꼬리표는 없다 (10-07, 이용약관으로 이동)
+    assert r.reply == GENERAL  # 근거 조각(skill_quote)이 빈 문자열이어도 나간다. 꼬리표는 없다 (안내는 이용약관에 있다)
     assert not hasattr(svc, "GENERAL_TAG") and not hasattr(svc, "CLEARANCE_TAG")
 
 
@@ -217,7 +217,7 @@ def test_skill_answer_is_still_tier_one(monkeypatch, web_off):
 # ── 잡담: 한 문장 직접 답 ──
 
 def test_chit_chat_gets_short_direct_answer(monkeypatch, web_off):
-    # 오늘 날짜는 실제 시계로 만든다. 날짜를 박아 두면 다음 날 깨진다 (10-06 자정 넘어 실패)
+    # 오늘 날짜는 실제 시계로 만든다. 날짜를 박아 두면 다음 날 깨진다
     today = datetime.now(svc.KST).date().isoformat()
     calls = _agent(monkeypatch, [], [(f"저는 시계를 볼 수 없어요. 오늘은 {today}예요.", "unrelated", "")])
     r = _ask("지금 몇시쯤이지?")
@@ -292,7 +292,7 @@ def test_history_is_passed_and_prompt_tells_model_to_use_it(monkeypatch, web_off
 
 
 def test_failed_skill_answer_to_duty_question_gives_broker_notice(monkeypatch, web_off):
-    # 재생 시험에서 발견: 세액 질문에 Skill 답을 냈다가 근거 조각이 안 맞으면 "자료에 없다" 대신 관세사 안내가 나가야 한다
+    # 세액 질문에 Skill 답을 냈다가 근거 조각이 안 맞으면 "자료에 없다" 대신 관세사 안내가 나가야 한다
     bad = ("관세율은 품목마다 달라요.", "skill", "지어낸 근거 문장입니다 맞지요")
     _agent(monkeypatch, [], [bad, bad])
     assert _ask("이 품목 관세율 몇 %야?").reply == svc.BROKER_ONLY

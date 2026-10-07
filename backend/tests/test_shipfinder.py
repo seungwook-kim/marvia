@@ -1,4 +1,4 @@
-"""B2 ShipFinder 클라이언트 단위 테스트.
+"""ShipFinder 클라이언트 단위 테스트.
 
 fixture는 evals/fixtures/shipfinder/. 실제 응답과 형식만 같은 가공값이다
 (CLAUDE.md "실제 응답 원본은 커밋하지 않는다"). 진짜 호출은 scripts/fetch_shipfinder.py.
@@ -28,7 +28,7 @@ def test_search_parses_hits_and_sends_params():
     result = _client("search_same_imo.json", calls=calls).search("TEST LEADER", max=500)
 
     assert [h.mmsi for h in result.hits] == [440999201, 440999202, 440999203]
-    # 같은 IMO에 MMSI 2개. 최신 선택은 B3 몫이므로 클라이언트는 그대로 돌려준다
+    # 같은 IMO에 MMSI 2개. 최신 선택은 식별 단계 몫이므로 클라이언트는 그대로 돌려준다
     assert result.hits[0].imo == result.hits[1].imo == 9900021
     assert result.hits[2].imo is None and result.hits[2].call_sign is None
     assert result.hits[0].last_time.year == 2026
@@ -117,7 +117,7 @@ def test_missing_key_rejected(monkeypatch):
     assert e.value.code == "bad_key"
 
 
-# ── 하루 한도 소진 status 38 (10-06 점검) ──
+# ── 하루 한도 소진 status 38 ──
 
 def test_quota_exhausted_fixture_is_distinct_code():
     """38은 일반 error가 아니라 quota_exhausted다. 오늘은 다시 불러도 같아 retryable이 아니다."""

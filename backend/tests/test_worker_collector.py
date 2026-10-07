@@ -1,4 +1,4 @@
-"""D1 수집 워커 단위 테스트. DB 대신 가짜 연결, 외부 API 대신 가공 fixture로 키 없이 돈다."""
+"""수집 워커 단위 테스트. DB 대신 가짜 연결, 외부 API 대신 가공 fixture로 키 없이 돈다."""
 from datetime import date
 from pathlib import Path
 
@@ -150,7 +150,7 @@ def test_select_targets_keeps_unmatched_ship_so_it_is_not_searched_again():
 
 def test_collect_positions_saves_and_respects_budget():
     calls = []
-    conn = ScriptedConn(tracked=[440999001, 440999002, 440999003])  # 서로 다른 배 (같은 배는 10분 안에 다시 안 부른다, 10-08)
+    conn = ScriptedConn(tracked=[440999001, 440999002, 440999003])  # 서로 다른 배 (같은 배는 10분 안에 다시 안 부른다)
     result = collect_positions(conn, _sf("position_ok.json", calls), Budget(2), now=NOW)
     assert len(calls) == 2 and result["tracked"] == 3
     sql, params = conn.inserts[0]
@@ -159,13 +159,13 @@ def test_collect_positions_saves_and_respects_budget():
 
 
 def test_targets_fit_daily_shipfinder_limit():
-    """대상 전부가 6시간마다(하루 4번) 위치를 받아도 ShipFinder 하루 한도 50회 안이어야 한다 (09-23 결정)."""
+    """대상 전부가 6시간마다(하루 4번) 위치를 받아도 ShipFinder 하루 한도 50회 안이어야 한다."""
     from worker.run import DEFAULT_INTERVAL_HOURS, DEFAULT_SHIPFINDER_CALLS
     runs_per_day = int(24 / DEFAULT_INTERVAL_HOURS)
     assert MAX_TARGETS <= DEFAULT_SHIPFINDER_CALLS and runs_per_day * DEFAULT_SHIPFINDER_CALLS <= 50
 
 
-# ---- 실행 진입점. 스케줄러는 기본 꺼져 있어야 한다 (09-23 결정) ----
+# ---- 실행 진입점. 스케줄러는 기본 꺼져 있어야 한다 ----
 from worker import run as worker_run
 
 
@@ -222,7 +222,7 @@ def test_done_cargo_purge_calls_db_function_and_returns_count():
 
 
 def test_watch_positions_purge_calls_db_function_and_returns_count():
-    """감시 위치 정리도 규칙은 DB 함수에 있다 (migrations/021, 10-06 점검). 파이썬은 부르기만 한다."""
+    """감시 위치 정리도 규칙은 DB 함수에 있다 (migrations/021). 파이썬은 부르기만 한다."""
     from backend.app.db import MIGRATIONS_DIR, purge_watch_positions
 
     class Conn:
@@ -240,7 +240,7 @@ def test_watch_positions_purge_calls_db_function_and_returns_count():
 
 
 def test_vessel_detail_usage_purge_calls_db_function_and_returns_count():
-    """선박 자세히 보기 횟수 표 정리도 규칙(7일)은 DB 함수에만 있다 (migrations/025, 10-08 점검). 파이썬은 부르기만 한다."""
+    """선박 자세히 보기 횟수 표 정리도 규칙(7일)은 DB 함수에만 있다 (migrations/025). 파이썬은 부르기만 한다."""
     from backend.app.db import MIGRATIONS_DIR, purge_vessel_detail_usage
 
     class Conn:
@@ -257,7 +257,7 @@ def test_vessel_detail_usage_purge_calls_db_function_and_returns_count():
 
 
 def test_migration_015_has_allowed_values_and_schedule():
-    """B/L 조건 세 칸은 정해진 값만 받고(CHECK), 정리 함수는 008과 같은 방식으로 pg_cron에 예약된다 (10-02 결정 5·9)."""
+    """B/L 조건 세 칸은 정해진 값만 받고(CHECK), 정리 함수는 008과 같은 방식으로 pg_cron에 예약된다."""
     from backend.app.db import MIGRATIONS_DIR
 
     sql = (MIGRATIONS_DIR / "015_memory_conditions_purge.sql").read_text(encoding="utf-8")
@@ -266,7 +266,7 @@ def test_migration_015_has_allowed_values_and_schedule():
     assert "CHECK (incoterm IN ('CIF', 'FOB', 'CFR'))" in sql
     assert "to_order_bank BOOLEAN" in sql
     assert "cron.schedule('marvia-purge-done-cargo'" in sql
-    # 10-02 결정 D3: 끝난 화물은 반출 후 3년 보관 뒤 줄째 지운다. 3년은 함수 기본값 한 곳에만 있다
+    # 끝난 화물은 반출 후 3년 보관 뒤 줄째 지운다. 3년은 함수 기본값 한 곳에만 있다
     assert sql.count("interval '3 years'") == 1 and "DELETE FROM user_cargo" in sql
     assert "CREATE TABLE IF NOT EXISTS user_forget" in sql  # 삭제 표시 (뒤 작업이 삭제를 되살리지 않게)
 
@@ -286,7 +286,7 @@ class _WatchConn:
 
 
 class _FakeSF:
-    """position(mmsi)만 흉내 낸다. 999는 위치가 없는 배. reusable에 든 배는 받아 둔 위치를 다시 쓴다(예산을 안 쓴다, 10-08)."""
+    """position(mmsi)만 흉내 낸다. 999는 위치가 없는 배. reusable에 든 배는 받아 둔 위치를 다시 쓴다(예산을 안 쓴다)."""
 
     def __init__(self, reusable=()):
         self.reusable = set(reusable)
@@ -322,14 +322,14 @@ def test_watch_positions_stop_when_budget_runs_out():
 
 
 def test_watch_positions_only_for_watched_cargo():
-    """진행 중 화물 전체가 아니라 지켜보기를 켠 화물의 배만 받는다 (user_cargo.watch, 017_cargo_watch, 10-06 점검)."""
+    """진행 중 화물 전체가 아니라 지켜보기를 켠 화물의 배만 받는다 (user_cargo.watch, 017_cargo_watch)."""
     from worker.collector import SELECT_WATCHED
     sql = " ".join(SELECT_WATCHED.split())
     assert "status = 'active' AND watch AND vessel_mmsi IS NOT NULL" in sql
 
 
 def test_pick_hit_uses_shared_rule_recent_single_ship():
-    """호출부호 고르기는 services/vessel_pick.py 규칙을 쓴다 (10-08): 예전 주인은 빼고, 최근 배가 둘이면 고르지 않는다."""
+    """호출부호 고르기는 services/vessel_pick.py 규칙을 쓴다: 예전 주인은 빼고, 최근 배가 둘이면 고르지 않는다."""
     from types import SimpleNamespace
     from worker.collector import _pick_hit
 

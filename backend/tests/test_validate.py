@@ -1,4 +1,4 @@
-"""C-7 출력 검증 7규칙 테스트 (SDD 5.7). 규칙마다 통과 1건·위반 1건."""
+"""출력 검증 규칙 테스트 (SDD 5.7). 규칙마다 통과 1건·위반 1건."""
 from datetime import datetime, timezone
 
 from backend.app.schemas.agent import AgentResponse

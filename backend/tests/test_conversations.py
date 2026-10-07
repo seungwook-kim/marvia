@@ -1,4 +1,4 @@
-"""대화 목록 테스트 (services/conversations.py, routers/conversations.py, routers/chat.py 저장 연결, services/account.py, 10-06 결정).
+"""대화 목록 테스트 (services/conversations.py, routers/conversations.py, routers/chat.py 저장 연결, services/account.py).
 
 DB·LLM·키 없이 돈다. 연결은 SQL과 값을 기록하는 가짜, LLM·뒤 일꾼은 바꿔 끼운다. B/L은 모의값이다.
 진짜 SQL은 migrations/018을 임시 Postgres에 한 번 돌려 확인했다 (이 파일은 코드 흐름만 본다).
@@ -124,7 +124,7 @@ def test_save_later_hands_job_to_background(keys, monkeypatch):
     jobs = []
     monkeypatch.setattr(conv.memory, "run_later", lambda fn, *a, **k: jobs.append((fn, a)))
     conv.save_later("u1", "s1", "q", REPLY)
-    assert jobs == [(conv._save_job, ("u1", "s1", "q", REPLY, None))]  # 마지막은 사진 첨부 자료(user_extra, 10-08). 없으면 None
+    assert jobs == [(conv._save_job, ("u1", "s1", "q", REPLY, None))]  # 마지막은 사진 첨부 자료(user_extra). 없으면 None
 
 
 def test_job_sets_title_only_for_new_conversation(keys, monkeypatch):
@@ -143,7 +143,7 @@ def test_job_sets_title_only_for_new_conversation(keys, monkeypatch):
 
 
 def test_greeting_start_waits_for_first_real_question(keys, monkeypatch):
-    """"안녕"으로 시작한 대화는 제목을 "새 대화"로 두고, 첫 진짜 질문으로 짓는다 (10-06 정운 화면: 대화 둘이 모두 "인사")."""
+    """"안녕"으로 시작한 대화는 제목을 "새 대화"로 두고, 첫 진짜 질문으로 짓는다 (대화 제목이 모두 "인사"가 되지 않게)."""
     conn = FakeConn()
     monkeypatch.setattr(conv, "connect", lambda: conn)
     titles = []
@@ -351,7 +351,7 @@ def test_chat_logged_out_saves_nothing(monkeypatch):
         assert client.post("/api/chat", json={"message": "안녕", "session_id": "s1"}).status_code == 200
 
 
-# ── 사진 첨부 턴 (10-08): 다시 연 대화가 처음 화면과 같아야 한다 ──
+# ── 사진 첨부 턴: 다시 연 대화가 처음 화면과 같아야 한다 ──
 
 def test_chat_with_attachment_saves_shown_text_not_processing_message(monkeypatch):
     """처리용 message에는 사진에서 읽은 B/L이 붙지만, 기록은 사용자가 쓴 글 + 첨부 이름 + 안내 줄이다."""

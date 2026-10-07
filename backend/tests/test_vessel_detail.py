@@ -10,7 +10,7 @@ NOW = datetime.now(timezone.utc)
 
 
 def _fake(monkeypatch, *, pos_age_hours=1, candidates=True, schedule_error=False, cands=None):
-    """도구 넷을 가짜로. cands를 주면 후보 목록을 그것으로 바꾼다 (배 고르기 테스트, 10-08)."""
+    """도구 넷을 가짜로. cands를 주면 후보 목록을 그것으로 바꾼다 (배 고르기 테스트)."""
     calls = []
     rows = cands if cands is not None else (
         [{"mmsi": 440999001, "name": "TEST SHIP", "call_sign": "TST01", "flag": "KR"}] if candidates else [])
@@ -72,7 +72,7 @@ def test_route_points_end_at_busan_and_are_capped():
     assert near == [[ref["lat"] + 0.01, ref["lng"]], [ref["lat"], ref["lng"]]]
 
 
-# ── 배 고르기 (10-08 결정, services/vessel_pick.py) ──
+# ── 배 고르기 (services/vessel_pick.py) ──
 
 def test_call_sign_with_one_vessel_is_marked_call_sign(monkeypatch):
     _fake(monkeypatch)
@@ -95,7 +95,7 @@ def test_name_only_shows_top_candidate_marked_name_similar(monkeypatch):
     assert r["vessel"]["mmsi"] == 440999001 and r["vessel"]["match"] == "name_similar" and r["position"]
 
 
-# ── 하루 횟수 상한 (10-08 결정, rules.md vessel_detail_daily_limit) ──
+# ── 하루 횟수 상한 (rules.md vessel_detail_daily_limit) ──
 
 def _limit(monkeypatch, n):
     real = svc.rule

@@ -1,4 +1,4 @@
-"""aisstream.io 시험 수집 (worker/aisstream.py, 10-08) 테스트. 키·네트워크·DB·websockets 없이 돈다.
+"""aisstream.io 시험 수집 (worker/aisstream.py) 테스트. 키·네트워크·DB·websockets 없이 돈다.
 
 - parse_position: 가공 fixture(evals/fixtures/aisstream/position_report.json), 깨진 메시지, 지켜보지 않는 MMSI,
   목적지 같은 문자열 칸은 저장하지 않음(데이터일 뿐)

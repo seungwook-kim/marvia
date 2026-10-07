@@ -1,4 +1,4 @@
-"""서류 사진 B/L 조건·화물 인도 연락처 자동 저장과 채팅 답 테스트 (10-08 사용자 결정, services/doc_facts.py,
+"""서류 사진 B/L 조건·화물 인도 연락처 자동 저장과 채팅 답 테스트 (services/doc_facts.py,
 routers/document.py facts_saved, services/chat.py cargo_documents 도구). 키·DB·LLM 없이 돈다.
 
 확인하는 것:

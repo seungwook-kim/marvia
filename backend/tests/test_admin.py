@@ -168,7 +168,7 @@ def test_grant_revoke_and_audit_trail():
 
 
 def test_list_operators_shows_who_granted(monkeypatch):
-    """A5: 등록자 이메일은 이력(grant 줄)에서 풀어 붙인다. 스크립트 등록(이메일 없음)은 null, 재등록은 최신 등록자"""
+    """등록자 이메일은 이력(grant 줄)에서 풀어 붙인다. 스크립트 등록(이메일 없음)은 null, 재등록은 최신 등록자"""
     from cryptography.fernet import Fernet
     monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
     conn = FakeConn()
@@ -183,7 +183,7 @@ def test_list_operators_shows_who_granted(monkeypatch):
 
 
 def test_operator_emails_are_never_stored_in_plain_text():
-    """운영자 표와 이력에는 지문·암호문·가린 값만 (013, 10-01). 화면 응답은 풀어서 같은 모양"""
+    """운영자 표와 이력에는 지문·암호문·가린 값만 (013). 화면 응답은 풀어서 같은 모양"""
     conn = FakeConn()
     ops.grant(conn, OPERATOR, "bootstrap", None)
     ops.grant(conn, "new@marvia.test", "user-1", OPERATOR)

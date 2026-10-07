@@ -1,4 +1,4 @@
-"""서류 사진 응답의 bl_status·important 계산 테스트 (10-08 사용자 결정: 채팅 첨부 사진은 확인 화면 없이 바로 조회).
+"""서류 사진 응답의 bl_status·important 계산 테스트 (채팅 첨부 사진은 확인 화면 없이 바로 조회).
 
 화면(ChatBar)은 bl_status가 ok일 때만 그 B/L로 조회를 보낸다. 그래서 "검사에 걸리면 조회하지 않는다"를 코드에서 못 박아 둔다.
 OCR·LLM 없이 칸 값만 만들어 routers/document의 순수 함수를 부른다. B/L은 가공 번호다.

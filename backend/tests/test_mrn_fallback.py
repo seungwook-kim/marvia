@@ -60,7 +60,7 @@ def test_mof_only_when_ais_fails(tools, monkeypatch):
 
 
 def test_call_sign_with_several_candidates_does_not_take_first(tools, monkeypatch):
-    # 호출부호를 아는데 후보가 둘 남으면 맨 앞을 고르지 않고 해수부 정보만으로 답한다 (10-08 결정, services/vessel_pick.py)
+    # 호출부호를 아는데 후보가 둘 남으면 맨 앞을 고르지 않고 해수부 정보만으로 답한다 (services/vessel_pick.py)
     monkeypatch.setattr(svc, "get_vessel_candidates", lambda **kw: {"candidates": [
         {"mmsi": 440999001, "name": "TEST VICTORY"}, {"mmsi": 440999002, "name": "TEST VICTORY"}]})
     monkeypatch.setattr(svc, "get_live_position", lambda mmsi: pytest.fail("위치를 부르면 안 된다"))
@@ -89,7 +89,7 @@ def test_document_reads_mrn_with_ocr_confusion():
 def test_agent_uses_fallback_only_for_missing_customs(monkeypatch):
     from backend.app.routers import agent
     from backend.app.routers.agent import _response
-    # 10-08: 마스터·하우스 둘 다 없음은 failed + NO_CARGO다 (routers/agent.is_not_found). 세관 장애는 문구가 달라 대체하지 않는다
+    # 마스터·하우스 둘 다 없음은 failed + NO_CARGO다 (routers/agent.is_not_found). 세관 장애는 문구가 달라 대체하지 않는다
     monkeypatch.setattr(agent, "_fetch_customs", lambda req: (None, _response(status="failed", answer=agent.NO_CARGO), None))
     monkeypatch.setattr(svc, "assess", lambda req: _response(status="partial", answer="대체"))
     assert agent._assess(_req()).answer == "대체"

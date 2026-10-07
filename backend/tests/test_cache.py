@@ -1,4 +1,4 @@
-"""B8 캐시 테스트. 빈도 초과(23·29)일 때만 마지막 성공 값을 돌려준다."""
+"""위치 캐시 테스트. 빈도 초과(23·29)일 때만 마지막 성공 값을 돌려준다."""
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -17,7 +17,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "shipfin
 @pytest.fixture(autouse=True)
 def no_position_reuse(monkeypatch):
     """이 파일은 두 번째 위치 조회가 실제로 나가서 실패할 때의 캐시 대체를 지킨다.
-    10분 안 재사용(rules.md position_reuse_minutes, 10-08)이 두 번째 호출을 막지 않게 끈다. 재사용 자체는 test_shipfinder_budget.py가 본다."""
+    10분 안 재사용(rules.md position_reuse_minutes)이 두 번째 호출을 막지 않게 끈다. 재사용 자체는 test_shipfinder_budget.py가 본다."""
     from backend.app.clients import shipfinder
     monkeypatch.setattr(shipfinder, "position_reuse_window", lambda: timedelta(0))
 
@@ -100,7 +100,7 @@ def test_cache_fallback_is_logged(caplog):
 
 
 def test_timeout_falls_back_to_last_success(monkeypatch, caplog):
-    """시간 초과도 마지막 성공 값으로 대신한다 (09-29 결정, 평가셋 F02). 대신했다는 사실은 로그와 last_cached_at에 남는다."""
+    """시간 초과도 마지막 성공 값으로 대신한다 (평가셋 F02). 대신했다는 사실은 로그와 last_cached_at에 남는다."""
     from backend.app.clients import retry
 
     monkeypatch.setattr(retry, "BACKOFF_SEC", 0)  # 재시도 대기를 없앤다
@@ -170,7 +170,7 @@ def _stale_client(error: str, monkeypatch) -> ShipFinderClient:
 
 
 def test_timeout_uses_cache_older_than_ttl(monkeypatch):
-    """시간 초과면 TTL(6시간)이 지난 캐시도 마지막 수신 위치로 쓴다 (09-29 결정 ①, 평가셋 F02)."""
+    """시간 초과면 TTL(6시간)이 지난 캐시도 마지막 수신 위치로 쓴다 (평가셋 F02)."""
     client = _stale_client("timeout", monkeypatch)
     assert client.position(440999001).mmsi == 440999001
     assert client.last_cached_at is not None

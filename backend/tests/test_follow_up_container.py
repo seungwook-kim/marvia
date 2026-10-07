@@ -1,4 +1,4 @@
-"""후속 질문의 컨테이너 번호 처리 테스트 (10-06 결정): LLM은 [CNTR1] 번호표만 보고, 사용자 화면에는 실제 번호가 나간다.
+"""후속 질문의 컨테이너 번호 처리 테스트: LLM은 [CNTR1] 번호표만 보고, 사용자 화면에는 실제 번호가 나간다.
 
 컨테이너 번호도 B/L처럼 화물을 특정하는 번호라 LLM에 원문을 넘기지 않는다 (CLAUDE.md).
 - llm.answer_follow_up: 입력의 컨테이너 번호를 [CNTR1], [CNTR2]로 바꾼다
@@ -141,7 +141,7 @@ def test_unknown_token_is_left_as_is():
 
 
 def test_question_with_container_number_is_tokenized(monkeypatch):
-    """사용자가 후속 질문에 이 화물의 컨테이너 번호를 직접 써도 LLM에는 번호표로 간다 (메인 세션 보완)"""
+    """사용자가 후속 질문에 이 화물의 컨테이너 번호를 직접 써도 LLM에는 번호표로 간다"""
     calls = _fake_chat(monkeypatch, {"in_scope": True, "answer": "[CNTR1] 컨테이너는 반입신고 단계입니다."})
     llm.answer_follow_up(f"{ONE} 컨테이너 지금 어디야?", _response(ONE))
 

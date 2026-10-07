@@ -1,4 +1,4 @@
-"""10-08 추가 사실 테스트: 묘박지 대기, 통관 소요 시간, 도착 예정 변화, 적재항·직전 기항지 차이, 위치 이력 합치기, 후보 검색 상한.
+"""판정 보조 사실 테스트: 묘박지 대기, 통관 소요 시간, 도착 예정 변화, 적재항·직전 기항지 차이, 위치 이력 합치기, 후보 검색 상한.
 
 외부 API·DB·LLM은 부르지 않는다. 해수부·UNI-PASS 값과 선명·항구·B/L은 모두 형식만 같은 모의값이다 (CLAUDE.md).
 판정 표 등급이 바뀌지 않는지도 본다: 이 값들은 사실일 뿐 신호가 아니다.
@@ -113,7 +113,7 @@ def test_eta_change_over_threshold():
 
 
 def test_eta_change_counts_hours_when_previous_is_a_time():
-    """10-08: 지난 값이 시각(user_cargo.last_eta_at)이면 날짜가 아니라 실제 시간 차이로 센다 (기준 eta_change_alert_hours)."""
+    """지난 값이 시각(user_cargo.last_eta_at)이면 날짜가 아니라 실제 시간 차이로 센다 (기준 eta_change_alert_hours)."""
     before = datetime(2026, 10, 5, 0, tzinfo=timezone.utc)  # 한국 10-05 09:00
     moved = port_facts.eta_change(before, datetime(2026, 10, 5, 14, tzinfo=timezone.utc))  # 같은 한국 날짜, 14시간 늦어짐
     assert (moved.from_eta, moved.to_eta, moved.hours) == (date(2026, 10, 5), date(2026, 10, 5), 14)
@@ -122,7 +122,7 @@ def test_eta_change_counts_hours_when_previous_is_a_time():
     # 자정을 넘겨도 2시간 차이는 기준 아래라 알리지 않는다 (날짜 기준이었으면 24시간으로 셌다)
     late = datetime(2026, 10, 5, 14, tzinfo=timezone.utc)  # 한국 10-05 23:00
     assert port_facts.eta_change(late, late + timedelta(hours=2)) is None
-    assert port_facts.eta_change(date(2026, 10, 5), late + timedelta(hours=2)).hours == 24  # 옛 줄(날짜)은 전처럼
+    assert port_facts.eta_change(date(2026, 10, 5), late + timedelta(hours=2)).hours == 24  # 옛 줄(날짜)은 날짜 차이로 센다
 
 
 def test_last_eta_of_prefers_time_over_date():

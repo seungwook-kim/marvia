@@ -1,4 +1,4 @@
-"""호출부호로 배 한 척 고르기 테스트 (services/vessel_pick.py, 10-08 결정). 외부 호출 없이 돈다. 배 번호는 모의값이다."""
+"""호출부호로 배 한 척 고르기 테스트 (services/vessel_pick.py). 외부 호출 없이 돈다. 배 번호는 모의값이다."""
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -12,7 +12,7 @@ def _hit(mmsi, call_sign="TST01", imo=None, days=0):
 
 
 def test_old_holders_of_reused_call_sign_are_dropped():
-    # 09-28 실측 모양: 한 호출부호에 IMO 3척, 마지막 신호 0일·123일·552일 전 → 지금 쓰는 배 하나
+    # 실제 관찰된 모양: 한 호출부호에 IMO 3척, 마지막 신호 0일·123일·552일 전 → 지금 쓰는 배 하나
     hits = [_hit(1, imo=9900001, days=0), _hit(2, imo=9900002, days=123), _hit(3, imo=9900003, days=552)]
     assert pick.pick_by_call_sign(hits, "TST01", now=NOW).mmsi == 1
 

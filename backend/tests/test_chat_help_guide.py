@@ -1,4 +1,4 @@
-"""채팅 에이전트 10-05 결정 A~F 테스트 (services/chat.py, prompts/marvia-chat-agent.md, services/bl_parse.py 연결).
+"""채팅 에이전트 안내 동작 A~F 테스트 (services/chat.py, prompts/marvia-chat-agent.md, services/bl_parse.py 연결).
 A 인사 · B 사용법(코드 고정 문장)·고정 안내 · C 상황 설명 · D 통관 시기 · E 여러 B/L 비교 문장(프롬프트) · F B/L 고쳐 읽기·붙은 번호.
 LLM·판정 흐름은 test_chat_agent.py의 가짜를 쓴다. B/L은 모의값이다."""
 import pytest
@@ -48,7 +48,7 @@ def test_kinds_include_help_and_greeting():
 def test_situation_without_bl_gets_general_answer_with_tag(monkeypatch, web_off):
     _agent(monkeypatch, [], [kind("포워더 말고 선사에도 도착 통지서를 요청해 보세요.", "general")])
     r = svc.handle("B/L도 없고 포워더는 연락이 안 되는데 뭘 할 수 있을까?", "s1", None, lambda req: None)
-    assert "일반 설명이에요" not in r.reply and r.reply != svc.OTHER_REPLY  # 꼬리표 없음 (10-07)
+    assert "일반 설명이에요" not in r.reply and r.reply != svc.OTHER_REPLY  # 꼬리표 없음
 
 
 def test_prompt_says_situation_is_not_unrelated():
@@ -152,4 +152,4 @@ def test_glued_not_found_without_split_keeps_normal_answer(monkeypatch):
     _exists(monkeypatch, set())
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]"})])
     r = svc.handle("TESTBL01TESTBL26 조회", "s1", None, lambda req: _response(status="failed", answer=NO_CARGO))
-    assert svc.NO_RESULT_REPLY in r.reply and not r.cargos  # 판정 흐름 문구(~습니다)는 채팅에서 ~요로 나간다 (10-07)
+    assert svc.NO_RESULT_REPLY in r.reply and not r.cargos  # 판정 흐름 문구(~습니다)는 채팅에서 ~요로 나간다

@@ -1,4 +1,4 @@
-"""화물 비서 기억 창구 테스트 (routers/memory.py, schemas/memory.py, docs/specs/memory.md "API", 10-02 결정 7).
+"""화물 비서 기억 창구 테스트 (routers/memory.py, schemas/memory.py, docs/specs/memory.md "API").
 
 DB 없이 돈다. connect와 서비스 함수를 가짜로 끼운다. B/L은 모의값이다.
 """
@@ -75,7 +75,7 @@ def test_view_without_db_is_unavailable(monkeypatch):
 def test_delete_all_and_one(monkeypatch, db):
     headers = _login(monkeypatch)
     asked = []
-    # 메모장 전부 지우기는 메모장만 지운다 (10-02 결정 D2). 화물 표를 지우는 forget_user는 부르지 않는다
+    # 메모장 전부 지우기는 메모장만 지운다. 화물 표를 지우는 forget_user는 부르지 않는다
     monkeypatch.setattr(memory_router.memory, "forget_user", lambda *a: pytest.fail("화물 표는 지우지 않는다"))
     monkeypatch.setattr(memory_router.memory, "delete_all", lambda conn, user_id: asked.append(user_id) or 3)
     status = {"c1": "deleted", "c9": "missing", "c5": "conflict"}
@@ -103,7 +103,7 @@ def test_delete_failure_is_not_hidden(monkeypatch):
 
 
 def test_confirm_screen_endpoint_is_gone(monkeypatch, db):
-    """확인 화면용 POST /api/memory/document-facts는 10-08 사용자 결정으로 없앴다. 자동 저장은 tests/test_doc_facts.py가 본다."""
+    """확인 화면용 POST /api/memory/document-facts는 없다. 자동 저장은 tests/test_doc_facts.py가 본다."""
     headers = _login(monkeypatch)
     with TestClient(app) as client:
         assert client.post("/api/memory/document-facts", json={"bl_no": BL}, headers=headers).status_code in (404, 405)

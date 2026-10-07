@@ -1,4 +1,4 @@
-"""B/L 구분 자동 재조회와 10-08 보강 테스트.
+"""B/L 구분 자동 재조회와 관련 보강 테스트.
 
 - routers/agent._fetch_customs: 구분을 모르면 하우스, 마스터 순서로, 정했으면 그 구분 먼저 조회한다. 둘 다 없으면 failed
 - services/chat._cargo: 어느 구분으로 찾았는지 코드가 쓴 한 줄 (found_type_note)

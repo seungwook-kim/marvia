@@ -1,4 +1,4 @@
-"""A5 구조화 로그 테스트."""
+"""구조화 로그 테스트."""
 import json
 import logging
 
@@ -65,7 +65,7 @@ def test_llm_usage_is_attached_to_log(caplog):
 
 def test_http_client_request_urls_are_not_logged(capsys):
     """외부 API 주소에는 키(crkyCn·serviceKey·key)와 B/L 번호가 들어 있다. httpx가 INFO로 주소 전체를
-    남기면 로그에 그대로 쌓인다(09-28 실제 B/L 호출에서 발견). 주소를 남기는 로거는 WARNING 이상만 남긴다."""
+    남기면 로그에 그대로 쌓인다. 주소를 남기는 로거는 WARNING 이상만 남긴다."""
     import httpx
 
     setup_logging()
@@ -81,7 +81,7 @@ def test_http_client_request_urls_are_not_logged(capsys):
 
 
 def test_failure_line_carries_stage_and_error():
-    """D6 에러 로깅 한 줄이 JSON에 stage·error로 실린다 (Cloud Run 로그에서 필드로 검색)."""
+    """에러 로깅 한 줄이 JSON에 stage·error로 실린다 (로그에서 필드로 검색)."""
     record = logging.LogRecord("marvia.failure", logging.WARNING, "x", 1, "failure", None, None)
     record.request_id = "abc"
     record.stage = "customs"
@@ -93,7 +93,7 @@ def test_failure_line_carries_stage_and_error():
 
 
 def test_failure_message_is_readable_without_json(caplog):
-    """JSON 핸들러가 없는 터미널(평가 실행기)에서도 무엇이 실패했는지 보인다. 전에는 "failure"만 찍혔다."""
+    """JSON 핸들러가 없는 터미널(평가 실행기)에서도 무엇이 실패했는지 보인다."""
     from backend.app.observability.logging import log_failure
 
     with caplog.at_level(logging.WARNING, logger="marvia.failure"):

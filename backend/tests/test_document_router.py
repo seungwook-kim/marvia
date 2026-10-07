@@ -89,7 +89,7 @@ def test_too_large_is_400(monkeypatch):
 
 
 def test_conditions_and_contact_are_returned_and_checked(monkeypatch):
-    """10-02 결정 6: 조건·연락처 칸을 돌려준다. 서류에 없는 근거 글은 not_in_text, 서류 종류는 B/L·A/N 이름으로."""
+    """조건·연락처 칸을 돌려준다. 서류에 없는 근거 글은 not_in_text, 서류 종류는 B/L·A/N 이름으로."""
     _fake_extract(monkeypatch, {**ANSWER, "doc_kind": "arrival_notice", "freight_term": "collect",
                                 "freight_term_text": "FREIGHT COLLECT", "contact_phone": "010-1234-5678"})
     body = _post().json()
@@ -110,7 +110,7 @@ def test_old_shape_answer_keeps_needs_review_false(monkeypatch):
 
 
 def test_etd_same_day_is_returned_and_missing_etd_is_not_flagged(monkeypatch):
-    """etd(10-06): 서류에 있는 날짜면 그대로 돌려주고, null이어도(Langfuse 프롬프트에 아직 없을 때) 확인 필요를 올리지 않는다."""
+    """etd: 서류에 있는 날짜면 그대로 돌려주고, null이어도(Langfuse 프롬프트에 아직 없을 때) 확인 필요를 올리지 않는다."""
     _fake_extract(monkeypatch, {**ANSWER, "etd": "2026-10-02"})  # 가공 통지서에 있는 날짜(입항일과 같은 날)
     body = _post().json()
     assert body["fields"]["etd"] == {"value": "2026-10-02", "checks": []}
@@ -130,7 +130,7 @@ def test_invented_etd_needs_review(monkeypatch):
 
 
 def test_bl_status_and_important_names(monkeypatch):
-    """10-08: 깨끗하게 읽은 B/L은 ok, 지어낸 선명은 important에서 빠진다. important에는 값이 아니라 칸 이름만 있다."""
+    """깨끗하게 읽은 B/L은 ok, 지어낸 선명은 important에서 빠진다. important에는 값이 아니라 칸 이름만 있다."""
     _fake_extract(monkeypatch)
     body = _post().json()
     assert body["bl_status"] == "ok"

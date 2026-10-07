@@ -1,10 +1,10 @@
-"""채팅 답 버그 수정 테스트 (10-07 정운 실사용 34·35·52·54, services/chat.py).
+"""채팅 답 경계 사례 테스트 (services/chat.py).
 
 LLM·MCP·해수부·판정 흐름은 부르지 않는다. test_chat_agent.py의 가짜 llm.chat_agent와 MCP 가짜를 그대로 쓴다.
 배 이름·B/L은 모두 모의값이다.
-  35·52: 읽기 전용 도구 결과를 문장으로 못 옮겼을 때 "정리하지 못했습니다" 막다른 문구 대신 쓸 수 있는 답이 나간다
-  34: 입항 선박 검색 답에 건수만이 아니라 배 이름이 든다
-  54: 같은 B/L이 연달아 조회 결과 없음이면 같은 문장을 되풀이하지 않는다
+  - 읽기 전용 도구 결과를 문장으로 못 옮겼을 때 "정리하지 못했습니다" 막다른 문구 대신 쓸 수 있는 답이 나간다
+  - 입항 선박 검색 답에 건수만이 아니라 배 이름이 든다
+  - 같은 B/L이 연달아 조회 결과 없음이면 같은 문장을 되풀이하지 않는다
 """
 from backend.app.routers.agent import NO_CARGO, _response
 from backend.app.services import chat as svc
@@ -28,7 +28,7 @@ def _mcp_candidates(monkeypatch):
 
 
 def test_35_user_word_in_reply_gets_one_retry_then_good_answer(monkeypatch):
-    """사용자가 쓴 낱말(라이베리아)을 옮긴 문장은 V10에 걸린다. 예전에는 바로 막다른 문구였고, 이제는 한 번 고쳐 쓰게 한다."""
+    """사용자가 쓴 낱말(라이베리아)을 옮긴 문장은 V10에 걸린다. 바로 막다른 문구로 끝내지 않고 한 번 고쳐 쓰게 한다."""
     run_tool = _mcp_candidates(monkeypatch)
     calls = _agent(monkeypatch, CAND_TOOL, ["라이베리아에서 오는 배는 TEST LIBERIA ONE이에요.", "TEST LIBERIA ONE과 TEST LIBERIA TWO가 있어요."])
     r = svc.handle("지금 옆에 떠있네 라이베리아에서 오는거", "s1", None, lambda req: None, run_tool=run_tool)
@@ -80,7 +80,7 @@ def test_lookup_fallback_per_tool_shapes():
     assert svc.lookup_fallback([{"name": "get_live_position", "result": {}}]) is None
 
 
-# ── 34: 건수만이 아니라 이름 ──
+# ── 건수만이 아니라 이름 ──
 
 def test_34_arrival_search_names_the_ships(monkeypatch):
     monkeypatch.setattr(svc, "_arrivals", lambda days: PLANS)
@@ -90,7 +90,7 @@ def test_34_arrival_search_names_the_ships(monkeypatch):
     assert "입니다" not in r.reply and "습니다" not in r.reply
 
 
-# ── 54: 조회 결과 없음 반복 ──
+# ── 조회 결과 없음 반복 ──
 
 def _no_result_run(req):
     return _response(status="failed", answer=NO_CARGO)
@@ -103,7 +103,7 @@ def test_54_second_no_result_is_not_the_same_sentence(monkeypatch):
     history = [{"role": "user", "text": "TESTBL01 조회해줘"}, {"role": "assistant", "text": first.reply}]
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]", "bl_type": "HOUSE"})])
     second = svc.handle("TESTBL01 다시 해줄래", "s1", None, _no_result_run, history=history)
-    # 10-08부터 둘 다 조회한 뒤라 구분을 바꿔 보라고 권하지 않는다. 번호를 한 글자씩 확인하라고 한다
+    # 마스터·하우스 둘 다 조회한 뒤라 구분을 바꿔 보라고 권하지 않는다. 번호를 한 글자씩 확인하라고 한다
     assert svc.NO_RESULT_REPLY not in second.reply and svc.NO_RESULT_AGAIN in second.reply and "마스터로 다시" not in second.reply
     history += [{"role": "user", "text": "다시 해줄래"}, {"role": "assistant", "text": second.reply}]
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]", "bl_type": "HOUSE"})])

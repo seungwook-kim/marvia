@@ -21,12 +21,12 @@ def test_take_bl_after_label():
 
 
 def test_take_bl_before_label_on_tilted_photo():
-    """기울어진 사진: 값이 이름표보다 먼저 읽혔다 (09-29 tilt3)."""
+    """기울어진 사진: 값이 이름표보다 먼저 읽힌다 (tilt3)."""
     assert doc_ocr.take_bl(["가나다무역", "수하인", BL, "B/L NO.", "SEA STAR / 0925W"]) == BL
 
 
 def test_take_bl_same_line_in_sentence():
-    """문장형 안내문: 이름표가 "B/L 번호"이고 값이 같은 줄에 있다 (09-29 sentence)."""
+    """문장형 안내문: 이름표가 "B/L 번호"이고 값이 같은 줄에 있다 (sentence)."""
     assert doc_ocr.take_bl([f"귀사의 수입 화물(B/L 번호 {BL}, 품명 건고추 120포)이"]) == BL
 
 
@@ -106,7 +106,7 @@ def test_read_lines_rejects_non_image(engine):
 
 
 def test_duplicate_vessel_label_is_ambiguous():
-    """가짜 정정 행처럼 같은 칸 이름표가 두 번이면 값이 맞아도 확인 필요 (09-30 주입 확인 D8)."""
+    """가짜 정정 행처럼 같은 칸 이름표가 두 번이면 값이 맞아도 확인 필요 (주입 방어)."""
     lines = ["선명 / 항차", "SEA STAR / 0925W", "선명 / 항차 (정정)", "FAKE STAR / 9999X", *LINES]
     checks = doc_ocr.check_fields(_fields(vessel="FAKE STAR", voyage="9999X"), lines)
     assert "ambiguous" in checks["vessel"] and "ambiguous" in checks["voyage"]
@@ -120,7 +120,7 @@ def test_label_word_inside_a_sentence_is_not_counted():
 
 
 def test_take_bl_reads_ocr_confused_label_and_dotted_value():
-    """10-01 실제 팩스 사진: "H.B/L No."를 "H.B/1.N1."로, 번호의 L을 "I."로 읽었다. 가공 번호로 같은 모양을 재현"""
+    """실제 팩스 사진 모양: "H.B/L No."를 "H.B/1.N1."로, 번호의 L을 "I."로 읽는다. 가공 번호로 같은 모양을 재현"""
     assert doc_ocr.take_bl(["Consignee", "H.B/1.N1.", ":MRVI.A2026090001", "TEL"]) == "MRVIA2026090001"
     assert doc_ocr.take_bl(["B1 TOWER", "MRVA2026090001"]) is None  # 빗금 없는 B1은 이름표가 아니다
 
@@ -131,7 +131,7 @@ def test_mask_bl_hides_dotted_ocr_form():
     assert "MRVI" not in text and "SEA STAR" in text
 
 
-# ── B/L 조건·화물 인도 연락처 검사 (10-02 결정 6, doc_ocr.check_conditions) ──
+# ── B/L 조건·화물 인도 연락처 검사 (doc_ocr.check_conditions) ──
 # 가공 서류 글자. 실제 서류가 아니다
 
 COND_LINES = ["BILL OF LADING", "CONSIGNEE: TO ORDER OF MOCK BANK", "FREIGHT COLLECT", "CFR BUSAN",
@@ -182,14 +182,14 @@ def test_incoterm_needs_whole_word():
 
 
 def test_personal_mobile_is_dropped():
-    """개인 휴대폰은 돌려주지도 않는다. 값을 비우고 format으로 알린다 (10-02 결정 6)."""
+    """개인 휴대폰은 돌려주지도 않는다. 값을 비우고 format으로 알린다."""
     shown, checks = _conditions(contact_phone="010-1234-5678")
     assert shown["contact_phone"] is None and checks["contact_phone"] == ["format"]
     assert _conditions(contact_phone="051-999-9999")[1]["contact_phone"] == ["not_in_text"]
 
 
 def test_email_or_mobile_in_company_is_dropped():
-    """회사 칸에 이메일·휴대폰이 섞이면 값을 비운다 (휴대폰과 같은 처리, 10-02 검증 지적 6)."""
+    """회사 칸에 이메일·휴대폰이 섞이면 값을 비운다 (휴대폰과 같은 처리)."""
     from backend.app.services import doc_ocr
 
     lines = ["PARTY TO CONTACT kim@example.com", "GANADA 010-1234-5678"]
@@ -203,7 +203,7 @@ def test_mobile_with_country_code_without_plus_is_dropped():
     assert shown["contact_phone"] is None and checks["contact_phone"] == ["format"]
 
 
-# ── 출항일 etd (10-06) ──
+# ── 출항일 etd ──
 ETD_LINES = ["E.T.D.", "28-SEP-2026", *LINES]  # 가공 날짜. 입항일(02-OCT-2026)보다 이르다
 
 
@@ -256,7 +256,7 @@ def test_etd_label_matches_dotted_and_bl_forms_only_as_words():
     assert doc_ocr.label_lines(["METDA", "ETDX"], "etd") == 0
 
 
-# ── LLM 입력 가리기 보강 (10-06 점검: 두 번째 B/L·휴대폰·이메일이 LLM으로 갔다). 모두 가공 값이다 ──
+# ── LLM 입력 가리기 보강 (두 번째 B/L·휴대폰·이메일도 LLM으로 가지 않는다). 모두 가공 값이다 ──
 
 def test_mask_bl_hides_second_bl_and_personal_contacts_but_keeps_company_phone_and_dates():
     lines = ["MASTER B/L NO. MRVM2026090009", "HOUSE B/L NO.", BL, "CONTACT 010-1234-5678 kim@example.com",

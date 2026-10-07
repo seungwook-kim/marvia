@@ -1,4 +1,4 @@
-"""D4 프롬프트 가져오기 테스트. Langfuse 없이 돈다."""
+"""프롬프트 가져오기 테스트. Langfuse 없이 돈다."""
 import sys
 
 from backend.app.observability.langfuse import LOCAL_VERSION, get_prompt

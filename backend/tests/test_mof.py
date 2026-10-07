@@ -1,4 +1,4 @@
-"""B5 해수부 관제정보 클라이언트 테스트. fixture XML로 키 없이 돈다."""
+"""해수부 관제정보 클라이언트 테스트. fixture XML로 키 없이 돈다."""
 from datetime import date
 from pathlib import Path
 
@@ -109,7 +109,7 @@ def test_sailing_plans_hit_the_other_endpoint():
     assert calls[0].url.params["clsgn"] == "TEST01"
 
 
-# ---- 선박운항정보의 MRN과 최종 신고 (2026-09-23 실측 반영). 값은 전부 가공값이다 ----
+# ---- 선박운항정보의 MRN과 최종 신고. 값은 전부 가공값이다 ----
 
 def test_plan_carries_arrival_mrn_and_excludes_final_from_expected():
     changed, final = [p for p in _client("arrival_report_busan.xml").sailing_plans(date(2026, 9, 22), date(2026, 9, 26))
@@ -127,7 +127,7 @@ def test_find_plan_by_mrn_matches_arrival_mrn_only():
 
 
 def test_page_cap_hit_is_logged_only_when_pages_run_out(caplog):
-    """마지막으로 받은 페이지까지 꽉 차 있으면 뒤를 못 본 것이다. "기록 없음"과 구분하려고 남긴다 (09-28 실측).
+    """마지막으로 받은 페이지까지 꽉 차 있으면 뒤를 못 본 것이다. "기록 없음"과 구분하려고 남긴다.
     한 페이지만 보는 호출은 원래 한 페이지라 남기지 않는다."""
     with caplog.at_level("WARNING", logger="marvia.failure"):
         _client("control_busan.xml").control_records(date(2026, 9, 22), date(2026, 9, 23), rows=2, max_pages=2)
@@ -139,7 +139,7 @@ def test_page_cap_hit_is_logged_only_when_pages_run_out(caplog):
 
 
 def test_sailing_plans_all_fetches_rest_pages_together():
-    """첫 쪽 totalCount로 쪽 수를 알고 나머지를 동시에 받는다 (자연어 선박 검색, 10-01). 쪽 순서는 유지."""
+    """첫 쪽 totalCount로 쪽 수를 알고 나머지를 동시에 받는다 (자연어 선박 검색). 쪽 순서는 유지."""
     from datetime import date
     from urllib.parse import parse_qs, urlparse
 
@@ -157,7 +157,7 @@ def test_sailing_plans_all_fetches_rest_pages_together():
     assert len(plans) == 107 and plans[0].ship_name == "SHIP 0" and plans[-1].ship_name == "SHIP 106"
 
 
-# ── 릴레이·연결 실패 차단기 (10-07 정운) ─────────────────────────
+# ── 릴레이·연결 실패 차단기 ─────────────────────────
 
 
 def _transport(handler, calls: list):
@@ -195,7 +195,7 @@ def test_relay_token_header_only_when_set(monkeypatch):
 
 
 def test_connect_failure_is_retried_once():
-    """연결 실패는 한 번만 바로 다시 부르고, 그래도 안 되면 timeout (10-08 실사용 33번)."""
+    """연결 실패는 한 번만 바로 다시 부르고, 그래도 안 되면 timeout."""
     calls = []
     client = MofClient(key="k", transport=_transport(_refuse, calls))
     with pytest.raises(MofError) as e:
@@ -205,7 +205,7 @@ def test_connect_failure_is_retried_once():
 
 
 def test_connect_blip_recovers_on_second_try():
-    """첫 연결만 끊기고 두 번째에 붙으면 정상 결과 (10-08 실사용 33번)."""
+    """첫 연결만 끊기고 두 번째에 붙으면 정상 결과."""
     calls = []
     state = {"n": 0}
 

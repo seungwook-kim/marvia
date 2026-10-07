@@ -1,4 +1,4 @@
-"""부산항 입항 추세 (IMF PortWatch, 10-08) 테스트. 키·네트워크 없이 가공 fixture로 돈다.
+"""부산항 입항 추세 (IMF PortWatch) 테스트. 키·네트워크 없이 가공 fixture로 돈다.
 
 - 클라이언트: 응답 파싱(epoch·문자열 날짜), ArcGIS 오류 모양, 타임아웃 → PortWatchError
 - 서비스: 7일/28일 평균, 비율과 이름(rules.md 경계), 캐시, 실패 시 마지막 성공값(partial)
@@ -217,7 +217,7 @@ def test_router_failure_is_still_200(monkeypatch):
 
 
 def test_verdict_side_does_not_import_port_traffic():
-    """참고 맥락이라 판정 재료가 아니다 (10-08). 판정 코드가 이 모듈을 쓰지 않는지 본다."""
+    """참고 맥락이라 판정 재료가 아니다. 판정 코드가 이 모듈을 쓰지 않는지 본다."""
     from pathlib import Path
 
     services = Path(port_traffic.__file__).parent

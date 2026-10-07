@@ -1,4 +1,4 @@
-"""A2 완료 기준: 계약 C1·C2·C3·C5·C4가 import 되고 예시 JSON이 검증을 통과한다 (작업 리스트 A2).
+"""계약 C1·C2·C3·C5·C4가 import 되고 예시 JSON이 검증을 통과한다.
 
 키 없이 돈다. 값은 전부 가공값이다 (실제 B/L·실제 응답 아님, CLAUDE.md).
 """
@@ -63,7 +63,7 @@ def test_response_ok_example_validates():
 
 
 def test_response_insufficient_example_validates():
-    """되묻기: verdict 없음, 후보 목록 채움 (SDD 8절, 09-22 결정)."""
+    """되묻기: verdict 없음, 후보 목록 채움 (SDD 8절)."""
     d = _ok_response()
     d.update({"status": "insufficient", "verdict": None, "vessel_match": "uncertain", "vessel": None,
               "days_margin": None, "decided_by": None, "reasons": [], "conflicts": [],
@@ -116,14 +116,14 @@ def test_signal_set_accepts_seven_ids_and_rejects_unknown():
 
 def test_customs_record_has_no_sensitive_fields():
     rec = CustomsRecord(ship_name="TEST CARGO A", ship_nat="KR", bl_masked=mask_bl("TESTBL0001"), fetched_at=NOW)
-    assert rec.bl_masked == "TE*****001"  # 가운데 절반을 가린다 (SDD 3.5, 10-01). 홀수 남는 자리는 뒤로
-    # 품명은 10-06 오후부터 goods_name으로 둔다 (정운 결정). 중량·화주·세관명은 여전히 자리가 없다
+    assert rec.bl_masked == "TE*****001"  # 가운데 절반을 가린다 (SDD 3.5). 홀수 남는 자리는 뒤로
+    # 품명은 goods_name으로 둔다. 중량·화주·세관명은 자리가 없다
     for banned in ("prnm", "wght", "consignee", "customs_office"):
         assert banned not in CustomsRecord.model_fields
 
 
 def test_mask_bl_short_keeps_ends_readable():
-    """10-01 변경: 8자 이하도 전부 가리지 않는다. 조회 이력에서 알아볼 수 있게 가운데 절반만"""
+    """8자 이하도 전부 가리지 않는다. 조회 이력에서 알아볼 수 있게 가운데 절반만"""
     assert mask_bl("ABCD1234") == "AB****34"
 
 
@@ -132,6 +132,6 @@ def test_mcp_tool_results_and_error():
     assert r.source == "shipfinder"
     p = LivePositionResult(mmsi=440000001, lat=33.0, lng=128.0, sog=None, cog=None, navistat=None,
                            dest=None, destcode=None, ais_eta=None, last_time=None, fetched_at=NOW)
-    assert "freshness" not in LivePositionResult.model_fields  # freshness 판정은 도구 몫이 아니다 (B4 경계)
+    assert "freshness" not in LivePositionResult.model_fields  # freshness 판정은 도구 몫이 아니다
     err = ToolError(code="rate_limited", message="29", retryable=True)
     assert err.model_dump() == {"code": "rate_limited", "message": "29", "retryable": True}

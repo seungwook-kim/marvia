@@ -1,7 +1,7 @@
-"""V15: 판매 예정일 문장 검사 (10-06 점검, services/validate.py).
+"""V15: 판매 예정일 문장 검사 (services/validate.py).
 
-판정 LLM이 days_margin 음수를 "판매 예정일이 지난 상태입니다"로 옮기고(늦게 도착한다는 뜻이지 날짜가 지났다는 뜻이 아니다),
-판매 예정일을 받지 않았는데 "예정보다 빠른 도착"이라고 썼다. 낱말은 cargo-verdict/rules.md sale_date_words 등. 키 없이 돈다.
+판정 LLM이 days_margin 음수를 "판매 예정일이 지난 상태입니다"로 옮기거나(늦게 도착한다는 뜻이지 날짜가 지났다는 뜻이 아니다),
+판매 예정일을 받지 않았는데 "예정보다 빠른 도착"이라고 쓰지 못하게 한다. 낱말은 cargo-verdict/rules.md sale_date_words 등. 키 없이 돈다.
 """
 from datetime import datetime, timezone
 

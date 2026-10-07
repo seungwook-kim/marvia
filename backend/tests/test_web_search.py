@@ -1,4 +1,4 @@
-"""채팅 에이전트의 웹 검색 도구 테스트 (10-05 결정, services/chat.py run_web·web_violations, llm.web_search).
+"""채팅 에이전트의 웹 검색 도구 테스트 (services/chat.py run_web·web_violations, llm.web_search).
 
 키 없이 돈다. llm.web_search와 llm.chat_agent는 가짜다. 웹 글·주소·제목은 모두 모의값이다 (example.test 도메인).
 지키는 것: 화물·선박 도구가 돈 문장에는 웹을 안 쓴다 · 웹 답은 근거 조각이 가져온 웹 글에 그대로 있어야 한다 ·
@@ -152,7 +152,7 @@ def test_duty_and_clearance_questions_are_never_searched_or_answered_from_web(mo
 
 def test_web_answer_that_states_duty_is_not_shown(monkeypatch):
     # 질문과 검색어는 평범한데 웹 글과 답이 세율을 말하면 그 답은 내보내지 않는다.
-    # 질문이 세액 주제가 아니므로 관세사 안내가 아니라 다른 대비 문구로 끝난다 (10-05 재현: 엉뚱한 관세사 안내)
+    # 질문이 세액 주제가 아니므로 관세사 안내가 아니라 다른 대비 문구로 끝난다
     text = "수입 서류 안내에서 이 품목의 세율은 8%라고 적혀 있습니다."
     monkeypatch.setattr(llm, "web_search", lambda q: [{"title": "서류", "url": URL_A, "text": text}])
     monkeypatch.delenv("WEB_SEARCH", raising=False)

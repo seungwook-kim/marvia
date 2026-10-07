@@ -1,4 +1,4 @@
-"""evals/run_eval.py 채점(score) 테스트 (D8). 키·재생 파일 없이 결과 줄만 만들어 넣는다.
+"""evals/run_eval.py 채점(score) 테스트. 키·재생 파일 없이 결과 줄만 만들어 넣는다.
 
 확인하는 것: 축 계산의 분모, 오확정·주입 오작동 판정, 분모가 0이면 None, 게이트.
 """
@@ -71,11 +71,11 @@ def test_usage_without_llm_calls():
 
 
 def test_p95_nearest_rank():
-    """ceil(0.95 × n)번째 값. 예전 식은 한 칸 앞 값을 골라 30건이면 28번째, 2건이면 가장 빠른 값이 나왔다."""
+    """ceil(0.95 × n)번째 값. 한 칸 앞 값을 고르면 30건이면 28번째, 2건이면 가장 빠른 값이 나온다."""
     from evals.run_eval import p95
 
-    assert p95(list(range(1, 31))) == 29        # 30건: 29번째 (예전 28)
-    assert p95([23, 5066]) == 5066              # 2건: 느린 쪽 (예전 23)
+    assert p95(list(range(1, 31))) == 29        # 30건: 29번째
+    assert p95([23, 5066]) == 5066              # 2건: 느린 쪽
     assert p95(list(range(1, 101))) == 95       # 100건: 95번째
     assert p95([7]) == 7
     assert p95([]) is None

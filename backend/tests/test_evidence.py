@@ -1,4 +1,4 @@
-"""C-8 여유 일수와 신뢰 ETA 테스트. 라우터와 신호 계산이 같은 함수를 쓰므로 여기서 한 번 확인한다."""
+"""여유 일수와 신뢰 ETA 테스트. 라우터와 신호 계산이 같은 함수를 쓰므로 여기서 한 번 확인한다."""
 from datetime import date, datetime, timezone
 
 from backend.app.schemas.customs import CustomsRecord

@@ -1,6 +1,5 @@
-"""10-06 점검 수정 테스트. 키·DB 없이 돈다.
+"""보안·안정성 점검 수정 테스트. 키·DB 없이 돈다.
 
-분당 횟수 제한·동시 요청 상한·선박 자세히 보기 하루 상한은 넣었다가 뺐다 (10-06 결정: 유료 전환 때 다시 정한다).
 2. 선박 자세히 보기 캐시 상한·정규화 (services/vessel_detail.py)
 4. AgentRequest voyage_no·session_id 제한 (schemas/agent.py)
 6. 후속 질문: 입력 날짜가 바뀌면 다시 판정, 로그인 없는 이력도 B/L 지문으로 가른다 (routers/agent.py)
@@ -115,7 +114,7 @@ def bl_key(monkeypatch):
 
 
 def test_logged_out_history_does_not_mix_same_mask(bl_key):
-    """가린 모양이 같은 두 B/L(TE****01). 로그인 없이 남긴 줄도 지문으로 갈라 내 화물 줄만 쓴다 (10-06 점검)."""
+    """가린 모양이 같은 두 B/L(TE****01). 로그인 없이 남긴 줄도 지문으로 갈라 내 화물 줄만 쓴다."""
     from backend.app.schemas.customs import mask_bl
 
     mine, other = "TESTBL01", "TEXYZW01"
@@ -203,7 +202,7 @@ def test_migration_failure_rolls_back_file_and_unlocks():
 # ── 9. 확인 안 된 이메일 ──
 
 @pytest.mark.parametrize("claims, expected", [
-    ({"email": "Op@Example.com"}, "op@example.com"),                                   # 확인 칸이 없는 출입증: 예전처럼
+    ({"email": "Op@Example.com"}, "op@example.com"),                                   # 확인 칸이 없는 출입증: 이메일 그대로
     ({"email": "op@example.com", "email_verified": True}, "op@example.com"),
     ({"email": "op@example.com", "user_metadata": {"email_verified": True}}, "op@example.com"),  # 구글 로그인 모양
     ({"email": "op@example.com", "email_verified": False}, None),

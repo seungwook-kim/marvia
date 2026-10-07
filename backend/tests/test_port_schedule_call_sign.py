@@ -1,7 +1,7 @@
-"""get_port_schedule 호출부호 우선 테스트 (10-05). 키 없이 가짜 해수부 클라이언트로 돈다.
+"""get_port_schedule 호출부호 우선 테스트. 키 없이 가짜 해수부 클라이언트로 돈다.
 
 국적선은 해수부 선명이 한글이고 세관·ShipFinder 선명은 영문이다. 호출부호로 찾은 기록을 선명으로 다시 거르면
-그 배의 입항 예정·실적이 사라졌다 (데모 TESTBL48). 호출부호가 같으면 선명과 상관없이 쓰는지 본다.
+그 배의 입항 예정·실적이 사라진다 (데모 TESTBL48). 호출부호가 같으면 선명과 상관없이 쓰는지 본다.
 값은 전부 모의값이다 (호출부호 TST, 선명 테스트, CLAUDE.md).
 """
 from datetime import datetime, timedelta, timezone
@@ -65,14 +65,14 @@ def test_call_sign_ignores_other_ships_with_same_name(mof):
 
 
 def test_name_only_query_still_filters_by_name(mof):
-    # 호출부호 없이 선명만 주면 지금까지처럼 선명으로 거른다. 영문 선명으로 한글 기록을 고르지 않는다
+    # 호출부호 없이 선명만 주면 선명으로 거른다. 영문 선명으로 한글 기록을 고르지 않는다
     mof(plans=[_plan("TST481", "테스트트윈사십팔", PLANNED)])
     r = port_schedule.get_port_schedule(ship_name="TEST TWIN 48")
     assert r["planned_arrival"] is None
 
 
 def test_call_sign_without_match_falls_back_to_name(mof):
-    # 호출부호가 같은 기록이 없으면 예전처럼 선명으로 거른다 (호출부호 칸이 빈 기록 등)
+    # 호출부호가 같은 기록이 없으면 선명으로 거른다 (호출부호 칸이 빈 기록 등)
     mof(plans=[_plan(None, "TEST TWIN 48", PLANNED), _plan("TST999", "OTHER SHIP", PLANNED - timedelta(days=1))])
     r = port_schedule.get_port_schedule(call_sign="TST481", ship_name="TEST TWIN 48")
     assert r["planned_arrival"].startswith("2026-09-24T12:00")

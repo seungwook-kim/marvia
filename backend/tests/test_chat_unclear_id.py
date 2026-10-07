@@ -1,7 +1,7 @@
-"""알 수 없는 식별자와 목적지 장소 테스트 (10-05 실측, services/chat.py _is_destination·clarify_reply·_agent).
+"""알 수 없는 식별자와 목적지 장소 테스트 (services/chat.py _is_destination·clarify_reply·_agent).
 
-배포 화면에서 "지금 TEST41 선박 위치 어디야?"(진짜 B/L은 8자 이상)에 에이전트가 search_arrivals place=Busan을 불러
-빈 "Busan에서 들른 배" 표를 보였다. 고친 것: (1) 도착지(부산·한국)는 place로 거절, (2) 식별자를 모르면 코드가 되묻는다.
+"지금 TEST41 선박 위치 어디야?"(진짜 B/L은 8자 이상)에 에이전트가 search_arrivals place=Busan을 부르면
+빈 "Busan에서 들른 배" 표가 나온다. 그래서 (1) 도착지(부산·한국)는 place로 거절하고, (2) 식별자를 모르면 코드가 되묻는다.
 LLM과 해수부는 부르지 않는다 (가짜 llm.chat_agent). 값은 모두 모의값이다.
 """
 import pytest
@@ -27,7 +27,7 @@ def test_destination_place_is_rejected_with_error_and_no_vessel_table(monkeypatc
 @pytest.mark.parametrize("args", [{"place": None, "place_label": "부산"}, {"place": "Busan", "place_label": "부산"},
                                   {"place": "Busan New Port", "place_label": None}])
 def test_destination_without_identifier_lists_all_arrivals(monkeypatch, args):
-    """10-06 점검: "이번 주 부산 들어오는 배"가 국내 항구 필터("부산(고현, 광양, ...)를 직전에 들른 배")가 됐다.
+    """"이번 주 부산 들어오는 배"가 국내 항구 필터("부산(고현, 광양, ...)를 직전에 들른 배")가 되면 안 된다.
     식별자 없는 입항 질문에서 도착지 place는 거르지 않고 전체 목록이다. 항구 고르기 LLM은 부르지 않는다."""
     _agent(monkeypatch, [("search_arrivals", {**args, "days": 7})])
     monkeypatch.setattr(svc, "_arrivals", lambda days: PLANS)
@@ -40,7 +40,7 @@ def test_destination_without_identifier_lists_all_arrivals(monkeypatch, args):
 
 @pytest.mark.parametrize("place,label", [("Busan", "부산"), ("Korea", None), (None, "부산항")])
 def test_search_vessels_destination_means_no_filter(monkeypatch, place, label):
-    """전 방식(_classic)도 search_vessels를 부른다. 도착지 place·label은 필터 없음과 같다 (10-06 점검)."""
+    """전 방식(_classic)도 search_vessels를 부른다. 도착지 place·label은 필터 없음과 같다."""
     monkeypatch.setattr(svc, "_arrivals", lambda days: PLANS)
     monkeypatch.setattr(llm, "match_ports", lambda *a, **kw: pytest.fail("도착지로 항구를 고르면 안 된다"))
     r = svc.search_vessels(place, 7, label)
@@ -93,7 +93,7 @@ def test_id_extraction_needs_letter_and_digit_and_skips_dates():
 
 
 def test_check_cargo_need_bl_with_id_like_text_asks_back_with_that_id(monkeypatch):
-    """TESTBL4 같은 오타는 check_cargo가 need_bl로 실패한다. 조회할 번호를 달라는 말 대신 그 글자를 되묻는다 (10-05 실측)."""
+    """TESTBL4 같은 오타는 check_cargo가 need_bl로 실패한다. 조회할 번호를 달라는 말 대신 그 글자를 되묻는다."""
     _agent(monkeypatch, [("check_cargo", {"bl_ref": None})], [("", "tool", "")])
     r = svc.handle("TESTBL4 조회해줘", "s1", None, lambda req: pytest.fail("조회하면 안 된다"))
     assert r.reply.startswith("'TESTBL4'가 B/L 번호인지")
@@ -101,7 +101,7 @@ def test_check_cargo_need_bl_with_id_like_text_asks_back_with_that_id(monkeypatc
     assert svc.handle("조회해줘", "s1", None, lambda req: None).reply == svc.NEED_BL  # 식별자 글자가 없으면 그대로
 
 
-# ── 한글 배 이름 찾기, 같은 되묻기 연속 금지, 웹 참고 링크 (10-07 정운 실사용 4·6) ──
+# ── 한글 배 이름 찾기, 같은 되묻기 연속 금지, 웹 참고 링크 ──
 
 def test_web_note_line_is_one_line_markdown_links_with_short_titles():
     src = [{"title": "가" * 50, "url": "https://a.example.test/%EB%B6%80/x(1)"},

@@ -1,10 +1,10 @@
-"""기억 뽑기 명령 정리(칸 정리, 화물 없는 대화의 거래처 칸 옮기기) 테스트 (services/memory.check_ops, 10-06 정운 결정).
+"""기억 뽑기 명령 정리(칸 정리, 화물 없는 대화의 거래처 칸 옮기기) 테스트 (services/memory.check_ops).
 
-배경: 실제 모델(gpt-4o-mini)로 시험하니 판단은 맞는데 check_ops가 거의 모든 좋은 명령을 거절했다.
+배경: 엄격한 출력 스키마를 쓰는 실제 모델은 판단은 맞아도 check_ops에 자주 거절당한다.
  - 엄격한 출력 스키마가 모든 칸 이름을 반드시 내게 해서, 모델이 안 쓰는 칸(text, source)을 채워 와 unknown_field로 거절
  - 화물 없는 대화에서 거래처를 화물 칸에 넣어 no_cargo로 거절
 그래서 안 쓰는 칸은 버리고(저장 안 됨), 화물이 없으면 거래처는 이 사람에 대해로 옮긴다. 나머지 검사는 그대로다.
-LLM·DB 없이 돈다(check_ops·apply_ops는 순수 함수). 아래 LLM 출력은 라이브 시험 결과를 흉내 낸 가짜다. 회사·사람 이름은 모의값이다.
+LLM·DB 없이 돈다(check_ops·apply_ops는 순수 함수). 아래 LLM 출력은 실제 모델 출력 모양을 흉내 낸 가짜다. 회사·사람 이름은 모의값이다.
 """
 from datetime import date
 
@@ -28,7 +28,7 @@ def _run(ops, user_text, items=None, cargo_key=None):
     return checked, memory.apply_ops(items, checked.ops, cargo_key, TODAY)
 
 
-# ── 라이브 시험 4건 (화물 없는 대화, cargo null) ──
+# ── 화물 없는 대화 4건 (cargo null) ──
 
 def test_live_case_1_contact_without_cargo_goes_to_about():
     """화물 없는 대화에서 모델이 section cargo로 낸 거래처는 about으로 저장된다. 안 쓰는 칸은 없다."""

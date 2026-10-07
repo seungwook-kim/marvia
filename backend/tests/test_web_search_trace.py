@@ -1,4 +1,4 @@
-"""web_search가 Langfuse에 관측(generation)을 남기는지 가짜 클라이언트로 확인한다 (10-05).
+"""web_search가 Langfuse에 관측(generation)을 남기는지 가짜 클라이언트로 확인한다.
 
 근거: observability/langfuse.py end_web_search. 네트워크·진짜 OpenRouter 호출 없음.
 """

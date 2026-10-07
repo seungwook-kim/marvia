@@ -1,7 +1,7 @@
 """내 화물 현황 표 테스트 (services/cargo_sheet.py, routers/cargo_sheet.py, cargo.stage_date, 019 마이그레이션).
 
 DB 없이 돈다. FakeConn이 user_cargo·user_lc 두 표를 메모리에 두고, 서비스가 보내는 SQL을 문장 앞부분으로 가려 흉내 낸다
-(test_watch.FakeConn과 같은 방식). 진짜 Postgres에서의 SQL 동작은 따로 손으로 확인했다(작업 보고 참고). B/L은 모의값이다.
+(test_watch.FakeConn과 같은 방식). 진짜 Postgres에서의 SQL 동작은 따로 손으로 확인했다. B/L은 모의값이다.
 """
 import io
 from datetime import date, datetime, timedelta, timezone
@@ -278,7 +278,7 @@ def _sheet(db):
 
 
 def _father_sheet() -> FakeConn:
-    """아버지 표 모양: 신용장 두 개, 첫 신용장에 B/L 둘, 둘째에 하나, 신용장 없는 줄 하나."""
+    """신용장 두 개, 첫 신용장에 B/L 둘, 둘째에 하나, 신용장 없는 줄 하나."""
     db = FakeConn()
     lc1, lc2 = db.add_lc("LC-0001", date(2026, 7, 21)), db.add_lc("LC-0002", date(2026, 8, 5))
     db.add("MOCKBL000000A1", lc=lc1, departed_on=date(2026, 8, 1), arrived_on=date(2026, 8, 30),
@@ -334,7 +334,7 @@ def test_xlsx_company_and_container_columns():
 
 
 def test_xlsx_default_bl_is_original():
-    """기본값은 원본이다 (10-06 결정, SDD 3.5 예외). 수입자가 그 번호로 다른 곳에서 화물을 조회한다."""
+    """기본값은 원본이다 (SDD 3.5 예외). 수입자가 그 번호로 다른 곳에서 화물을 조회한다."""
     db = FakeConn()
     db.add("MOCKBL20261001")
     assert cargo_sheet.XLSX_BL_SOURCE == "original"
@@ -540,14 +540,14 @@ def test_delete_all_removes_lc_rows_too():
 
 
 def test_xlsx_goods_name_column():
-    """품명(10-06 오후)은 10번째 칸. UNI-PASS 외부 글자라 다른 회사 칸처럼 글자 형식으로 쓴다"""
+    """품명은 10번째 칸. UNI-PASS 외부 글자라 다른 회사 칸처럼 글자 형식으로 쓴다"""
     ws = _sheet(_father_sheet())
     assert ws["J2"].value == "MOCK GOODS" and ws["J2"].data_type == "s"
     assert ws["J3"].value is None  # 품명이 없는 줄은 빈칸
 
 
 def test_xlsx_vessel_columns_are_text_at_the_end():
-    """선명·국적(10-06 오후)은 맨 뒤 11·12번째 칸이다. 외부 글자라 글자 형식으로 쓰고, =로 시작해도 수식이 되지 않는다."""
+    """선명·국적은 맨 뒤 11·12번째 칸이다. 외부 글자라 글자 형식으로 쓰고, =로 시작해도 수식이 되지 않는다."""
     db = FakeConn()
     db.add("MOCKBL000000A1", vessel_name="MOCK VESSEL", vessel_flag="PA")
     db.add("MOCKBL000000B1", vessel_name="=1+1", vessel_flag=None)

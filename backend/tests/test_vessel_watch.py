@@ -1,4 +1,4 @@
-"""B/L 없이 배만 지켜보기 테스트 (services/vessel_watch.py, routers/watch.py /api/watch/vessels, 10-08 정운 실사용 57번).
+"""B/L 없이 배만 지켜보기 테스트 (services/vessel_watch.py, routers/watch.py /api/watch/vessels).
 
 DB 없이 돈다. vessel_watch·watch_positions 두 표를 흉내 내는 가짜 연결을 쓴다. 배 번호·이름·좌표는 모의값이다.
 """
@@ -73,7 +73,7 @@ class _Ctx:
 @pytest.fixture(autouse=True)
 def no_shipfinder(monkeypatch):
     """테스트가 진짜 ShipFinder를 부르지 않게 기본 클라이언트를 막고, 위치 캐시를 테스트마다 비운다.
-    켜기 전에 위치를 받는 길(fetch_position, 10-08)이 생겨서, 키가 있는 PC에서 mmsi로 올리는 테스트가 실제 호출을 하지 않게 한다.
+    켜기 전에 위치를 받는 길(fetch_position)이 있어서, 키가 있는 PC에서 mmsi로 올리는 테스트가 실제 호출을 하지 않게 한다.
     클라이언트가 필요한 테스트는 _use로 바꿔 끼운다."""
     from backend.app.clients.cache import ResponseCache
     from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
@@ -254,7 +254,7 @@ def test_call_sign_with_several_mmsi_is_422(db, me, monkeypatch):
 
 
 def test_call_sign_reused_by_old_ships_picks_the_recent_one(db, me, monkeypatch):
-    # 09-28 실측과 같은 모양: 한 호출부호에 IMO가 다른 3척, 마지막 신호 0일·123일·552일 전 → 지금 배 하나 (10-08 결정)
+    # 실제 관찰된 모양: 한 호출부호에 IMO가 다른 3척, 마지막 신호 0일·123일·552일 전 → 지금 배 하나
     _use(monkeypatch, _FakeClient([(440999901, "TST01", 9900001, 0), (440999902, "TST01", 9900002, 123),
                                    (440999903, "TST01", 9900003, 552)]))
     r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
@@ -288,7 +288,7 @@ def test_mmsi_wins_and_neither_is_422(db, me, monkeypatch):
 
 
 def test_call_sign_miss_falls_back_to_name_with_same_sign(db, me, monkeypatch):
-    # 호출부호 검색 0건, 선명 검색에 같은 호출부호 배가 하나 → 200 (10-08 입항 목록 지켜보기 422)
+    # 호출부호 검색 0건, 선명 검색에 같은 호출부호 배가 하나 → 200 (입항 목록에서 지켜보기)
     class ByQuery(_FakeClient):
         def search(self, keywords, max=10):
             self.hits = [] if keywords == "TST01" else [(440999901, "TST01"), (333, "OTHER9")]
@@ -345,7 +345,7 @@ class _PosClient(_FakeClient):
 
 
 def test_watch_without_detail_fetches_position_once_and_seeds_point(db, me, monkeypatch):
-    # 상세를 안 열어 캐시가 빈 배: 켜기 전에 위치를 한 번 받아 첫 점으로 넣는다 (10-08 사용자 결정)
+    # 상세를 안 열어 캐시가 빈 배: 켜기 전에 위치를 한 번 받아 첫 점으로 넣는다
     client = _use(monkeypatch, _PosClient([(440999901, "TST01")]))
     r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
     assert r.status_code == 200 and client.positions == [440999901]
@@ -373,6 +373,6 @@ def test_worker_collects_positions_for_vessel_watch_too():
 def test_migration_023_is_last_and_creates_table():
     from pathlib import Path
     names = sorted(p.name for p in (Path(__file__).parents[1] / "app/db/migrations").glob("*.sql"))
-    assert "023_vessel_watch.sql" in names  # 10-08 뒤로 024가 붙었다 (test_bl_type_retry.py)
+    assert "023_vessel_watch.sql" in names  # 024는 그 뒤에 붙는다 (test_bl_type_retry.py)
     text = (Path(__file__).parents[1] / "app/db/migrations" / "023_vessel_watch.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS vessel_watch" in text and "ENABLE ROW LEVEL SECURITY" in text
