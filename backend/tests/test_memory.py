@@ -149,28 +149,39 @@ class FakeMemoryDB:
     def __init__(self, items=None, version=3, conflicts=0, exists=True):
         self.items, self.version, self.conflicts, self.exists = items or [], version, conflicts, exists
         self.previous, self.full_at, self.updates = None, None, 0
+        self.next_seq, self.pruned_count, self.pruned_at = 0, 0, None
 
     def execute(self, sql, params=()):
         db, rowcount, one = self, 0, None
         if sql.startswith("SELECT items, version, full_at"):
-            one = (self.items, self.version, self.full_at) if self.exists else None
+            one = (self.items, self.version, self.full_at, self.next_seq, self.pruned_count, self.pruned_at,
+                   self.previous is not None) if self.exists else None
         elif sql.startswith("SELECT"):  # 화물 줄 (cargo.all_rows)
             pass
+        elif sql.lstrip().startswith("UPDATE user_memory SET items = previous"):  # 되돌리기 (memory.undo)
+            if self.exists and self.previous is not None:
+                self.items, self.previous = self.previous, self.items
+                self.version += 1
+                rowcount = 1
         elif sql.lstrip().startswith("UPDATE user_memory SET items"):
             self.updates += 1
             if self.conflicts:
                 self.conflicts -= 1
                 self.version += 1  # 다른 요청이 먼저 고쳤다
                 self.items = self.items + [_todo("c9", "다른 기기에서 더함")]
-            elif params[3] == self.version:
+            elif params[-1] == self.version:
                 self.previous, self.items = json.loads(params[1]), json.loads(params[0])
                 self.version += 1
                 self.full_at = None
+                self.next_seq = max(self.next_seq, params[2])
+                if params[3] is not None:
+                    self.pruned_count, self.pruned_at = params[3], "now"
                 rowcount = 1
         elif "full_at = now()" in sql:
             self.full_at, rowcount = "now", 1
-        elif sql.startswith("INSERT INTO user_memory (user_id, items, version)"):
+        elif sql.startswith("INSERT INTO user_memory (user_id, items, version"):
             self.items, self.exists, self.version, rowcount = json.loads(params[1]), True, 1, 1
+            self.next_seq = params[2]
 
         class Cur:
             def __init__(self):
@@ -194,7 +205,8 @@ def test_save_rereads_on_version_conflict():
     """다른 기기가 먼저 고쳤으면 다시 읽고 적용한다. 앞 요청의 줄이 사라지지 않는다 (EC-04)."""
     db = FakeMemoryDB(items=[_todo("c1", "은행 가기")], conflicts=1)
     assert memory.save(db, "u1", lambda items: items + [_todo("c2", "관세사 서류")]) == "saved"
-    assert {i["id"] for i in db.items} == {"c1", "c9", "c2"} and db.updates == 2
+    # 새 항목 번호는 저장 때 단조 증가로 다시 매긴다: 남은 최대(c9) 다음인 10 (10-08 QA F4)
+    assert {i["id"] for i in db.items} == {"c1", "c9", "c10"} and db.updates == 2
 
 
 def test_save_gives_up_after_retries():

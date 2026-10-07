@@ -2,7 +2,10 @@
 /** 설정 화면의 "내 기억" 구역 (docs/specs/memory.md "사용자는 메모장을 보고, 줄 하나 또는 전부 지울 수 있다").
  *
  * GET /api/memory로 Marvia가 기억한 화물과 메모를 보여 주고, 메모 한 줄(DELETE /api/memory/items/{id})이나
- * 메모 전부(DELETE /api/memory)를 지운다. 지우기는 되돌릴 수 없어서 화면 안에서 한 번 더 확인한다 (AccountPanel과 같은 방식).
+ * 메모 전부(DELETE /api/memory)를 지운다. 지우기는 화면 안에서 한 번 더 확인한다 (AccountPanel과 같은 방식).
+ * 10-08 QA: 한 줄 지우기·대화로 고쳐진 메모는 "직전으로 되돌리기"(POST /api/memory/undo, F12)로 한 단계 되돌릴 수 있다.
+ * 메모 전부 지우기는 되돌릴 수 없다(줄째 지운다). 대화에서 들은 화물 값(확인 대기)은 적용·무시 버튼으로 정한다(F5),
+ * 상한 때문에 코드가 자동 정리했으면 그 사실을 알린다(F11).
  * "모두 지우기"는 메모(user_memory)만 지운다. 화물 목록(user_cargo)은 "내 조회 기록 지우기"나 회원 탈퇴 때 지워지고,
  * 끝난 화물은 반출 후 3년 보관 뒤 그 메모와 함께 지워진다.
  * 키보드·화면 낭독기 사용자를 위해 눌렀을 때 포커스를 옮기고, 결과 글은 늘 있는 status/alert 칸에서만 바꾼다 (focusKeys, 아래).
@@ -10,12 +13,12 @@
  * 데모 모드는 가공 예시를 보여 주고 지우기는 막는다. 로그인이 꺼진 서버는 기억을 만들지 않는다.
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {LoaderCircle, Trash2, X, Check} from 'lucide-react';
+import {LoaderCircle, Trash2, X, Check, Undo2} from 'lucide-react';
 import {useApp} from './AppProvider';
 import {VerdictBadge} from './Shared';
-import {deleteAllMemory, deleteMemoryItem, getMemory, isLive} from '@/lib/api';
+import {deleteAllMemory, deleteMemoryItem, getMemory, isLive, resolvePending, undoMemory} from '@/lib/api';
 import {day, verdictLabels} from '@/lib/format';
-import type {CargoSummary, MemoryItem, MemoryResponse} from '@/lib/types';
+import type {CargoSummary, MemoryItem, MemoryResponse, PendingChange} from '@/lib/types';
 
 const KIND_LABELS: Record<MemoryItem['kind'], string> = {
   preference: '선호', schedule: '반복 일정', contact: '거래처', worry: '걱정', todo: '할 일',
@@ -72,7 +75,10 @@ function conditions(c: CargoSummary): string[] {
   return out;
 }
 
-function CargoRow({c}: {c: CargoSummary}) {
+/** 확인 대기 값 하나를 적용하거나 무시하는 함수. 실제 모드·로그인·화물 지문(cargo_ref)이 있을 때만 넘어온다 (10-08 QA F5) */
+type PendingAction = (c: CargoSummary, field: PendingChange['field'], apply: boolean) => void;
+
+function CargoRow({c, onPending, busyKey}: {c: CargoSummary; onPending?: PendingAction; busyKey?: string | null}) {
   const name = c.label ? `${c.label} · ${c.bl_masked}` : c.bl_masked;
   if (c.status === 'done') return <li className="memory-cargo done"><div className="mc-head"><strong>{c.summary ?? name}</strong><span className="mc-done">끝난 화물</span></div></li>;
   // "여유 N일"은 크게, 신호등 색을 판정 등급에서 따라간다 (순항=초록, 주의=노랑, 긴급=빨강). 값이 없으면 색을 쓰지 않는다
@@ -95,9 +101,20 @@ function CargoRow({c}: {c: CargoSummary}) {
     <p className="mc-cond">{sub}</p>
     {slack && c.last_verdict && <p className={`memory-slack ${c.last_verdict}`}>{slack}</p>}
     {rows.length > 0 && <dl className="mc-rows">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
-    {c.pending.map(p => <p key={p.field} className="memory-pending">
-      {(PENDING_SENTENCES[p.field] ?? PENDING_FALLBACK)(p.value)} 바꾸려면 그 값을 넣어 다시 조회해 주세요.
-    </p>)}
+    {c.pending.map(p => {
+      const sentence = (PENDING_SENTENCES[p.field] ?? PENDING_FALLBACK)(p.value);
+      // 적용·무시 버튼이 있으면 그 둘로 정한다. 없으면(체험 모드·옛 서버) 예전처럼 다시 조회하라고 안내한다
+      if (!onPending || !c.cargo_ref) return <p key={p.field} className="memory-pending">{sentence} 바꾸려면 그 값을 넣어 다시 조회해 주세요.</p>;
+      const busy = busyKey === `${c.cargo_ref}:${p.field}`;
+      return <div key={p.field} className="memory-pending">
+        <p>{sentence} 이 값으로 바꿀까요?</p>
+        <span className="danger-actions">
+          <button type="button" className="button secondary" disabled={busy} onClick={() => onPending(c, p.field, false)}>무시</button>
+          <button type="button" className="button" disabled={busy} onClick={() => onPending(c, p.field, true)}>
+            {busy ? <LoaderCircle size={16} className="spin"/> : <Check size={16}/>}적용</button>
+        </span>
+      </div>;
+    })}
   </li>;
 }
 
@@ -108,6 +125,8 @@ export function MemoryPanel() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [allStep, setAllStep] = useState<'idle' | 'confirm' | 'busy'>('idle');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [pendingBusy, setPendingBusy] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   // 다음 그림이 그려진 뒤 포커스를 줄 곳. data-focus 이름을 앞에서부터 찾아 처음 있는 것에 준다 (없으면 다음 후보)
@@ -165,6 +184,27 @@ export function MemoryPanel() {
     catch (e) { setError(e instanceof Error ? e.message : '지우지 못했어요.'); setAllStep('confirm'); setFocusKeys(['all-confirm']); }
   }
 
+  /** 메모장을 직전 버전으로 (POST /api/memory/undo, 10-08 QA F12). 한 번 더 누르면 되돌리기를 취소한다 */
+  async function undo() {
+    setUndoBusy(true); setError(''); setMessage('');
+    try { await undoMemory(); setMessage('메모를 직전 상태로 되돌렸어요. 한 번 더 누르면 되돌리기를 취소해요.'); await load(); setFocusKeys(['undo', 'status']); }
+    catch (e) { setError(e instanceof Error ? e.message : '되돌리지 못했어요.'); }
+    finally { setUndoBusy(false); }
+  }
+
+  /** 대화에서 들은 화물 값을 적용하거나 무시한다 (10-08 QA F5). 이름표는 이 길로만 확정된다 */
+  const onPending: PendingAction = async (c, field, apply) => {
+    if (!c.cargo_ref) return;
+    setPendingBusy(`${c.cargo_ref}:${field}`); setError(''); setMessage('');
+    try {
+      await resolvePending(c.cargo_ref, field, apply);
+      setMessage(apply ? '말씀하신 값으로 바꿨어요.' : '그 값은 적용하지 않았어요.');
+      await load(); setFocusKeys(['status']);
+    }
+    catch (e) { setError(e instanceof Error ? e.message : '바꾸지 못했어요.'); }
+    finally { setPendingBusy(null); }
+  };
+
   function itemRow(item: MemoryItem) {
     const text = itemText(item);
     const label = `${KIND_LABELS[item.kind]} ${text}`;
@@ -197,13 +237,21 @@ export function MemoryPanel() {
       {loading && !memory && <p className="st-note"><LoaderCircle size={16} className="spin"/> 기억을 불러오는 중</p>}
       {memory && !memory.available && <p className="st-note">지금은 기억을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.</p>}
       {memory?.full && <p role="status" className="memory-full">메모장이 가득 찼어요. 지울 메모를 골라 정리해 주세요. 정리하기 전에는 새 메모를 저장하지 않아요.</p>}
+      {/* 상한 때문에 코드가 조용히 정리한 사실을 알린다 (10-08 QA F11). 정리 대상은 끝난 할 일과 끝난 화물의 걱정뿐이다 */}
+      {memory && memory.available && (memory.pruned_count ?? 0) > 0 && memory.pruned_at && <p className="st-note">
+        메모장이 가득 차서 {kstMonthDay(memory.pruned_at)}에 끝난 할 일·끝난 화물의 걱정 {memory.pruned_count}건을 자동으로 정리했어요.
+        {deletable && memory.can_undo ? ' 바로 다음이라면 "직전으로 되돌리기"로 되살릴 수 있어요.' : ''}</p>}
       {empty && <p className="st-note">아직 기억한 것이 없어요.</p>}
       {memory && memory.available && !empty && <div className="st-cols memory">
         <section className="st-card"><h2>기억한 화물</h2><p className="st-sub">{memory.cargo.length > 0 ? `최근 저장된 화물 ${memory.cargo.length}건` : '기억한 화물이 없어요.'}</p>
-          {memory.cargo.length > 0 && <ul className="memory-list cargo-cards">{memory.cargo.map((c, i) => <CargoRow key={`${i}-${c.bl_masked}-${c.status}-${c.last_checked_at ?? ''}`} c={c}/>)}</ul>}</section>
+          {memory.cargo.length > 0 && <ul className="memory-list cargo-cards">{memory.cargo.map((c, i) => <CargoRow key={`${i}-${c.bl_masked}-${c.status}-${c.last_checked_at ?? ''}`} c={c}
+            onPending={deletable ? onPending : undefined} busyKey={pendingBusy}/>)}</ul>}</section>
         <section className="st-card"><h2>메모</h2><p className="st-sub">{memory.items.length > 0
           ? `${memory.items.length}개 저장${memory.max_chars ? `, ${memory.used_chars ?? 0}/${memory.max_chars}자 사용` : ''}`
           : '저장된 메모가 없어요.'}</p>
+          {/* 직전으로 되돌리기 (10-08 QA F12). 잘못 지웠거나 대화에서 잘못 고쳐졌을 때 한 단계 되돌린다 */}
+          {deletable && memory.can_undo && <button type="button" className="button secondary" data-focus="undo" onClick={() => void undo()} disabled={undoBusy}>
+            {undoBusy ? <LoaderCircle size={16} className="spin"/> : <Undo2 size={16}/>}직전으로 되돌리기</button>}
           {about.length > 0 && <div className="memory-block"><h3>나에 대해</h3><ul className="memory-list">{about.map(itemRow)}</ul></div>}
           {groups.map(g => <div className="memory-block" key={g}><h3>화물별 · {g}</h3>
             <ul className="memory-list">{perCargo.filter(i => (i.cargo_name ?? '지난 화물') === g).map(itemRow)}</ul></div>)}

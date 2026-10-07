@@ -51,7 +51,8 @@ marvia/
                             POST /api/conversations/{id}/attachment-turns
         document.py         POST /api/document (서류 사진·PDF)
         history.py          GET·DELETE /api/history, GET /api/usage
-        memory.py           GET·DELETE /api/memory, DELETE /api/memory/items/{id}
+        memory.py           GET·DELETE /api/memory, DELETE /api/memory/items/{id}, POST /api/memory/undo,
+                            POST·DELETE /api/memory/cargo/{ref}/pending/{field}
         watch.py            POST /api/cargo/watch/state, PUT /api/cargo/watch, GET /api/watch, GET /api/watch/changes,
                             POST /api/watch/changes/seen, GET·POST /api/watch/vessels, DELETE /api/watch/vessels/{mmsi}
         cargo_sheet.py      GET /api/cargo/sheet, GET /api/cargo/sheet.xlsx, PUT /api/cargo/sheet/{key}/lc, PUT .../departed
@@ -941,11 +942,11 @@ docs/specs/memory.md. 로그인 사용자만(없으면 아무것도 안 함). `u
 - 쓰기: 응답을 돌려준 뒤 뒤 작업으로 화물 표 쓰기(코드)와 기억 뽑기(`llm.write_memory`, 줄 단위 명령만. 검사·적용은 `memory.check_ops`·`apply_ops`가 코드로). 화물 값 변경(`set_cargo`)은 바로 적용하지 않고 확인 대상(`pending`)으로만 둔다. 메모장 상한 3,000자. 실패는 로그만, 응답에 영향 없음. 화물 조회 없이 끝난 채팅 턴도 기억 뽑기에 보낸다.
 - 서류 사진의 B/L 조건·거래처는 4.7 6단계에서 화물 표 칸(015의 original_bl 등)에 저장된다. 메모장 거래처 전화번호는 PII 열쇠로 잠근다.
 - 화물 답에 코드가 쓴 "지난 조회(10.01)에서는 '주의'였고…" 한 줄을 붙인다(`cargo.previous_line`).
-- API: `GET /api/memory`, `DELETE /api/memory`, `DELETE /api/memory/items/{id}`. 화물 표·기억·대화는 사용자 삭제(`DELETE /api/history`)와 탈퇴로 지운다.
+- API: `GET /api/memory`, `DELETE /api/memory`, `DELETE /api/memory/items/{id}`, `POST /api/memory/undo`(직전으로 되돌리기), `POST·DELETE /api/memory/cargo/{cargo_ref}/pending/{field}[/apply]`(확인 대기 적용·무시). 화물 표·기억·대화는 사용자 삭제(`DELETE /api/history`)와 탈퇴로 지운다.
 
 ### 5.17 대화 목록 (services/conversations.py, routers/conversations.py)
 
-로그인 사용자의 채팅 대화를 DB에 암호화해 두고(`conversations`, `conversation_messages`, 마이그레이션 018) 목록·다시 열기·삭제를 돕는다. 로그인 + `DATABASE_URL` + `PII_ENCRYPTION_KEY`가 모두 있을 때만 저장한다. 대화 번호는 채팅 요청의 `session_id`다. 답을 만든 뒤 뒤에서 저장하고(`save_later`) 첫 답이면 제목을 짓는다(`marvia-chat-title`, 검증 실패·LLM 실패면 첫 말 앞 20자). LLM에는 코드가 B/L을 [BL1]로 가린 첫 문장만 간다. 90일 지나면 정리(`purge_old_conversations`). API: `GET /api/conversations`(최근 50건), `GET·DELETE /api/conversations/{id}`, `POST /api/conversations/{id}/attachment-turns`(채팅 없이 끝난 서류 첨부 턴 저장). 화면은 사이드바 대화 목록(`ConversationList`)과 대화별 근거 모음(`ConversationEvidence`).
+로그인 사용자의 채팅 대화를 DB에 암호화해 두고(`conversations`, `conversation_messages`, 마이그레이션 018) 목록·다시 열기·삭제를 돕는다. 로그인 + `DATABASE_URL` + `PII_ENCRYPTION_KEY`가 모두 있을 때만 저장한다. 대화 번호는 채팅 요청의 `session_id`다. 답을 만든 뒤 뒤에서 저장하고(`save_later`) 첫 답이면 제목을 짓는다(`marvia-chat-title`, 검증 실패·LLM 실패면 첫 말 앞 20자). LLM에는 코드가 B/L을 [BL1]로 가린 첫 문장만 간다. 90일 지나면 정리(`purge_old_conversations`). API: `GET /api/conversations`(최근순 한 쪽 50건, `?before=` 커서로 다음 쪽, 응답 `next_before`), `GET·DELETE /api/conversations/{id}`, `POST /api/conversations/{id}/attachment-turns`(채팅 없이 끝난 서류 첨부 턴 저장). 화면은 사이드바 대화 목록(`ConversationList`)과 대화별 근거 모음(`ConversationEvidence`).
 
 ### 5.18 화물 지켜보기와 카카오톡 알림 (services/watch.py, services/vessel_watch.py, services/kakao.py, worker/watch.py)
 

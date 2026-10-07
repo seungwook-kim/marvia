@@ -6,6 +6,7 @@
   save_turn()      사용자 말 + 답 한 쌍을 저장한다 (동기)
   make_title()     첫 사용자 말(B/L 가림)로 LLM 제목, 검증 실패·LLM 실패면 첫 말 앞 20자
   list_for_user() / get_one() / delete_one() / delete_all()   창구(routers/conversations.py)와 탈퇴(services/account.py)가 쓴다
+                   list_for_user는 50건씩 쪽으로 나눠 주고 다음 쪽 커서를 같이 준다 (10-08 QA F9)
 
 대화 번호는 채팅 요청의 session_id다. 사용자 말에는 B/L 원본·전화번호가 섞이므로 글과 JSON은 모두 잠근 글자만 DB에 둔다.
 잠그지 못하면(열쇠 없음) 저장하지 않는다. 로그에는 오류 종류만 남긴다 (CLAUDE.md, SDD 3.5).
@@ -26,7 +27,7 @@ from backend.app.services.chat import GREETING_REPLY, USAGE_GUIDE, mask_bls
 
 # ── 숫자. 바꿀 곳은 여기 한 곳이다 ──
 KEEP_MESSAGES = 200      # 대화당 말풍선 상한. 넘으면 오래된 줄부터 지운다
-LIST_MAX = 50            # 목록에 돌려주는 대화 수
+LIST_MAX = 50            # 목록 한 쪽에 돌려주는 대화 수. 더 있으면 next_before 커서로 다음 쪽을 읽는다 (10-08 QA F9)
 FALLBACK_CHARS = 20      # 제목이 없을 때 첫 사용자 말에서 가져오는 글자 수
 TITLE_MAX = 30           # LLM 제목 상한. 프롬프트는 20자를 부탁하고, 코드는 30자까지 받는다
 NO_TITLE = "새 대화"      # 첫 말이 비어 있을 때만
@@ -229,11 +230,44 @@ def _open_json(token: str | None) -> dict | None:
         return None
 
 
-def list_for_user(conn, user_id: str) -> list[dict]:
-    """최근 대화순 최대 50건. 제목을 못 열면(열쇠 바뀜) NO_TITLE."""
-    rows = conn.execute("SELECT id, title_enc, updated_at FROM conversations WHERE user_id = %s "
-                        "ORDER BY updated_at DESC LIMIT %s", [user_id, LIST_MAX]).fetchall()
-    return [{"id": r[0], "title": _open(r[1]) or NO_TITLE, "updated_at": _iso(r[2])} for r in rows]
+CURSOR_SEP = "|"  # 쪽 커서 "수정 시각|대화 번호". ISO 시각에는 이 글자가 없어 첫 번째에서 자른다
+
+
+def make_cursor(updated_at: str, conv_id: str) -> str:
+    """목록 한 줄을 다음 쪽 커서로. 화면은 받은 next_before를 그대로 돌려보낸다."""
+    return f"{updated_at}{CURSOR_SEP}{conv_id}"
+
+
+def parse_cursor(cursor: str) -> tuple[datetime, str]:
+    """커서를 (수정 시각, 대화 번호)로. 모양이 틀리면 ValueError (창구가 422)."""
+    stamp, sep, conv_id = cursor.partition(CURSOR_SEP)
+    if not sep or not conv_id:
+        raise ValueError("bad cursor")
+    moment = datetime.fromisoformat(stamp)
+    if moment.tzinfo is None:
+        raise ValueError("bad cursor")  # DB 시각은 시간대가 있다. 없으면 우리가 준 커서가 아니다
+    return moment, conv_id
+
+
+def list_for_user(conn, user_id: str, before: str | None = None) -> tuple[list[dict], str | None]:
+    """최근 대화순 한 쪽(최대 50건)과 다음 쪽 커서. 제목을 못 열면(열쇠 바뀜) NO_TITLE.
+
+    10-08 QA F9: 예전에는 50건에서 끊기고 다음 쪽이 없어 51번째부터는 목록으로 닿을 수 없었다.
+    before(앞 쪽 마지막 줄의 커서)를 주면 그보다 오래된 줄부터 준다. 순서는 (수정 시각, 번호) 내림차순이라
+    시각이 같은 줄도 빠지거나 겹치지 않는다. 한 줄 더 읽어 다음 쪽이 있는지 보고, 없으면 커서는 None.
+    before 모양이 틀리면 ValueError."""
+    if before:
+        moment, conv_id = parse_cursor(before)
+        rows = conn.execute("SELECT id, title_enc, updated_at FROM conversations WHERE user_id = %s "
+                            "AND (updated_at, id) < (%s, %s) ORDER BY updated_at DESC, id DESC LIMIT %s",
+                            [user_id, moment, conv_id, LIST_MAX + 1]).fetchall()
+    else:
+        rows = conn.execute("SELECT id, title_enc, updated_at FROM conversations WHERE user_id = %s "
+                            "ORDER BY updated_at DESC, id DESC LIMIT %s", [user_id, LIST_MAX + 1]).fetchall()
+    page = [{"id": r[0], "title": _open(r[1]) or NO_TITLE, "updated_at": _iso(r[2])} for r in rows[:LIST_MAX]]
+    if len(rows) > LIST_MAX and page:
+        return page, make_cursor(page[-1]["updated_at"], page[-1]["id"])
+    return page, None
 
 
 def get_one(conn, user_id: str, conv_id: str) -> dict | None:

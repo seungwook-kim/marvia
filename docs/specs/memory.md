@@ -288,6 +288,11 @@ POST   /api/chat                       채팅 (/api/chat/stream도 같은 처리
 GET    /api/memory                     내 메모장 보기 (번호 없는 마크다운 + 항목 목록 + 화물 요약, 원본 B/L 없음)
 DELETE /api/memory                     메모장만 전부 지우기. deleted = 지운 메모 항목 수. 기억한 화물 목록(화물 표)·조회 기록·계정은 남는다 (결정 D2)
 DELETE /api/memory/items/{id}          항목 하나 지우기 (없으면 404, 동시 수정이 계속 겹치면 503)
+POST   /api/memory/undo                직전 버전으로 되돌리기 (items·previous 맞바꿈, 한 번 더 부르면 취소. 직전 버전 없으면 409, 10-08 QA)
+POST   /api/memory/cargo/{cargo_ref}/pending/{field}/apply   확인 대기 값 적용 (이름표·판매일·입항일, 다시 검사해 걸리면 422, 10-08 QA)
+DELETE /api/memory/cargo/{cargo_ref}/pending/{field}         확인 대기 값 무시 (10-08 QA)
+GET 응답에 pruned_count·pruned_at(상한 때문에 코드가 마지막으로 자동 정리한 수와 시각), can_undo, 화물 요약의 cargo_ref(화물 지문)가 있다.
+메모 번호는 사용자별 단조 증가(user_memory.next_seq, 027)라 지운 번호를 다시 쓰지 않는다. LLM 블록은 읽을 때도 상한으로 줄인다(for_llm).
 (설계에 있던 POST /api/memory/document-facts는 현재는 없음. /api/document가 자동 저장한다, 위 표)
 인증: 로그인 필수 (auth.py). 로그인 꺼진 환경은 401. DB가 없으면 보기는 available=false, 지우기·저장은 503
 ```

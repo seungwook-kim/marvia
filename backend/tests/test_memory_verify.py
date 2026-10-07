@@ -198,7 +198,8 @@ class CasDB:
         s = " ".join(sql.split())
         one, rows, rowcount = None, [], 0
         if s.startswith("SELECT items, version, full_at"):
-            one = (json.loads(json.dumps(self.items)), self.version, self.full_at) if self.exists else None
+            one = (json.loads(json.dumps(self.items)), self.version, self.full_at, 0, 0, None,
+                   self.previous is not None) if self.exists else None
         elif s.startswith("SELECT"):
             rows = []
         else:
@@ -206,11 +207,11 @@ class CasDB:
                 hook, self.hook = self.hook, None
                 hook(self)
             if s.startswith("UPDATE user_memory SET items"):
-                if self.exists and params[3] == self.version:
+                if self.exists and params[-1] == self.version:
                     self.previous, self.items = json.loads(params[1]), json.loads(params[0])
                     self.version += 1
                     rowcount = 1
-            elif s.startswith("INSERT INTO user_memory (user_id, items, version)"):
+            elif s.startswith("INSERT INTO user_memory (user_id, items, version"):
                 if not self.exists:
                     self.items, self.version, self.exists, rowcount = json.loads(params[1]), 1, True, 1
             elif s.startswith("DELETE FROM user_memory"):

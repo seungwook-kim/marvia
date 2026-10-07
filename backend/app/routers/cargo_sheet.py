@@ -4,7 +4,7 @@
 
   GET /api/cargo/sheet                          → {"groups": [{"lc": {...}|null, "rows": [...]}], "truncated": bool}  신용장별로 묶은 표 (truncated: 500줄 넘어 잘림)
   PUT /api/cargo/sheet/{cargo_key}/lc           {"lc_no", "opened_on"}      → 바뀐 표   신용장 잇기·풀기 (lc_no null이면 풀기, opened_on null이면 개설일 비움, 키 생략이면 유지)
-  PUT /api/cargo/sheet/{cargo_key}/departed     {"departed_on", "source"}   → 바뀐 표   출항일 쓰기
+  PUT /api/cargo/sheet/{cargo_key}/departed     {"departed_on", "source"}   → 바뀐 표   출항일 쓰기 (오늘 앞뒤 2년 밖이면 422)
   GET /api/cargo/sheet.xlsx                     → 엑셀 파일 (Content-Disposition: attachment)
 
 주소의 cargo_key는 B/L의 HMAC이라 되돌릴 수 없다. B/L 번호 자체는 주소에도 응답에도 없다 (SDD 3.5).
@@ -48,6 +48,14 @@ class DepartedBody(BaseModel):
 
     departed_on: date | None = None
     source: Literal["manual", "document"] = "manual"
+
+    @field_validator("departed_on")
+    @classmethod
+    def _check_departed_on(cls, value: date | None) -> date | None:
+        """오늘(한국 날짜) 앞뒤 2년 밖이면 422 (10-08 QA F10: 2099-01-01이 그대로 저장됐다). 범위는 서비스 한 곳(date_in_window)."""
+        if value is not None and not svc.date_in_window(value, svc.kst_today()):
+            raise ValueError(svc.DATE_WINDOW_MESSAGE)
+        return value
 
 
 def _login_required(user: CurrentUser | None) -> CurrentUser:
@@ -111,6 +119,6 @@ def put_lc(cargo_key: str, body: LcBody, user: Annotated[CurrentUser | None, Dep
 @router.put("/sheet/{cargo_key}/departed")
 def put_departed(cargo_key: str, body: DepartedBody,
                  user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> dict:
-    """출항일을 쓴다. departed_on이 null이면 지운다."""
+    """출항일을 쓴다. departed_on이 null이면 지운다. 오늘 앞뒤 2년 밖 날짜는 422 (DepartedBody)."""
     return _write(user, "cargo_sheet_departed",
                   lambda conn, uid: svc.set_departed(conn, uid, cargo_key, body.departed_on, body.source))

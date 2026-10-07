@@ -1,6 +1,6 @@
 """대화 목록 API (services/conversations.py, migrations/018).
 
-GET /api/conversations         내 대화 목록 (최근순 50건)
+GET /api/conversations         내 대화 목록 (최근순 한 쪽 50건, ?before=커서로 다음 쪽)
 GET /api/conversations/{id}    대화 하나: 말풍선, 마지막 판정(context·result)
 DELETE /api/conversations/{id} 대화 하나 지우기
 POST /api/conversations/{id}/attachment-turns  채팅 없이 끝난 사진 첨부 턴 저장
@@ -11,7 +11,7 @@ POST /api/conversations/{id}/attachment-turns  채팅 없이 끝난 사진 첨�
 import os
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.app.auth import current_user_id
@@ -34,6 +34,11 @@ class ConversationItem(BaseModel):
 
 class ConversationList(BaseModel):
     conversations: list[ConversationItem]
+    next_before: str | None = None  # 다음 쪽 커서. 더 오래된 대화가 없으면 null (10-08 QA F9)
+
+
+# 커서 길이 상한: ISO 시각(32자 안팎) + 구분자 + 대화 번호(SESSION_ID_MAX)
+CURSOR_MAX = 40 + SESSION_ID_MAX
 
 
 class Message(BaseModel):
@@ -77,10 +82,18 @@ def _run(stage: str, fn, *args):
 
 
 @router.get("/conversations", response_model=ConversationList)
-def list_conversations(user_id: Annotated[str | None, Depends(current_user_id)] = None) -> ConversationList:
-    """내 대화 목록. 최근에 대화한 순서, 최대 50건."""
+def list_conversations(before: Annotated[str | None, Query(max_length=CURSOR_MAX)] = None,
+                       user_id: Annotated[str | None, Depends(current_user_id)] = None) -> ConversationList:
+    """내 대화 목록 한 쪽. 최근에 대화한 순서, 한 쪽 50건. 더 있으면 next_before를 주고, 화면이 그 값을 before로 보내
+    다음 쪽을 받는다 (10-08 QA F9 "더 보기"). 커서 모양이 틀리면 422."""
     uid = _need_user(user_id)
-    return ConversationList(conversations=_run("conversations_list", svc.list_for_user, uid))
+    if before:
+        try:
+            svc.parse_cursor(before)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="목록 위치 값이 올바르지 않습니다") from None
+    page, next_before = _run("conversations_list", svc.list_for_user, uid, before)
+    return ConversationList(conversations=page, next_before=next_before)
 
 
 @router.get("/conversations/{conv_id}", response_model=ConversationDetail)
