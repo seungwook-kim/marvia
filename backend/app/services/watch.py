@@ -6,7 +6,8 @@
   watch_state()      그 화물이 저장됐는지, 지켜보는 중인지 (버튼 상태)
   pending_changes()  아직 안 본 판정 변화 목록 ("다음 접속 때 표시" 띠)
   mark_seen()        화면에 보여 줬으니 "봤음"으로 바꾸기
-  run_watch()        지켜보는 화물을 다시 판정하고, 등급이 바뀌었으면 기록하고 카카오톡으로 알린다 (워커가 부른다)
+  run_watch()        지켜보는 화물을 다시 판정하고, 등급이 바뀌었으면 기록하고 카카오톡으로 알린다 (워커가 부른다).
+                     도착 예정이 기준(rules.md eta_change_alert_hours) 이상 바뀌었으면 그것도 알림 글에 적는다 (10-08)
 HTTP는 라우터(routers/watch.py)가, 주기 실행은 worker/watch.py·worker/run.py가 맡는다. 여기는 DB와 규칙만 안다.
 표는 새로 만들지 않고 화물 표(user_cargo)에 칸 네 개를 더했다 (마이그레이션 017).
 
@@ -243,7 +244,7 @@ def _due_rows(conn, limit: int, known_vessel_only: bool = False) -> list[tuple]:
     vessel = " AND vessel_mmsi IS NOT NULL" if known_vessel_only else ""
     return conn.execute(
         f"""SELECT user_id, cargo_key, bl_encrypted, bl_masked, label, bl_type, sale_due_date, forwarder_eta,
-                  voyage_no, vessel_mmsi, last_verdict
+                  voyage_no, vessel_mmsi, last_verdict, last_eta
            FROM user_cargo WHERE watch AND status = 'active'{vessel}
            ORDER BY last_checked_at ASC NULLS FIRST LIMIT %s""",
         [limit],
@@ -262,12 +263,28 @@ def _no_vessel_count(conn) -> int:
         "SELECT count(*) FROM user_cargo WHERE watch AND status = 'active' AND vessel_mmsi IS NULL").fetchone()[0]
 
 
-def _notify(conn, user_id: str, name: str, old: str, new: str) -> bool:
-    """카카오톡으로 알린다. 보냈으면 True. 연결 안 됨은 조용히, 그 밖의 실패는 종류만 남기고 False."""
+def eta_change_text(change) -> str | None:
+    """도착 예정 변화(services/port_facts.eta_change)를 알림 한 문장으로. 코드가 쓰는 문장이고 LLM은 관여하지 않는다 (10-08).
+    날짜는 "10월 5일" 모양, 시간은 부호 없이 "늦어짐/당겨짐"으로 말한다. 변화가 없으면 None."""
+    if change is None:
+        return None
+    way = "늦어졌습니다" if change.hours > 0 else "당겨졌습니다"
+    return (f"도착 예정이 {change.from_eta.month}월 {change.from_eta.day}일에서 {change.to_eta.month}월 {change.to_eta.day}일로 "
+            f"약 {abs(change.hours)}시간 {way}.")
+
+
+def _notify(conn, user_id: str, name: str, old: str | None, new: str | None, eta_change=None) -> bool:
+    """카카오톡으로 알린다. 보냈으면 True. 연결 안 됨은 조용히, 그 밖의 실패는 종류만 남기고 False.
+    old·new가 다르면 등급 변화 문장을, eta_change가 있으면 도착 예정 변화 문장을 넣는다 (10-08). 둘 다 있으면 한 메시지에 같이 쓴다."""
     from backend.app.routers.kakao import _web  # 화면 주소 규칙을 한 곳에 둔다 (순환을 피하려고 안에서 부른다)
 
-    text = (f"[Marvia] {name} 화물 판정이 '{VERDICT_LABEL[old]}'에서 '{VERDICT_LABEL[new]}'(으)로 바뀌었습니다. "
-            "Marvia에서 이유와 할 일을 확인하세요.")
+    parts = []
+    if old and new and old != new:
+        parts.append(f"{name} 화물 판정이 '{VERDICT_LABEL[old]}'에서 '{VERDICT_LABEL[new]}'(으)로 바뀌었습니다.")
+    moved = eta_change_text(eta_change)
+    if moved:
+        parts.append(moved if parts else f"{name} 화물의 {moved}")
+    text = f"[Marvia] {' '.join(parts)} Marvia에서 이유와 할 일을 확인하세요."
     try:
         kakao.send_to_user(conn, user_id, text, f"{_web()}/")
     except KakaoLinkError as e:
@@ -282,13 +299,13 @@ def _notify(conn, user_id: str, name: str, old: str, new: str) -> bool:
 
 def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, bool]:
     """화물 한 건을 다시 판정한다. (판정이 나왔나, 바뀌었나, 알렸나)를 돌려준다. 실패는 예외로 올려 부르는 쪽이 센다."""
-    user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old = row
+    user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old, last_eta = row
     bl_no = crypto.decrypt(bl_encrypted) if bl_encrypted else None
     if bl_no is None:  # 잠근 값이 비었거나 열쇠가 바뀌어 못 연다. 원문 없이는 조회할 수 없다
         raise WatchError("no_bl")
     request = AgentRequest(bl_no=bl_no, bl_type=bl_type, sale_due_date=sale_due, forwarder_eta=forwarder_eta,
                            voyage_no=voyage_no, resolved_mmsi=mmsi, session_id=f"watch-{now:%Y%m%d}")
-    from backend.app.routers.agent import is_released, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
+    from backend.app.routers.agent import is_released, previous_eta, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
 
     # 지켜보기 재판정도 그 사용자의 LLM 사용량이다 (docs/specs/token-quota.md, 10-06 점검).
     # user_id를 넘겨야 토큰이 그 사람 몫으로 쌓이고 Langfuse 트레이스에도 user_id가 붙는다 (SDD 5.11).
@@ -299,20 +316,25 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, boo
         raise WatchError("quota") from e
     # 저장된 확정 배(vessel_mmsi)는 후보 확인 검색 없이 쓴다. 워커 예산은 화물당 ShipFinder 1회라서다 (routers/agent.py trusted_vessel)
     trust = trusted_vessel.set(mmsi)
+    # 지난 확인 때 저장한 신뢰 ETA 날짜를 판정 흐름에 넘긴다. 판정 흐름이 바뀐 만큼을 eta_change로 센다 (10-08, routers/agent.previous_eta)
+    before = previous_eta.set(last_eta)
     try:
         with session_scope(request.session_id, user_id):
             response = assess(request, None)
     finally:
+        previous_eta.reset(before)
         trusted_vessel.reset(trust)
     new = response.verdict
     if new is None:  # 판정이 없는 결과로 기준 등급을 지우지 않는다 (위 "왜 이렇게 했나")
         return False, False, False
     cargo.upsert_assessment(conn, user_id, request, response, released=is_released(response), now=now)
+    moved = getattr(response, "eta_change", None)  # 판정 흐름이 센 도착 예정 변화. 없으면 None
     if old is None or old == new:
-        return True, False, False
+        # 등급은 그대로여도 도착 예정이 기준 이상 바뀌었으면 알린다. 등급 변화 기록(changed_from)은 남기지 않는다: 그 칸은 등급 변화 띠용이다
+        return True, False, (_notify(conn, user_id, label or bl_masked, None, None, moved) if moved else False)
     conn.execute("UPDATE user_cargo SET changed_from = %s, changed_at = %s, change_seen = false "
                  "WHERE user_id = %s AND cargo_key = %s", [old, now, user_id, key])
-    return True, True, _notify(conn, user_id, label or bl_masked, old, new)
+    return True, True, _notify(conn, user_id, label or bl_masked, old, new, moved)
 
 
 def run_watch(conn, *, limit: int = RUN_LIMIT, now: datetime | None = None, assess=None,

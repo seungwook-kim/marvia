@@ -35,7 +35,7 @@ import logging
 from contextvars import ContextVar
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 import pycountry
@@ -52,11 +52,12 @@ from backend.app.schemas.agent import (
     VesselInfo,
 )
 from backend.app.schemas.customs import CustomsRecord, mask_bl
-from backend.app.services import guard, identify, llm, progress, quota, referrals, validate
+from backend.app.services import guard, identify, llm, port_facts, progress, quota, referrals, validate
+from backend.app.services import cargo as cargo_service
 from backend.app.services import memory as memory_service
 from backend.app.services import verdict as verdict_table
 from backend.app.services import signals as signals_service
-from backend.app.services.evidence import KST, build as build_evidence, days_margin
+from backend.app.services.evidence import KST, build as build_evidence, days_margin, timing_cards
 from backend.app.services.rules import is_listed_stage, rule
 from backend.app.clients import shipfinder as shipfinder_client
 from backend.app.services.customs import CustomsError, UnipassClient
@@ -195,7 +196,12 @@ def run_agent(request: AgentRequest,
             if request.follow_up_question:
                 response = _logged(request, _follow_up(request, user_id, blocks), user_id)
             else:
-                response = _logged(request, _assess(request, blocks), user_id)
+                # 지난 조회의 신뢰 ETA를 화물 표에서 읽어 둔다. 조회 뒤 화물 표를 덮기 전 값이라야 "바뀜"을 셀 수 있다 (10-08, eta_change)
+                token = previous_eta.set(_saved_last_eta(user_id, request.bl_no))
+                try:
+                    response = _logged(request, _assess(request, blocks), user_id)
+                finally:
+                    previous_eta.reset(token)
             memory_service.remember_later(user_id, request, response, released=is_released(response))
             return response
 
@@ -225,7 +231,13 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
     response = _after_customs(request, customs, memory)
     # UNI-PASS 처리 이력 원문은 화면 전용이다 (docs/specs/customs-detail.md, 10-02). 판정이 끝난 뒤에 붙여서
     # 판정·검증 단계에는 아예 없다. 이력 저장(_logged)과 후속 질문 LLM 입력에서는 다시 뺀다
-    return response.model_copy(update={"customs_detail": customs.display_rows})
+    update: dict = {"customs_detail": customs.display_rows}
+    # 통관 이력의 지난 소요 시간 (10-08, services/port_facts.customs_timing). 판정이 끝난 뒤 붙이는 사실이라 등급·검증과 상관없다.
+    # 근거 카드도 같이 붙인다: 후속 질문 LLM이 "반입까지 몇 시간 걸렸어?"에 이 숫자로 답해도 V7이 확인할 수 있게. 부산 밖 화물은 붙이지 않는다
+    timing = port_facts.customs_timing(customs) if response.status != "unsupported" else None
+    if timing is not None:
+        update.update(customs_timing=timing, evidence=[*response.evidence, *timing_cards(timing)])
+    return response.model_copy(update=update)
 
 
 def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | None = None) -> AgentResponse:
@@ -288,6 +300,11 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
     # 쓸 위치가 없으면 여유 일수도 내지 않는다. 해수부 예정만으로 센 값을 판정 근거처럼 보이지 않게 (평가셋 B13·F04 days_margin=null)
     has_position = bool(position) and "error" not in position
     margin = days_margin(trusted, request.sale_due_date) if has_position else None
+    # 코드가 센 지난 사실 세 가지 (10-08, services/port_facts.py). 판정 신호가 아니라 등급을 바꾸지 않는다. 외부 호출도 늘지 않는다
+    anchored = port_facts.anchorage(schedule)  # 해수부 관제 이벤트(투묘·양묘·접안)로 센 묘박지 대기
+    eta_moved = port_facts.eta_change(previous_eta.get(), trusted)  # 지난 조회 대비 도착 예정 변화 (로그인 사용자의 저장 화물만)
+    previous_port = (schedule or {}).get("previous_port") if "error" not in (schedule or {}) else None
+    port_note = identify.port_mismatch_note(customs, previous_port)  # 적재항과 부산 직전 기항지가 달라 보이면 한 줄 (환적 단정 아님)
 
     # 판정이 붙든 안 붙든 같이 나가는 값
     collected = dict(
@@ -301,7 +318,10 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
                         shed=customs.shed_name),
         # 근거 카드. LLM이 실패해 판정이 없어도 조회한 값은 보여준다 (C-8, SDD 5.8)
         evidence=build_evidence(customs, position, schedule, distance, trusted, margin, signals=signal_set,
-                                sale_due_date=request.sale_due_date, forwarder_eta=request.forwarder_eta),
+                                sale_due_date=request.sale_due_date, forwarder_eta=request.forwarder_eta,
+                                anchorage=anchored, eta_change=eta_moved, port_note=port_note),
+        anchorage=anchored,
+        eta_change=eta_moved,
     )
 
     # 위치 없음: LLM을 부르지 않고 코드가 보류한다 (09-29 결정, 09-27 "위치 없음 → 판정 보류"를 코드로).
@@ -344,7 +364,8 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
         try:
             judged = llm.judge(signal_set, customs, margin, feedback=feedback,
                                trusted_eta=trusted, sale_due_date=request.sale_due_date,
-                               table_verdict=table, verdict_mode="raise_only" if gray else "fixed", memory=judge_memory)
+                               table_verdict=table, verdict_mode="raise_only" if gray else "fixed", memory=judge_memory,
+                               facts=_judge_facts(anchored, eta_moved))
         except llm.LLMFormatError as e:
             log_failure("judge", f"{e.kind} attempt {attempt}")
             feedback = e.detail
@@ -388,6 +409,51 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
             feedback += "\nReturn JSON only and follow every rule above."
     log_failure("judge", f"gave up after {JUDGE_ATTEMPTS} attempts")
     return _llm_gave_up(signal_set, margin, table, gray, customs, collected)
+
+
+def _kst_text(moment: datetime | None) -> str | None:
+    """시각을 근거 카드와 같은 한국 시각 "YYYY-MM-DD HH:MM"으로 (services/evidence._text와 같은 모양, V7 대조가 맞게)."""
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+
+
+def _judge_facts(anchored, eta_moved) -> dict | None:
+    """판정 LLM에 사실로만 넘길 값 (10-08, llm._judge_input facts). 근거 카드와 같은 모양·숫자다 (services/evidence.build).
+    등급은 이미 판정 표가 정했고 이 값은 설명 재료다. 둘 다 없으면 None이라 LLM 입력에 칸이 생기지 않는다."""
+    facts: dict = {}
+    if anchored is not None:
+        facts["anchorage"] = {"anchored_at": _kst_text(anchored.anchored_at), "weighed_at": _kst_text(anchored.weighed_at),
+                              "berthed_at": _kst_text(anchored.berthed_at), "state": anchored.state,
+                              "waited_hours": anchored.waited_hours}
+    if eta_moved is not None:
+        facts["eta_change"] = {"from": eta_moved.from_eta.isoformat(), "to": eta_moved.to_eta.isoformat(), "hours": eta_moved.hours}
+    return facts or None
+
+
+# 지난 조회 때 화물 표에 저장한 신뢰 ETA 날짜 (user_cargo.last_eta, 10-08). run_agent와 지켜보기 재판정(services/watch.py)이 판정 전에 넣는다.
+# _assess의 인자를 늘리지 않으려고 문맥 변수로 둔다 (trusted_vessel과 같은 방식). 평가 실행기·데모·비로그인은 늘 None이라 eta_change가 없다
+previous_eta: ContextVar[date | None] = ContextVar("previous_eta", default=None)
+
+
+def _saved_last_eta(user_id: str | None, bl_no: str) -> date | None:
+    """로그인 사용자의 이 화물 줄에 저장된 지난 신뢰 ETA 날짜. 사용자·DB·열쇠가 없거나 읽기가 실패하면 None (판정은 그대로 돈다).
+    화물 표 쓰기(services/memory.remember_later)는 응답 뒤라, 여기서 읽는 값은 덮어쓰기 전 지난 값이다."""
+    if not user_id or not os.environ.get("DATABASE_URL"):
+        return None
+    key = cargo_service.cargo_key(bl_no)
+    if not key:
+        return None
+    try:
+        with connect() as conn:
+            row = cargo_service.get_row(conn, user_id, key)
+    except Exception as e:  # noqa: BLE001 - 부가 정보다. 종류만 남긴다
+        log_failure("cargo_read", type(e).__name__)
+        return None
+    value = (row or {}).get("last_eta")
+    return value if isinstance(value, date) else None
 
 
 def _judged(out, signal_set, request: AgentRequest, customs: CustomsRecord, collected: dict, table: str,
@@ -540,10 +606,14 @@ def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | 
     # 판정·근거는 지난 결과 그대로라 답 문장을 보는 규칙(FOLLOW_UP_RULES)만 건다. 재시도 방식은 판정과 같다 (SDD 5.7)
     feedback = None
     tools = read_only_tools()  # LLM이 직접 고를 읽기 전용 MCP 도구 (10-02, D9 B안). 못 받으면 빈 목록 → 도구 없이 답한다
+    # 배가 이미 확정된 결과면 후보 검색 도구를 주지 않는다 (10-08). get_vessel_candidates 한 번이 ShipFinder를 최대 11회 쓴다
+    if previous.vessel is not None:
+        tools = [t for t in tools if t["function"]["name"] != CANDIDATES_TOOL]
+    run_tool = _capped_follow_up_tool(previous)
     for attempt in range(1, JUDGE_ATTEMPTS + 1):
         try:
             answer = llm.answer_follow_up(request.follow_up_question, previous, feedback=feedback,
-                                          tools=tools, run_tool=_follow_up_tool, memory=memory)
+                                          tools=tools, run_tool=run_tool, memory=memory)
             out = answer.output
         except llm.LLMFormatError as e:
             log_failure("follow_up", f"{e.kind} attempt {attempt}")
@@ -598,6 +668,32 @@ def _without_dest(value):
     if isinstance(value, list):
         return [_without_dest(v) for v in value]
     return value
+
+
+# 후보 검색 도구 이름과 한 질문에서 부를 수 있는 횟수 (10-08). 도구 하나가 ShipFinder 검색 1 + 후보 5척 x 위치·국적 = 최대 11회를 쓴다
+# (mcp_server/tools/vessel_candidates.py). 하루 한도(50회)를 지키려는 비용 상한이라 rules.md(판정 재료)가 아니라 코드에 둔다
+CANDIDATES_TOOL = "get_vessel_candidates"
+CANDIDATES_CALLS_PER_MESSAGE = 1
+CANDIDATES_RESOLVED = "The vessel of this cargo is already confirmed in the result. Use result.vessel and do not search candidates."
+CANDIDATES_ONCE = "get_vessel_candidates was already called for this message. Use that result instead of calling it again."
+
+
+def _capped_follow_up_tool(previous: AgentResponse):
+    """후속 질문 한 번에 쓸 도구 실행 함수. get_vessel_candidates는 배가 이미 확정됐으면 막고, 아니면 한 번만 부른다 (10-08).
+    막힌 호출은 도구 실패 모양({error})으로 돌려줘 LLM이 이미 있는 값으로 답하게 한다 (SDD 3.4 실패 형식).
+    다시 묻기(JUDGE_ATTEMPTS)를 거쳐도 횟수는 질문 하나 기준으로 센다. 나머지 도구는 _follow_up_tool 그대로다."""
+    used = {"candidates": 0}
+
+    def run(name: str, arguments: dict) -> dict:
+        if name == CANDIDATES_TOOL:
+            if previous.vessel is not None:
+                return {"error": {"code": "vessel_resolved", "message": CANDIDATES_RESOLVED, "retryable": False}}
+            if used["candidates"] >= CANDIDATES_CALLS_PER_MESSAGE:
+                return {"error": {"code": "already_called", "message": CANDIDATES_ONCE, "retryable": False}}
+            used["candidates"] += 1
+        return _follow_up_tool(name, arguments)
+
+    return run
 
 
 def _follow_up_tool(name: str, arguments: dict) -> dict:

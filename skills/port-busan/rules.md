@@ -8,6 +8,10 @@ busan_port_code: KRPUS
 port_schedule_lookback_days: 3
 port_schedule_lookahead_days: 7
 port_schedule_name_match_ratio: 0.85
+# 해수부 관제 이벤트 이름 중 묘박(닻 내림)·양묘(닻 올림)·접안을 가르는 목록 (services/port_facts.py anchorage가 읽는다, 10-08)
+anchor_event_kinds: [투묘]
+weigh_anchor_event_kinds: [양묘]
+berth_event_kinds: [접안]
 ---
 
 # 부산항 기준값
@@ -19,4 +23,7 @@ port_schedule_name_match_ratio: 0.85
 | busan_port_code | 부산항 UN/LOCODE. AIS 목적지 코드(dest_changed)와 UNI-PASS 양륙항(지원 범위 확인)을 이 값과 비교한다 | services/signals.py, routers/agent.py |
 | port_schedule_lookback_days | 해수부 관제 실적(실제 입항·접안)을 오늘부터 며칠 전까지 볼지. get_port_schedule 기본값 | mcp_server/tools/port_schedule.py |
 | port_schedule_lookahead_days | 해수부 입항 신고(입항 예정)를 오늘부터 며칠 뒤까지 볼지. 부산은 신고가 1주 앞까지 나온다 (09-23 실측). get_port_schedule 기본값 | mcp_server/tools/port_schedule.py |
+| anchor_event_kinds | 해수부 관제 이벤트(cntrlNm) 중 "닻을 내렸다"(묘박지 대기 시작)로 보는 이름 | services/port_facts.py (anchorage) |
+| weigh_anchor_event_kinds | 해수부 관제 이벤트 중 "닻을 올렸다"(대기 끝)로 보는 이름 | services/port_facts.py (anchorage) |
+| berth_event_kinds | 해수부 관제 이벤트 중 "부두에 댔다"로 보는 이름. 투묘 뒤에 있으면 대기가 끝난 것으로 본다 | services/port_facts.py (anchorage) |
 | port_schedule_name_match_ratio | 선명으로만 찾을 때 이 비율 이상 닮은 이름을 같은 배로 본다 (difflib 유사도, 정확·부분 일치가 없을 때만) | mcp_server/tools/port_schedule.py |

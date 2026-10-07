@@ -68,6 +68,19 @@ export interface CustomsInfo {
   goods_name?: string | null;
 }
 export interface BerthInfo { facility: string | null; shed: string | null }
+/** 해수부 관제 이벤트로 서버 코드가 센 묘박지 대기 (backend schemas/agent.py AnchorageInfo, 10-08). 판정 신호가 아니다 */
+export interface AnchorageInfo {
+  anchored_at: string; weighed_at: string | null; berthed_at: string | null;
+  state: 'anchored' | 'weighed' | 'berthed'; waited_hours: number;
+}
+/** 이미 처리된 통관 단계 두 개 사이 걸린 시간 (StageElapsed, 10-08). 앞으로 걸릴 시간은 없다 (PRD 4절) */
+export interface StageElapsed { from_stage: string; to_stage: string; from_at: string; to_at: string; hours: number }
+export interface CustomsTiming {
+  steps: StageElapsed[]; arrived_at: string | null; hours_since_arrival: number | null;
+  measured_until: 'now' | 'released' | null;
+}
+/** 지난 조회 대비 도착 예정 변화 (EtaChange, 10-08). hours는 늦어지면 양수, 당겨지면 음수 */
+export interface EtaChange { from_eta: string; to_eta: string; hours: number }
 export interface AgentResponse {
   status: Status; verdict: Verdict | null; vessel_match: VesselMatch;
   vessel_candidates: VesselCandidate[]; missing_inputs: string[]; reasons: Reason[];
@@ -77,6 +90,10 @@ export interface AgentResponse {
   berth: BerthInfo | null; evidence: Evidence[]; answer: string; trace_id: string;
   /** UNI-PASS 처리 이력 원문. 화면 전용이라 이력 재생·후속 질문 응답에는 없을 수 있다 (docs/specs/customs-detail.md) */
   customs_detail?: CustomsDetailRow[];
+  /** 10-08 추가 선택 칸. 옛 서버 응답·이력 재생에는 없을 수 있다 */
+  anchorage?: AnchorageInfo | null;
+  customs_timing?: CustomsTiming | null;
+  eta_change?: EtaChange | null;
 }
 export interface HistoryItem {
   request_id: string | null; bl_masked: string | null; status: string | null;

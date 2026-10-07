@@ -286,7 +286,9 @@ def _map_payload(ran: list[dict], done: list[ChatResult], started: datetime) -> 
     (b) ask_cargo의 후속 답이 get_live_position을 써서 근거 카드 "get_live_position.lat/lng"가 붙었다 (routers/agent._tool_evidence).
         판정 근거 카드의 칸 이름은 "position"이라 겹치지 않는다. 다만 지난 후속 답의 카드가 저장돼 다시 올 수 있어,
         조회 시각이 이번 문장 시작 이후인 카드만 쓴다.
-    (c) 후속 답이 지난 결과의 위치를 그대로 말했다: 답 문장에 그 위치의 위도·경도 숫자가 둘 다 있다 (좌표는 응답의 position 칸에서)
+    (c) ask_cargo 후속 답이 도구를 새로 부르지 않았다: 그 후속 답이 기댄 지난 결과의 위치(agent.position)를 쓴다.
+        후속 질문은 화면의 같은 화물에 대한 것이라 같은 배다 (10-08). 전에는 답 문장에서 위도·경도 숫자를 찾아 맞췄는데,
+        LLM 글을 읽어 좌표를 고르는 길이라 뺐다. 좌표는 언제나 응답의 position 칸(코드가 도구 결과로 만든 값)에서 온다.
     check_cargo만 돌았거나 조회가 실패했으면 None이다.
     거리: 같은 문장의 estimate_distance → 화물 응답 eta.distance_nm 순. 배 이름: 같은 배일 때만 화물 응답의 선명 (a는 MMSI가 같아야 한다).
     """
@@ -312,17 +314,14 @@ def _map_payload(ran: list[dict], done: list[ChatResult], started: datetime) -> 
             last = follow_cards.get("get_live_position.last_time")
             received = last.value if last else follow_cards["get_live_position.lat"].fetched_at.isoformat()
         else:
-            # (c) 후속 답이 도구를 새로 부르지 않고 지난 결과의 위치로 답했다 (지난 결과에 위치가 이미 있으면 후속 프롬프트가
-            # 도구를 부르지 말라고 한다). 답 문장에 그 위치의 위도·경도 숫자가 둘 다 들어 있을 때만 지도를 붙인다.
-            # 숫자 대조는 검증 V7과 같은 방식이다. 10-05 배포본에서 "배가 어디쯤이야?"에 좌표로 답했는데 지도가 안 나올 뻔한 경우
-            for r in reversed(done):
-                pos = r.agent.position if r.agent else None
-                said = set(validate._numbers(r.reply))
-                if pos and validate._normal(str(pos.lat)) in said and validate._normal(str(pos.lng)) in said:
-                    lat, lng, received, cargo_follow_up = pos.lat, pos.lng, pos.last_time.isoformat(), True
-                    break
-            if lat is None or lng is None:
+            # (c) 후속 답이 도구를 새로 부르지 않고 지난 결과로 답했다 (지난 결과에 위치가 이미 있으면 후속 프롬프트가
+            # 도구를 부르지 말라고 한다). 이번 문장에서 ask_cargo가 성공했을 때만, 그 결과의 position 칸을 쓴다.
+            # 한 문장의 화물 도구는 한 번뿐이라(CARGO_CALLS_PER_TURN) 이때 done의 화물 결과는 그 후속 답이다
+            asked = any(c["name"] == "ask_cargo" and isinstance(c["result"], dict) and "error" not in c["result"] for c in ran)
+            pos = next((r.agent.position for r in reversed(done) if r.agent and r.agent.position), None) if asked else None
+            if pos is None:
                 return None
+            lat, lng, received, cargo_follow_up = pos.lat, pos.lng, pos.last_time.isoformat(), True
     if not (-90 <= lat <= 90 and -180 <= lng <= 180):
         return None
 
@@ -497,6 +496,17 @@ _VOYAGE_OK = re.compile(VOYAGE_PATTERN)
 
 # ── 해수부 입항 예정 캐시 ──
 _plans_cache: dict[tuple[str, int], tuple[float, list]] = {}
+
+
+def _safe_place(place: object, label: object, masked: str) -> tuple[str | None, str | None]:
+    """입항 선박 검색의 place·place_label을 검사해 쓸 수 있는 값만 돌려준다. 둘 다 LLM 출력인데 답 문장에 그대로 들어간다 (10-01 주입 방어).
+    - place: 영문 지명 모양(_PLACE)이고 네 낱말까지("New South Wales"), 주입 모양이 아닐 때만. 아니면 None
+    - place_label: 사용자가 실제로 쓴 글자(공백 무시)일 때만. 아니면 None
+    전 방식(_classic vessel_search)과 에이전트(search_arrivals)가 같은 기준을 쓰도록 한 곳에 둔다 (10-08: 두 곳에 같은 코드가 있었다)."""
+    text = place.strip() if isinstance(place, str) else ""
+    safe = text if text and _PLACE.match(text) and len(text.split()) <= 4 and not guard.looks_like_injection(text) else None
+    shown = label if isinstance(label, str) and label and re.sub(r"\s+", "", label) in re.sub(r"\s+", "", masked) else None
+    return safe, shown
 
 
 def _arrivals(days: int) -> list:
@@ -721,14 +731,8 @@ def _classic(masked: str, refs: dict[str, str], mrn: str | None, session_id: str
         return ChatResult(kind="cargo", reply=resp.answer, agent=resp, request=context)
 
     if route.intent == "vessel_search":
-        # place·place_label은 LLM 출력인데 답 문장에 그대로 들어간다. place는 영문 지명 모양만,
-        # place_label은 사용자가 실제로 쓴 글자일 때만 쓴다 (10-01 주입 방어). 아니면 버린다
-        place = route.place.strip() if route.place else None
-        if place and (not _PLACE.match(place) or len(place.split()) > 4 or guard.looks_like_injection(place)):
-            place = None  # 지명은 네 낱말까지 ("New South Wales"). 문장이 섞이면 버린다
-        label = route.place_label
-        if not (label and re.sub(r"\s+", "", label) in re.sub(r"\s+", "", masked)):
-            label = None
+        # place·place_label은 LLM 출력인데 답 문장에 그대로 들어간다. 검사는 에이전트 search_arrivals와 같은 _safe_place다
+        place, label = _safe_place(route.place, route.place_label, masked)
         return search_vessels(place, route.days, label)
 
     return ChatResult(kind="message", reply=_safe_reply(route.reply, masked))
@@ -1052,6 +1056,28 @@ def lookup_fallback(calls: list[dict]) -> str | None:
             hours = f", 지금 속력이면 약 {round(r['calc_hours_at_sog'], 1)}시간" if r.get("calc_hours_at_sog") is not None else ""
             lines.append(f"부산까지 남은 거리는 약 {round(r['distance_nm'], 1)}해리{hours}예요.")
     return " ".join(lines) if lines else None
+
+
+# 후보 검색 도구 상한 (10-08). get_vessel_candidates 한 번이 ShipFinder를 검색 1 + 후보 5척 x 위치·국적 = 최대 11회 쓴다
+# (mcp_server/tools/vessel_candidates.py). 하루 한도 50회를 지키려는 비용 상한이라 rules.md(판정 재료)가 아니라 여기 둔다.
+# 이름·상한·문구는 후속 질문 도구 상한(routers/agent.py _capped_follow_up_tool)과 같은 값이다
+CANDIDATES_TOOL = "get_vessel_candidates"
+CANDIDATES_CALLS_PER_MESSAGE = 1
+CANDIDATES_RESOLVED = "The vessel of this cargo is already confirmed. Use the cargo result's vessel and do not search candidates."
+CANDIDATES_ONCE = "get_vessel_candidates was already called for this message. Use that result instead of calling it again."
+
+
+def _cargo_vessel_known(context: AgentRequest | None) -> bool:
+    """화면의 화물이 이미 배를 확정한 조회 결과를 가지고 있나 (10-08). 그러면 후보 검색 도구를 주지 않는다.
+
+    지난 결과는 조회 이력(query_log)에서 이 세션(로그인했으면 사용자)·이 화물의 가장 최근 것을 본다 (routers/agent._saved_cargo_responses,
+    외부 API 호출 없음). DB가 없거나(채점·평가·키 없는 데모) 화면 화물이 없으면 False라 지금처럼 도구를 준다(상한 1회는 그대로 걸린다)."""
+    if context is None or not os.environ.get("DATABASE_URL"):
+        return False
+    from backend.app.routers import agent as agent_router  # noqa: PLC0415 - 모듈이 올라올 때 서로 부르지 않게 (glued_parts와 같다)
+    saved = agent_router._saved_cargo_responses(context)
+    latest = saved[0] if saved else None
+    return bool(latest and latest.get("vessel_match") == "confirmed" and latest.get("vessel"))
 
 
 def _tool_error(code: str, message: str) -> dict:
@@ -1425,7 +1451,12 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     user_text = " ".join([masked, *(t["text"] for t in turns if t["role"] == "user")])
     started = datetime.now(timezone.utc)  # 이번 문장 시작. 지난 후속 답의 위치 카드를 미니 지도에 쓰지 않으려고 (_map_payload)
     mcp_tools = mcp_client.read_only_tools() if run_tool else []
+    # 화면 화물의 배가 이미 확정돼 있으면 후보 검색 도구를 아예 주지 않는다 (10-08). 한 번에 ShipFinder를 최대 11회 쓰는 도구다
+    vessel_known = _cargo_vessel_known(context)
+    if vessel_known:
+        mcp_tools = [t for t in mcp_tools if t["function"]["name"] != CANDIDATES_TOOL]
     mcp_names = {t["function"]["name"] for t in mcp_tools}
+    candidate_calls = {"n": 0}  # 이번 문장에서 실제로 실행한 get_vessel_candidates 수 (CANDIDATES_CALLS_PER_MESSAGE)
     done: list[ChatResult] = []  # 화물 조회·화물 질문·선박 검색 결과. 화면 카드와 검증된 답을 들고 있다
     ran: list[dict] = []  # 실제로 실행한 도구와 결과 {"name","arguments","result"}. LLM이 도중에 실패해도 남는다
     seen: dict[str, dict] = {}  # 같은 도구·같은 인자는 다시 실행하지 않고 앞 결과를 돌려준다 (프롬프트 규칙을 코드로)
@@ -1711,7 +1742,15 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         if name in ("check_cargo", "ask_cargo") and sum(r["name"] in ("check_cargo", "ask_cargo") for r in ran) >= CARGO_CALLS_PER_TURN:
             # 조회한 화물에 바로 이어 묻는 경우도 여기서 막힌다: ask_cargo는 화면의 지난 화물을 보므로 방금 조회한 화물과 다를 수 있다
             result = _tool_error("one_cargo_per_message", "The cargo answer for this message is already shown. Do not call another cargo tool.")
+        elif name == CANDIDATES_TOOL and (vessel_known or any(r.agent and r.agent.vessel_match == "confirmed" for r in done)):
+            # 배가 이미 확정됐다 (화면 화물 또는 이번 문장의 화물 조회). 후보를 다시 찾을 이유가 없다 (10-08)
+            result = _tool_error("vessel_resolved", CANDIDATES_RESOLVED)
+        elif name == CANDIDATES_TOOL and candidate_calls["n"] >= CANDIDATES_CALLS_PER_MESSAGE:
+            # 한 문장에 한 번만 (10-08). 인자만 바꿔 다시 찾으면 ShipFinder 호출이 그만큼 또 나간다
+            result = _tool_error("already_called", CANDIDATES_ONCE)
         else:
+            if name == CANDIDATES_TOOL:
+                candidate_calls["n"] += 1
             try:
                 result = _run_tool(name, args)
             except Exception as e:  # noqa: BLE001 - 모델이 낸 인자 모양이 예상과 달라도 요청을 죽이지 않는다
@@ -1774,8 +1813,8 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             done.append(ChatResult(kind="cargo", reply=resp.answer, agent=resp, request=context))
             return {"answer": resp.answer}
         if name == "search_arrivals":
-            # place·place_label은 LLM 출력인데 답 문장에 그대로 들어간다. 전 방식과 같은 검사를 한다 (10-01 주입 방어)
-            place = str(args.get("place") or "").strip() or None
+            # place·place_label은 LLM 출력인데 답 문장에 그대로 들어간다. 전 방식과 같은 검사를 한다 (10-01 주입 방어, _safe_place)
+            place = args.get("place")
             # place는 "어디에서 오는 배"다. 부산·한국 같은 도착지면 빈 표만 나오므로 LLM에 돌려보내 다른 길을 고르게 한다 (10-05 실측).
             # 단 문장에 식별자 모양 글자(TEST41 등)가 있을 때만이다: 그때는 배·화물 위치 질문을 잘못 고른 것이다 (10-05 "TEST41 선박 위치").
             # 식별자가 없으면 "이번 주 부산 들어오는 배"처럼 입항 목록 질문이라 search_vessels가 거르지 않고 전체를 보인다 (10-06 점검)
@@ -1783,11 +1822,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
                 return _tool_error("place_is_destination", "place means where the ships come from (previous port), not Busan or "
                                    "Korea. Use null for all arrivals, or a foreign country or port. If the message is not asking "
                                    "which ships come from somewhere, do not call search_arrivals.")
-            if place and (not _PLACE.match(place) or len(place.split()) > 4 or guard.looks_like_injection(place)):
-                place = None
-            label = args.get("place_label")
-            if not (isinstance(label, str) and label and re.sub(r"\s+", "", label) in re.sub(r"\s+", "", masked)):
-                label = None
+            place, label = _safe_place(place, args.get("place_label"), masked)
             # bool도 int라서 따로 막는다 (true가 "앞으로 True일"로 답에 들어갔다, 10-05 테스트에서 발견)
             days = args.get("days") if isinstance(args.get("days"), int) and not isinstance(args.get("days"), bool) else None
             result = search_vessels(place, days, label)

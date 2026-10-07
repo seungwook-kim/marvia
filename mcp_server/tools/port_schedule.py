@@ -113,6 +113,18 @@ def _pick_plan(plans: list[SailingPlan], ship_name: str | None, call_sign: str |
     return min(plans, key=lambda p: p.expected_arrival)
 
 
+def _previous_port(plans: list[SailingPlan], plan: SailingPlan | None, ship_name: str | None,
+                   call_sign: str | None) -> str | None:
+    """이 배 입항 신고의 직전 기항지 (10-08). 고른 예정(plan)에 있으면 그것을, 없으면 이 배의 신고 중 입항 시각이 가장 늦은 것을 쓴다.
+    최종 신고(입항 뒤)도 직전 기항지는 그대로라 여기서는 빼지 않는다. 이미 받은 신고에서만 꺼낸다 (해수부 호출이 늘지 않는다)."""
+    if plan is not None and plan.previous_port:
+        return plan.previous_port
+    same = [p for p in _same_ship(plans, call_sign, ship_name) if p.previous_port]
+    if not same:
+        return None
+    return max(same, key=lambda p: p.planned_arrival or datetime.min.replace(tzinfo=timezone.utc)).previous_port
+
+
 def get_port_schedule(
     call_sign: Annotated[str | None, Field(description="선박 호출부호. 예: TSTA1. get_vessel_candidates 결과의 call_sign을 그대로 넣으면 가장 정확하다")] = None,
     ship_name: Annotated[str | None, Field(description="선명. 예: TEST CARGO A. 호출부호를 모를 때 넣는다. 해수부는 국적선을 한글로 준다")] = None,
@@ -125,7 +137,7 @@ def get_port_schedule(
     해수부 관제정보(실제 입항·접안 실적)와 선박운항정보(입출항 신고의 입항 예정)를 합쳐 돌려준다.
     AIS 위치나 AIS ETA와 어긋날 때 어느 쪽을 쓸지는 이 도구가 정하지 않는다.
     돌려주는 값: planned_arrival(입항 예정), actual_arrival(실제 입항), facility(접안 시설),
-    control_events(입항·접안·이안·출항), source, fetched_at.
+    control_events(입항·접안·이안·출항·투묘·양묘), previous_port(입항 신고의 직전 기항지), source, fetched_at.
     planned_arrival과 actual_arrival이 둘 다 비어 있으면 "안 온다"가 아니라
     "부산항 기록에 아직 신고도 입항도 없다"는 뜻이다.
     배의 현재 위치는 이 도구가 아니라 get_live_position으로 본다.
@@ -158,6 +170,7 @@ def get_port_schedule(
             # 접안 시설은 실적이 있으면 실적 쪽을 쓴다. 예정은 바뀔 수 있다
             facility=(chosen.facility if chosen else None) or (plan.facility if plan else None),
             control_events=[ControlEvent(kind=e.kind, at=e.at, facility=e.facility) for e in (chosen.events if chosen else [])],
+            previous_port=_previous_port(plans, plan, ship_name, call_sign),
             fetched_at=fetched_at,
         ).model_dump(mode="json")
     except MofError as e:

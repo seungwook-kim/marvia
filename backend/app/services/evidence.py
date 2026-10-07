@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from backend.app.schemas.agent import Evidence
+from backend.app.schemas.agent import AnchorageInfo, CustomsTiming, EtaChange, Evidence
 from backend.app.schemas.customs import CustomsRecord
 from backend.app.schemas.signals import SignalSet
 
@@ -33,8 +33,12 @@ def days_margin(trusted_eta: datetime | None, sale_due_date: date | None) -> int
 def build(customs: CustomsRecord | None, position: dict | None, schedule: dict | None, distance: dict | None,
           trusted: datetime | None, margin: int | None, now: datetime | None = None,
           signals: SignalSet | None = None, sale_due_date: date | None = None,
-          forwarder_eta: date | None = None) -> list[Evidence]:
+          forwarder_eta: date | None = None, anchorage: AnchorageInfo | None = None,
+          eta_change: EtaChange | None = None, port_note: str | None = None) -> list[Evidence]:
     """도구 응답과 코드 계산값을 근거 카드 목록으로 만든다.
+
+    10-08 추가: anchorage(묘박지 대기), eta_change(지난 조회 대비 도착 예정 변화), port_note(적재항과 직전 기항지가 다름)도
+    카드로 둔다. 셋 다 코드가 센 사실이고 판정 LLM 입력(facts)과 같은 값이라, LLM이 그 숫자를 말해도 V7이 확인할 수 있다.
 
     값이 없거나 도구가 실패한 곳은 카드를 만들지 않는다. 없는 값을 근거로 쓰지 못하게 하려는 것이다.
     시각은 한국 시각 "YYYY-MM-DD HH:MM"으로 적는다. 화면과 answer가 한국 시각으로 말하기 때문이다.
@@ -68,6 +72,13 @@ def build(customs: CustomsRecord | None, position: dict | None, schedule: dict |
         for field in ("planned_arrival", "actual_arrival", "facility"):
             add("mof", field, schedule.get(field), schedule["fetched_at"])
 
+    if _ok(schedule) and anchorage is not None:
+        # 해수부 관제 이벤트 시각은 출처 그대로(mof), 대기 시간은 코드가 센 값(rule)이다 (services/port_facts.anchorage)
+        add("mof", "anchored_at", anchorage.anchored_at, schedule["fetched_at"])
+        add("mof", "anchor_weighed_at", anchorage.weighed_at, schedule["fetched_at"])
+        add("mof", "berthed_at", anchorage.berthed_at, schedule["fetched_at"])
+        add("rule", "anchor_waited_hours", duration_text(anchorage.waited_hours), now)
+
     if _ok(distance):
         for field in ("distance_nm", "calc_hours_at_sog"):
             add("searoute", field, distance.get(field), distance["fetched_at"])
@@ -86,7 +97,33 @@ def build(customs: CustomsRecord | None, position: dict | None, schedule: dict |
     for field, day in (("sale_due_date", sale_due_date), ("forwarder_eta", forwarder_eta)):
         if day is not None:
             cards.append(Evidence(source="rule", field=field, value=day.isoformat(), fetched_at=now))
+    if eta_change is not None:
+        # 지난 조회 때 저장한 날짜와 이번 날짜. 날짜만 있는 값이라 위 판매일처럼 그대로 적는다 (services/port_facts.eta_change)
+        add("rule", "eta_change", f"{eta_change.from_eta.isoformat()} > {eta_change.to_eta.isoformat()} ({eta_change.hours:+d}시간)", now)
+    # 적재항과 해수부 직전 기항지가 달라 보일 때 한 줄 (services/identify.port_mismatch_note). 환적이라고 단정하지 않는 문장이다
+    add("rule", "port_mismatch", port_note, now)
     return cards
+
+
+def timing_cards(timing: CustomsTiming | None, now: datetime | None = None) -> list[Evidence]:
+    """통관 이력의 지난 소요 시간을 근거 카드로 (10-08, services/port_facts.customs_timing).
+    field는 "elapsed:앞 단계~뒤 단계", 값은 "N시간"(1시간 미만이면 그렇게). 입항 뒤 지난 시간은 "since_arrival"이다.
+    판정이 끝난 뒤에 붙이는 화면·후속 질문용 근거라 판정 검증에는 쓰이지 않는다 (routers/agent._assess)."""
+    if timing is None:
+        return []
+    now = now or datetime.now(timezone.utc)
+    cards = [Evidence(source="rule", field=f"elapsed:{s.from_stage}~{s.to_stage}", value=duration_text(s.hours), fetched_at=now)
+             for s in timing.steps]
+    if timing.hours_since_arrival is not None:
+        field = "arrival_to_release" if timing.measured_until == "released" else "since_arrival"
+        cards.append(Evidence(source="rule", field=field, value=duration_text(timing.hours_since_arrival), fetched_at=now))
+    return cards
+
+
+def duration_text(hours: int) -> str:
+    """정수 시간을 근거 카드 값으로. 1시간 미만은 "0시간"이 아니라 "1시간 미만"으로 적는다 (같은 시각에 처리된 단계가 많다).
+    services/port_facts.py도 이 함수를 쓴다 (같은 글을 두 곳에 두지 않는다)."""
+    return "1시간 미만" if hours < 1 else f"{hours}시간"
 
 
 def _ok(tool_output: dict | None) -> bool:
