@@ -1151,6 +1151,33 @@
        "contact"
       ]
      }
+    },
+    "flagged": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "vessel",
+       "voyage",
+       "eta",
+       "etd",
+       "pol",
+       "pod",
+       "item",
+       "original_bl",
+       "to_order_bank",
+       "freight_term",
+       "incoterm",
+       "contact_company",
+       "contact_role",
+       "contact_phone"
+      ]
+     }
+    },
+    "bl_candidates": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
     }
    },
    "required": [
@@ -1164,7 +1191,9 @@
     "llm_error",
     "bl_status",
     "important",
-    "facts_saved"
+    "facts_saved",
+    "flagged",
+    "bl_candidates"
    ]
   },
   "EtaChange": {

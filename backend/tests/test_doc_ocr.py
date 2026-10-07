@@ -258,16 +258,18 @@ def test_etd_label_matches_dotted_and_bl_forms_only_as_words():
 
 # ── LLM 입력 가리기 보강 (두 번째 B/L·휴대폰·이메일도 LLM으로 가지 않는다). 모두 가공 값이다 ──
 
-def test_mask_bl_hides_second_bl_and_personal_contacts_but_keeps_company_phone_and_dates():
+def test_mask_bl_hides_second_bl_contacts_and_company_phone_but_keeps_dates():
+    """10-08 QA D9: 회사 유선 전화도 LLM에 넘기지 않는다 (연락처 전화는 코드가 뽑는다)."""
     lines = ["MASTER B/L NO. MRVM2026090009", "HOUSE B/L NO.", BL, "CONTACT 010-1234-5678 kim@example.com",
              "GANADA LOGISTICS TEL 051-000-0000", "ETA 20261002", "SEA STAR / 0925W"]
     text = doc_ocr.mask_bl(lines, BL)
     assert BL not in text and "MRVM2026090009" not in text and "[ID]" in text
     assert "010-1234-5678" not in text and "[PHONE]" in text
     assert "kim@example.com" not in text and "[EMAIL]" in text
-    assert "051-000-0000" in text and "20261002" in text and "0925W" in text and "SEA STAR" in text
+    assert "051-000-0000" not in text and "GANADA LOGISTICS TEL [PHONE]" in text
+    assert "20261002" in text and "0925W" in text and "SEA STAR" in text
 
 
-def test_mask_without_bl_still_hides_mobile_and_email():
+def test_mask_without_bl_still_hides_mobile_email_and_phone():
     text = doc_ocr.mask_bl(["담당 82-10-1234-5678", "mail: kim@example.com", "TEL 051-000-0000"], None)
-    assert "1234-5678" not in text and "kim@example.com" not in text and "051-000-0000" in text
+    assert "1234-5678" not in text and "kim@example.com" not in text and "051-000-0000" not in text

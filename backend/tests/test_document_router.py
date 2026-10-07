@@ -95,7 +95,8 @@ def test_conditions_and_contact_are_returned_and_checked(monkeypatch):
     body = _post().json()
     assert body["doc_kind"] == "A/N"
     assert body["fields"]["freight_term"] == {"value": "collect", "checks": ["not_in_text"]}  # 가공 통지서에 그 글이 없다
-    assert body["fields"]["contact_phone"] == {"value": None, "checks": ["format"]}            # 휴대폰은 돌려주지 않는다
+    # LLM이 낸 전화(휴대폰)는 버린다. 전화는 코드가 회사 이름 줄 근처에서 뽑는데 회사 칸이 없다 (10-08 QA D9)
+    assert body["fields"]["contact_phone"] == {"value": None, "checks": []}
     assert body["fields"]["incoterm"] == {"value": None, "checks": []}                         # 없으면 검사 안 함
     assert body["needs_review"] is True
 

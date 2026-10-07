@@ -134,6 +134,10 @@ export interface DocumentResponse {
   /** 확인 화면 없이 서버가 저장한 B/L 조건·거래처의 칸 이름만 (값 없음, services/doc_facts.py).
    * 로그인 + B/L 검사 통과일 때만 차고, 화면은 "운임 조건·인코텀즈를 저장해 두었어요"처럼 이름만 말한다. 옛 서버 응답에는 없다 */
   facts_saved?: ('original_bl' | 'to_order_bank' | 'freight_term' | 'incoterm' | 'contact')[];
+  /** 값을 읽었지만 검사에 걸린 칸 이름만 (값 없음, routers/document.flagged_of). 화면은 "확인이 필요한 칸: 입항 예정일"처럼 말한다. 옛 서버 응답에는 없다 */
+  flagged?: (Exclude<DocumentFieldKey, 'bl_no'> | 'etd')[];
+  /** 서로 다른 B/L 번호가 둘 이상일 때 그 번호들의 가린 값. 이때 bl_status는 uncertain이다. 옛 서버 응답에는 없다 */
+  bl_candidates?: string[];
 }
 
 /** 화물 비서 기억 (backend/app/schemas/memory.py, docs/specs/memory.md). 원본 B/L은 오지 않는다 */
