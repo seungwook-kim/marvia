@@ -6,7 +6,7 @@
 import {useEffect,useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowUpRight,History,Search} from 'lucide-react';
-import {getHistory,isLive} from '@/lib/api';
+import {errorStatus,getHistory,isLive} from '@/lib/api';
 import {dateTime,statusLabels,verdictLabels} from '@/lib/format';
 import type {HistoryResponse,Status,Verdict} from '@/lib/types';
 import {useApp} from './AppProvider';
@@ -20,7 +20,10 @@ const GRADES = ['fine','watch','act',null] as const;
 export function HistoryTable(){
  const {data,replay,loading}=useApp();const router=useRouter();const [history,setHistory]=useState<HistoryResponse|null>(null);const [error,setError]=useState(''),[query,setQuery]=useState(''),[verdict,setVerdict]=useState(''),[status,setStatus]=useState(''),[period,setPeriod]=useState('all');
  // 기간을 고르면 실제 모드는 서버에 since를 보내 그 기간만 읽는다. 데모는 아래 화면 거름만 쓴다
- useEffect(()=>{let active=true;const since=isLive&&period!=='all'?new Date(Date.now()-Number(period)*86400000).toISOString():undefined;getHistory(undefined,since).then(v=>{if(active)setHistory(v);}).catch(()=>{if(active)setError('이력을 불러오지 못했어요.');});return()=>{active=false;};},[data.demo.session_id,period]);
+ // 로그인이 풀려(401) 못 읽었는지. 그때는 "연결 상태" 대신 다시 로그인을 안내한다 (10-08 QA G8)
+ const [authLost,setAuthLost]=useState(false);
+ // 못 읽으면 빈 목록(available:false)으로 바꿔 뼈대 화면이 끝없이 돌지 않게 한다
+ useEffect(()=>{let active=true;setAuthLost(false);const since=isLive&&period!=='all'?new Date(Date.now()-Number(period)*86400000).toISOString():undefined;getHistory(undefined,since).then(v=>{if(active)setHistory(v);}).catch(e=>{if(!active)return;setAuthLost(errorStatus(e)===401);setHistory({items:[],available:false});});return()=>{active=false;};},[data.demo.session_id,period]);
  // 검색은 대소문자를 가리지 않는다. 결과 화면 머리의 B/L은 소문자로 입력해도 대문자로 보인다
  const q=query.replace(/\s/g,'').toUpperCase();
  const rows=(history?.items??[]).filter(r=>(r.bl_masked??'').toUpperCase().includes(q)&&(!status||r.status===status)&&(!verdict||(verdict==='none'?!r.verdict:r.verdict===verdict))&&(period==='all'||((isLive?Date.now():new Date(data.demo.reference_time).valueOf())-new Date(r.created_at).valueOf())<=Number(period)*86400000));
@@ -39,7 +42,7 @@ export function HistoryTable(){
   </div>
   {error&&<p role="alert" className="request-error">{error}</p>}
   {!history?<div className="hist-skel" aria-busy="true" aria-label="이력을 불러오고 있어요."><i/><i/><i/><i/></div>
-  :!history.available?<div className="hist-empty"><History size={28}/><h2>이력을 불러올 수 없어요.</h2><p>연결 상태를 확인한 뒤 다시 시도해 주세요.</p></div>
+  :!history.available?<div className="hist-empty"><History size={28}/><h2>이력을 불러올 수 없어요.</h2><p>{authLost?'로그인이 풀렸어요. 다시 로그인한 뒤 열어 주세요.':'연결 상태를 확인한 뒤 다시 시도해 주세요.'}</p></div>
   :<>
    <p className="hist-count">{rows.length}건 표시, 최신순{isLive?', 최근 20건':''}</p>
    <ul className="hist-list" aria-label="조회 이력">{rows.map((r,i)=>{

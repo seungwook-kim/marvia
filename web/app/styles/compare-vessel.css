@@ -148,6 +148,8 @@
 .vd-skel{display:flex;flex-direction:column;gap:10px;padding:8px 0}
 .vd-skel .skeleton{display:block;height:14px;width:60%}
 .vd-skel .skeleton:nth-child(2){width:85%}.vd-skel .skeleton:nth-child(3){width:45%}
+/* 자세히 보기는 연파랑(--brand-soft) 줄 안에 펼쳐진다. 그 바탕 위 --muted 글자는 4.5:1이 안 돼(4.38:1) 이 안에서만 --text-2로 바꾼다 (10-08 QA G3, WCAG AA) */
+.vd{--muted:var(--text-2)}
 .vd-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
 .vd-fact{display:flex;flex-direction:column;gap:0}
 .vd-fact span{font-size:var(--text-sm);color:var(--muted)}

@@ -268,6 +268,8 @@ export interface VesselDetailResponse {
   errors: {source: string; code: string | null; message: string | null}[];
   /** 이 자세히 보기 결과를 서버가 만든 시각 (10분 캐시 기준) */
   cached_at?: string | null;
+  /** 오늘 남은 자세히 보기 횟수. 서버가 주면 화면이 한 줄로 보이고, 없으면(옛 서버) 아무것도 쓰지 않는다 (10-08 QA G15, E2-9) */
+  remaining?: number | null;
 }
 
 /** GET /api/kakao/status (backend/app/routers/kakao.py). configured: 서버에 카카오 설정이 있나, linked: 이 사용자가 연결했나.

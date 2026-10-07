@@ -10,6 +10,8 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import http from 'node:http';
 import {chromium} from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
@@ -21,7 +23,11 @@ const mockOrigin = `http://127.0.0.1:${MOCK_PORT}`;
 const browser = await chromium.launch({channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true});
 const failures = [], pageErrors = [], external = [], checks = [], skipped = [];
 const interactionsOnly = process.argv.includes('--interactions');
-fs.mkdirSync('screenshots', {recursive: true});
+// 스크린샷과 결과 JSON은 실행한 폴더가 아니라 이 스크립트 옆(web/scripts/screenshots, .gitignore의 screenshots/)에 쓴다.
+// 레포 루트 등 다른 곳에서 돌려도 작업 사본에 파일이 흩어지지 않게 한다. MARVIA_SCREENSHOT_DIR로 바꿀 수 있다 (10-08 QA G13)
+const SHOTS = process.env.MARVIA_SCREENSHOT_DIR || fileURLToPath(new URL('./screenshots/', import.meta.url));
+const shot = name => path.join(SHOTS, name);
+fs.mkdirSync(SHOTS, {recursive: true});
 const check = (name, detail = {}) => { checks.push({name, ...detail}); console.log('PASS', name); };
 const skip = (name, why) => { skipped.push({name, why}); console.log('SKIP', name, '-', why); };
 async function ready(page) { await page.evaluate(() => document.fonts.ready); await page.waitForTimeout(150); }
@@ -99,11 +105,11 @@ try {
       if (['failed', 'unsupported'].includes(id)) assert.equal(await page.locator('.unknown-note').count(), 1, `${id}: unknown values stay empty`);
       if (['ok', 'partial', 'watch', 'act'].includes(id)) await page.locator('.leaflet-overlay-pane svg').waitFor();
       await overflow(page, width); await audit(page, `${id}-${width}`);
-      await page.screenshot({path: `screenshots/${String(i + 1).padStart(2, '0')}-${id}-${width}.png`, fullPage: true}); check(`${id} ${width}px`);
+      await page.screenshot({path: shot(`${String(i + 1).padStart(2, '0')}-${id}-${width}.png`), fullPage: true}); check(`${id} ${width}px`);
     }
     for (const [i, route] of (interactionsOnly ? [] : ['history', 'metrics', 'settings', 'about', 'admin']).entries()) {
       await page.goto(`${base}/${route}`); if (route === 'history') await page.locator('.hist-list > li').first().waitFor(); await ready(page); await overflow(page, width); await audit(page, `${route}-${width}`);
-      await page.screenshot({path: `screenshots/${String(i + 8).padStart(2, '0')}-${route}-${width}.png`, fullPage: true}); check(`${route} ${width}px`);
+      await page.screenshot({path: shot(`${String(i + 8).padStart(2, '0')}-${route}-${width}.png`), fullPage: true}); check(`${route} ${width}px`);
     }
 
     // 설정은 화면 안 탭 4개, 관리는 탭 2개: 탭마다 접근성 검사 (탭을 바꿔도 가로 넘침이 없어야 한다)
@@ -234,7 +240,7 @@ try {
   // 중간 폭: 가로 넘침 없음 (큰 표만 자기 칸에서 스크롤)
   for (const width of interactionsOnly ? [] : [1024, 768, 390]) {
     const context = await newContext(width); const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
-    await cargo(page, 'ok'); await overflow(page, width); await page.screenshot({path: `screenshots/20-ok-${width}.png`, fullPage: true});
+    await cargo(page, 'ok'); await overflow(page, width); await page.screenshot({path: shot(`20-ok-${width}.png`), fullPage: true});
     await input(page).fill('중국에서 부산 들어오는 배 보여줘'); await input(page).press('Enter'); await page.locator('.vessel-results').waitFor(); await overflow(page, width);
     check(`no page overflow ${width}px (cargo + vessel table)`); await context.close();
   }
@@ -251,7 +257,7 @@ try {
       assert.equal(await page.locator('.feature-tiles button').count(), 3, 'first visit shows three real tasks');
       assert.equal(await page.locator('[data-testid="result"]').count(), 0, 'live mode never auto-runs a query');
       await overflow(page, width); if (!interactionsOnly) await audit(page, `live-home-${width}`);
-      await page.screenshot({path: `screenshots/30-live-home-${width}.png`, fullPage: true});
+      await page.screenshot({path: shot(`30-live-home-${width}.png`), fullPage: true});
       check(`live: user menu hides operator pages, idle first visit ${width}`);
 
       // 예시는 채우기만 하고 보내지 않는다 (대화가 빈 첫 화면)
@@ -268,7 +274,7 @@ try {
       await page.locator('.pending-steps li').nth(2).waitFor();
       const steps = await page.locator('.pending-steps li').evaluateAll(els => els.map(e => `${e.className}:${e.textContent.replace(/\s*(완료|진행 중)$/, '')}`));
       assert.deepEqual(steps, ['done:질문 이해', 'done:통관 정보 조회', 'current:선박 식별'], 'only server stages, last one in progress');
-      if (width === 1440) await page.screenshot({path: 'screenshots/31-live-stages-1440.png'});
+      if (width === 1440) await page.screenshot({path: shot('31-live-stages-1440.png')});
       await page.locator('.chat-turn.assistant', {hasText: '스트림 결과입니다.'}).waitFor();
       assert.equal(await page.locator('.pending-card').count(), 0);
       check(`live: SSE stages appear as the server sends them ${width}`);
@@ -291,10 +297,10 @@ try {
   }
 
   assert.deepEqual(pageErrors, [], 'Browser errors'); assert.deepEqual(external, [], 'Unexpected external HTTP');
-  assert.equal(failures.length, 0, 'Accessibility violations: see screenshots/verification.json');
+  assert.equal(failures.length, 0, `Accessibility violations: see ${shot('verification.json')}`);
   console.log(`PASS: ${checks.length} checks, ${skipped.length} skipped; zero page errors and external HTTP requests. ${interactionsOnly ? 'Interaction-only run; accessibility not checked.' : 'Zero axe WCAG A/AA violations.'}`);
 } finally {
-  fs.writeFileSync('screenshots/verification.json', JSON.stringify({checks, skipped, accessibilityViolations: failures, pageErrors, externalRequests: external}, null, 2));
+  fs.writeFileSync(shot('verification.json'), JSON.stringify({checks, skipped, accessibilityViolations: failures, pageErrors, externalRequests: external}, null, 2));
   mock?.close();
   await browser.close();
 }

@@ -132,6 +132,14 @@ async function errorMessage(res: Response): Promise<string> {
   return detail || '요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.';
 }
 
+/** 출입증을 붙여 보냈는데 서버가 401을 주면(출입증 만료·서버 쪽 로그아웃) 이 이름의 브라우저 이벤트를 한 번 쏜다.
+ * 화면마다 401을 따로 다루면 "연결 상태를 확인" 같은 엉뚱한 안내가 섞이므로, AppProvider가 이 이벤트로 공통 "다시 로그인" 배너를 띄운다 (10-08 QA G8).
+ * 출입증 없이 보낸 요청의 401은 로그인 전이라 로그인 화면이 이미 맡는다. 그래서 쏘지 않는다 */
+export const AUTH_EXPIRED_EVENT = 'marvia:auth-expired';
+function noticeAuthExpired(token: string | null, status: number) {
+  if (token && status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+}
+
 /** 연결 자체가 안 될 때 다시 시도하는 간격. 서버 재시작(몇 초) 중에 보낸 요청이 바로 실패하지 않게 한다 */
 const RETRY_DELAYS_MS = [1500, 3000];
 
@@ -145,6 +153,7 @@ async function callOnce(path: string, init: RequestInit, timeoutMs: number): Pro
     const headers = new Headers(init.headers);
     if (token) headers.set('authorization', `Bearer ${token}`);
     const res = await fetch(`${API_BASE}${path}`, {...init, headers, signal: controller.signal});
+    if (!res.ok) noticeAuthExpired(token, res.status);
     if (!res.ok) throw Object.assign(new Error(await errorMessage(res)), {status: res.status});  // 대화 목록이 401/503/404를 가르려고 상태 코드를 붙인다
     return res;
   } catch (e) {
@@ -240,12 +249,14 @@ export async function deleteConversation(id: string): Promise<{deleted: boolean}
   return liveDelete(`/api/conversations/${encodeURIComponent(id)}`);
 }
 
-/** 이력은 부가 기능이다. 못 읽으면 화면을 죽이지 않고 available:false로 돌려준다 (routers/history.py와 같은 원칙). */
+/** 이력은 부가 기능이다. 못 읽으면 화면을 죽이지 않고 available:false로 돌려준다 (routers/history.py와 같은 원칙).
+ * 단 401(로그인 풀림)은 그대로 올린다. available:false로 바꾸면 화면이 "연결 상태를 확인"이라고 잘못 안내한다 (10-08 QA G8) */
 async function liveHistory(since?: string): Promise<HistoryResponse> {
   try {
     const res = await call(`/api/history?session_id=${encodeURIComponent(currentSessionId())}${since ? `&since=${encodeURIComponent(since)}` : ''}`, {}, HISTORY_TIMEOUT_MS);
     return await res.json();
-  } catch {
+  } catch (e) {
+    if (errorStatus(e) === 401) throw e;
     return {items: [], available: false};
   }
 }
@@ -420,8 +431,9 @@ async function liveChatStream(message: string, context: AgentRequest | null,
   const timeout = '답이 너무 늦어져 중단했어요. 다시 시도해 주세요.';
   try {
     let res: Response;
+    let token: string | null = null;
     try {
-      const token = await accessToken();
+      token = await accessToken();
       const headers = new Headers({'content-type': 'application/json', accept: 'text/event-stream'});
       if (token) headers.set('authorization', `Bearer ${token}`);
       res = await fetch(`${API_BASE}/api/chat/stream`, {method: 'POST', headers, body: chatBody(message, context, history, document, onScreen, shown), signal: controller.signal});
@@ -431,7 +443,9 @@ async function liveChatStream(message: string, context: AgentRequest | null,
       throw e;
     }
     if (res.status === 404 || res.status === 405) throw new StreamUnavailable();
-    if (!res.ok) throw new Error(await errorMessage(res));  // 로그인·권한·입력 오류는 스트림을 열기 전에 온다
+    if (!res.ok) noticeAuthExpired(token, res.status);
+    // 로그인·권한·입력 오류는 스트림을 열기 전에 온다. 상태 코드를 붙여 부르는 쪽이 401을 가를 수 있게 한다
+    if (!res.ok) throw Object.assign(new Error(await errorMessage(res)), {status: res.status});
     if (!res.body) throw new Error('이 브라우저에서 답을 읽지 못했어요. 다시 시도해 주세요.');
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     const parse = createSseParser();
@@ -681,12 +695,11 @@ export async function downloadCargoSheet(): Promise<{blob: Blob; filename: strin
 
 /* ---------- 운영자 관리 (docs/specs/operator-admin.md) ---------- */
 
-/** GET /api/me. 탭을 나누는 데만 쓴다. 관리 API는 서버가 다시 확인한다.
- * 데모 모드는 관리 화면도 볼 수 있게 운영자로 둔다(가공 데이터). 못 읽으면 일반 사용자로 본다. */
+/** GET /api/me. 탭을 나누는 데만 쓴다. 관리 API는 서버가 다시 확인한다. 못 읽으면 일반 사용자로 본다.
+ * 체험 모드(서버 없음)와 데모 둘러보기는 운영자가 아니다. 체험하는 사람에게 운영자 메뉴(평가 지표·관리)를 보이지 않는다 (10-08 QA G10).
+ * 체험 모드에서 /metrics·/admin 주소를 직접 열면 가공 예시로 화면만 미리 볼 수 있다(OperatorOnly의 previewOk). 서버를 부르지 않고 바꿀 권한도 없다 */
 export async function getMe(): Promise<MeResponse> {
-  // 데모 둘러보기는 일반 사람이 보는 화면이라 운영자 메뉴(평가 지표·관리)를 보이지 않는다
-  if (tour) return {user_id: 'demo', email: null, is_operator: false, profile_complete: true};
-  if (!isLive) return {user_id: 'demo', email: null, is_operator: true, profile_complete: true};
+  if (!isLive) return {user_id: 'demo', email: null, is_operator: false, profile_complete: true};
   try { return await (await call('/api/me', {}, HISTORY_TIMEOUT_MS)).json(); }
   // 정지면 안내 화면으로. 그 밖에 못 읽으면 일반 사용자로 보고 입력 화면으로 막지도 않는다 (user-profile EC-06)
   catch (e) { return {user_id: null, email: null, is_operator: false, profile_complete: true, suspended: e instanceof Error && e.message === SUSPENDED_MESSAGE}; }

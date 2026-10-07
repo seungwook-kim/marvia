@@ -11,6 +11,7 @@ import {useCallback, useEffect, useMemo, useState, type FormEvent} from 'react';
 import {Eye, LoaderCircle, Pause, Pencil, Play, Search, ShieldUser, UserRoundMinus, UserRoundX} from 'lucide-react';
 import {CustomerActions, type CustomerMode} from './CustomerActions';
 import {useApp} from './AppProvider';
+import {OperatorDenied, previewOk} from './OperatorOnly';
 import {getAdminActions, getCustomers, getOperators, grantOperator, isLive, revokeOperator} from '@/lib/api';
 import {dateTime} from '@/lib/format';
 import type {ActionItem, CustomersResponse, OperatorsResponse} from '@/lib/types';
@@ -26,7 +27,8 @@ export function AdminPage() {
   // 운영자 여부(GET /api/me)를 받기 전에는 판단하지 않는다. 받기 전 isOperator는 false라 운영자에게도
   // "운영자만 볼 수 있는 화면"이 잠깐 보인다 (OperatorOnly와 같은 조건)
   if (!authReady || !meReady) return <div className="page"><div className="initial-loading" role="status"><div className="loading-orbit"/><strong>권한을 확인하고 있어요.</strong></div></div>;
-  if (!isOperator) return <div className="page"><div className="empty-state admin-denied"><ShieldUser size={34} strokeWidth={1.2}/><h2>운영자만 볼 수 있는 화면이에요.</h2><p>권한이 필요하면 기존 운영자에게 등록을 요청해 주세요.</p></div></div>;
+  // 체험 모드는 운영자가 아니지만 주소로 열면 가공 예시로 미리 볼 수 있다 (OperatorOnly previewOk, 10-08 QA G10)
+  if (!isOperator && !previewOk()) return <OperatorDenied/>;
 
   return <div className="page adm-page">
     <div className="page-heading adm-heading">

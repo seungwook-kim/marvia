@@ -8,7 +8,7 @@
 import {Check,Sparkles} from 'lucide-react';
 import {focusComposer} from '@/lib/composer';
 import type {AgentResponse} from '@/lib/types';
-import {countryLabel,dateTime,day,hoursText,portLabel} from '@/lib/format';
+import {coordText,countryLabel,dateTime,day,hoursText,portLabel} from '@/lib/format';
 import {Empty} from './Shared';
 import {InfoTip} from './VerdictCard';
 export function EtaCompare({response:r,part='schedule'}:{response:AgentResponse;part?:'schedule'|'sources'}) {
@@ -25,7 +25,7 @@ export function EtaCompare({response:r,part='schedule'}:{response:AgentResponse;
   return <><section className="schedule-row" aria-label="일정">
    <div className="sch-node"><small>출항</small><strong className={from?undefined:'unknown'}>{from??'확인 안 됨'}</strong>{c?.loading_country&&<em>{countryLabel(c.loading_country)}</em>}</div>
    <span className="sch-line" aria-hidden="true"/>
-   <div className="sch-node now"><small><i aria-hidden="true"/>지금</small><strong className={p?'mono':'unknown'}>{p?`${p.lat.toFixed(2)}°N · ${p.lng.toFixed(2)}°E`:'위치 확인 안 됨'}</strong></div>
+   <div className="sch-node now"><small><i aria-hidden="true"/>지금</small><strong className={p?'mono':'unknown'}>{p?coordText(p.lat,p.lng):'위치 확인 안 됨'}</strong></div>
    <span className="sch-line" aria-hidden="true"/>
    <div className="sch-node end"><small>입항 예정<InfoTip label="입항 예정 설명">입항 예정 ≠ 상품 수령일</InfoTip></small><strong className={r.eta?.trusted_eta?undefined:'unknown'}>{r.eta?dateTime(r.eta.trusted_eta,true):'확인 안 됨'}</strong>{to&&<em>{to}</em>}</div>
   </section>{anchorText&&<p className="map-note" aria-label="묘박지 대기">{anchorText}</p>}{moveText&&<p className="map-note" aria-label="도착 예정 변화">{moveText}</p>}</>;

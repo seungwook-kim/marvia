@@ -15,7 +15,7 @@
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
 import {EyeOff, LocateFixed, Maximize2, X} from 'lucide-react';
 import {addBasemap, drawLocalGeography} from '@/lib/basemap';
-import {getPresentationData, getWatchList, tour, type WatchItem, type WatchList} from '@/lib/api';
+import {errorStatus, getPresentationData, getWatchList, tour, type WatchItem, type WatchList} from '@/lib/api';
 import {TOUR_TICK_MS} from '@/lib/tour';
 import {listWatchedVessels, onVesselWatchChange, unwatchVessel, type WatchedVessel} from '@/lib/watchVessel';
 import {dateTime, verdictLabels} from '@/lib/format';
@@ -42,8 +42,9 @@ function fromVessel(v: WatchedVessel): MapItem {
     lat: v.lat, lng: v.lng, cog: v.cog, sog: v.sog, position_at: v.position_at, track: v.track, ship_flag: v.flag,
     vesselOnly: true, mmsi: v.mmsi, dest: v.dest, eta_text: v.eta};
 }
-/** 목록 key. 배만 지켜보는 줄은 가린 B/L이 비어 있어 서로 겹친다. MMSI로 가른다 */
-const keyOf = (item: MapItem) => item.vesselOnly ? `vessel-${item.mmsi}` : `cargo-${item.cargo_key ?? item.bl_masked}`;
+/** 목록 key. 배만 지켜보는 줄은 가린 B/L이 비어 있어 서로 겹친다. MMSI로 가른다.
+ * 화물은 지문(cargo_key)을 먼저 쓴다. 가린 B/L은 서로 다른 B/L이 같은 값일 수 있어, 지문이 없으면(체험 예시) 줄 번호를 붙여 겹치지 않게 한다 (10-08 QA G11) */
+const keyOf = (item: MapItem, i: number) => item.vesselOnly ? `vessel-${item.mmsi}` : item.cargo_key ? `cargo-${item.cargo_key}` : `cargo-${item.bl_masked}-${i}`;
 /** 점·칩 색. 배만 지켜보는 줄은 회색, 화물은 순서대로 PALETTE */
 const pinColor = (item: MapItem, i: number) => item.vesselOnly ? VESSEL_COLOR : colorOf(i);
 /** 보인 글 그대로의 도착 예정. 날짜로 읽히면 화면 형식으로, 아니면 글 그대로 */
@@ -108,12 +109,24 @@ export function WatchMap() {
   const unwatchButton = (item: MapItem) => item.vesselOnly && item.mmsi ?
     <button type="button" className="wm-unwatch icon-button" onClick={() => void unwatch(item.mmsi!)} disabled={unwatching === item.mmsi}
       aria-label={`${item.ship_name} 지켜보기 해제`} title="지켜보기 해제"><EyeOff size={16}/></button> : null;
-  useEffect(() => { let alive = true; void getWatchList().then(l => { if (alive) setList(l); }); return () => { alive = false; }; }, []);
+  // 목록을 못 읽은 이유. 이게 있으면 뼈대 화면 대신 안내와 다시 시도 버튼을 보인다. 401이면 로그인이 풀린 것이다 (10-08 QA G1)
+  const [loadError, setLoadError] = useState<{message: string; auth: boolean} | null>(null);
+  const [attempt, setAttempt] = useState(0);  // "다시 불러오기"를 누를 때마다 올려 아래 읽기를 다시 돈다
+  useEffect(() => {
+    let alive = true; setLoadError(null);
+    // 실패를 잡지 않으면 뼈대 화면이 끝없이 돌고 브라우저에 unhandledRejection이 남는다
+    getWatchList().then(l => { if (alive) setList(l); })
+      .catch(e => { if (alive) setLoadError({message: e instanceof Error ? e.message : '지켜보는 화물을 불러오지 못했어요.', auth: errorStatus(e) === 401}); });
+    return () => { alive = false; };
+  }, [attempt]);
   // 데모 둘러보기: 배 위치가 10초마다 움직인다 (lib/tour.ts). 실제 모드는 들어올 때 한 번 읽는다
   useEffect(() => {
     if (!tour) return;
-    // 화물 목록과 함께, 데모에서 지켜보기로 추가한 배의 가상 위치도 다시 읽는다
-    const id = setInterval(() => { void getWatchList().then(setList); void listWatchedVessels().then(setVessels).catch(() => {}); }, TOUR_TICK_MS);
+    // 화물 목록과 함께, 데모에서 지켜보기로 추가한 배의 가상 위치도 다시 읽는다. 한 번 실패해도 보던 지도는 그대로 둔다
+    const id = setInterval(() => {
+      getWatchList().then(setList).catch(() => { /* 다음 갱신에서 다시 읽는다 */ });
+      listWatchedVessels().then(setVessels).catch(() => {});
+    }, TOUR_TICK_MS);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
@@ -300,7 +313,11 @@ export function WatchMap() {
   // 왼쪽 지도 카드(위에 기준 시각·모든 배 보기·경로 체크), 오른쪽 "내 화물" 목록 카드. 휴대폰은 지도 → 목록 순으로 쌓는다
   return <section className="watch wm" aria-labelledby="watch-title">
     <div className="wm-head"><h2 id="watch-title">지켜보는 화물 지도</h2></div>
-    {!list ? <div className="wm-skeleton" role="status" aria-label="지켜보는 화물을 불러오고 있어요."><div className="wm-sk-map"/><div className="wm-sk-list"><i/><i/><i/><i/></div></div>
+    {!list && loadError ? <div className="watch-empty" role="alert">
+        <p>{loadError.auth ? '로그인이 풀려 지켜보는 화물을 불러오지 못했어요. 다시 로그인한 뒤 열어 주세요.' : loadError.message}</p>
+        {!loadError.auth && <button type="button" className="button secondary" onClick={() => setAttempt(n => n + 1)}>다시 불러오기</button>}
+      </div>
+      : !list ? <div className="wm-skeleton" role="status" aria-label="지켜보는 화물을 불러오고 있어요."><div className="wm-sk-map"/><div className="wm-sk-list"><i/><i/><i/><i/></div></div>
       : !total ? <div className="watch-empty">지켜보는 화물이 없어요. B/L 번호를 조회하면 여기에 자동으로 추가돼요.</div>
       : <div className="wm-body">
         {active.length > 0 && <div className="wm-map-card">
@@ -314,7 +331,7 @@ export function WatchMap() {
             {cluster && <div className="cluster-panel" role="dialog" aria-label={`이 자리에 있는 배 ${cluster.length}척`} onKeyDown={e => { if (e.key === 'Escape') setCluster(null); }}>
               <div className="cluster-head"><strong>이 자리에 있는 배 {cluster.length}척</strong>
                 <button type="button" className="icon-button" onClick={() => setCluster(null)} aria-label="닫기" autoFocus><X size={16}/></button></div>
-              <ul>{cluster.map(k => { const item = active[k]; const move = motion(item); return <li key={keyOf(item)}>
+              <ul>{cluster.map(k => { const item = active[k]; const move = motion(item); return <li key={keyOf(item, k)}>
                 <div className="cluster-item-head"><span className="watch-chip" style={{background: pinColor(item, k)}}>{markerLetter(k)}</span>
                   <span className="watch-main"><strong>{item.ship_name}</strong>{move && <small>{move}</small>}</span>
                   <button type="button" className="cluster-go" onClick={() => focus.current(k)} aria-label={`${item.ship_name} 위치로 지도 이동`} title="지도에서 보기"><LocateFixed size={18} strokeWidth={1.9} aria-hidden="true"/></button></div>
@@ -327,7 +344,7 @@ export function WatchMap() {
           <div className="wm-side-head"><h3>내 화물</h3>
             <span className="wm-count">진행 중 {active.length + waiting.length}건</span></div>
           <ol ref={listEl} className="watch-list" aria-label="지켜보는 화물">
-            {active.map((item, i) => <li key={keyOf(item)} style={{'--i': Math.min(i, 5)} as CSSProperties}>
+            {active.map((item, i) => <li key={keyOf(item, i)} style={{'--i': Math.min(i, 5)} as CSSProperties}>
               <button type="button" className={`${selected === i ? 'selected' : ''} ${hovered === i ? 'hovered' : ''}`.trim()}
                 onMouseEnter={() => hover.current(i)} onMouseLeave={() => hover.current(null)} onFocus={() => hover.current(i)} onBlur={() => hover.current(null)} aria-pressed={selected === i} onClick={() => focus.current(i)} aria-label={`${markerLetter(i)} ${item.ship_name} 지도에서 보기`}>
                 <span className="watch-chip" style={{background: pinColor(item, i)}}>{markerLetter(i)}</span>
@@ -350,7 +367,7 @@ export function WatchMap() {
           </ol>
           <p role="alert" className="request-error wm-unwatch-error">{unwatchError}</p>
           {waiting.length > 0 && <div className="wm-waiting"><strong>아직 위치를 받지 못했어요</strong>
-            <ul>{waiting.map(i => <li key={keyOf(i)} className={i.vesselOnly ? 'wm-waiting-vessel' : undefined}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small>{unwatchButton(i)}</li>)}</ul>
+            <ul>{waiting.map((i, n) => <li key={keyOf(i, n)}className={i.vesselOnly ? 'wm-waiting-vessel' : undefined}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small>{unwatchButton(i)}</li>)}</ul>
             <p>다음 조회나 위치 확인 뒤 지도에 나와요.</p></div>}
           {done > 0 && <p className="watch-done">반출이 끝난 화물 {done}건은 지도에서 뺐어요.</p>}
         </aside>
