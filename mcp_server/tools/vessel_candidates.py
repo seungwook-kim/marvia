@@ -1,4 +1,4 @@
-"""도구 get_vessel_candidates (작업 B3). 선명 또는 호출부호로 선박 후보를 찾는다.
+"""도구 get_vessel_candidates. 선명 또는 호출부호로 선박 후보를 찾는다.
 
 UNI-PASS는 선명과 국적만 주고 IMO·호출부호를 주지 않는다 (PRD 6.6). 그래서 선명으로 검색한 뒤
 어느 배인지는 받는 쪽이 정한다. 동명 선박이 흔해서 후보를 좁히지 않고 그대로 넘기는 것이 이 도구의 일이다.
@@ -11,7 +11,7 @@ UNI-PASS는 선명과 국적만 주고 IMO·호출부호를 주지 않는다 (PR
 호출부호(call_sign)는 검색 응답에 있는 값을 그대로 넘긴다. 해수부 조회의 키가 되는데,
 선명은 해수부가 한글이고 ShipFinder가 영문이라 서로 맞추기 어렵다.
 
-호출부호로도 찾을 수 있다 (09-28 추가). B/L의 MRN으로 해수부 입항 신고에서 호출부호를 얻으면
+호출부호로도 찾을 수 있다. B/L의 MRN으로 해수부 입항 신고에서 호출부호를 얻으면
 선명 대신 그것으로 찾는다 (backend/app/services/identify.py). 동명 선박·표기 차이 문제가 없다.
 
 출력 계약은 mcp_server/schemas.py의 VesselCandidatesResult다 (C4, SDD 3.4).
@@ -27,7 +27,7 @@ from pydantic import Field
 
 from backend.app.clients.shipfinder import ShipFinderClient, ShipFinderError
 from backend.app.observability.logging import log_failure
-# 호출부호 맞춤·같은 IMO 최신·최근 신호 거르기는 지켜보기·수집 워커와 같은 규칙을 쓴다 (10-08, services/vessel_pick.py)
+# 호출부호 맞춤·같은 IMO 최신·최근 신호 거르기는 지켜보기·수집 워커와 같은 규칙을 쓴다 (services/vessel_pick.py)
 from backend.app.services.vessel_pick import newest_per_imo, recent, same_sign
 from mcp_server.schemas import ToolError, VesselCandidate, VesselCandidatesResult
 
@@ -43,13 +43,13 @@ def _similarity(query: str, name: str) -> float:
 def _fetch_details(client: ShipFinderClient, mmsis: list[int]) -> dict[int, tuple]:
     """후보들의 목적지·선종·국적을 동시에 받아 온다. 실패한 값은 빈 값으로 둔다. 상세가 없어도 후보 자체는 남긴다.
 
-    위치와 국적은 따로 받는다. 전에는 위치가 실패하면 국적도 건너뛰어서, 신호가 끊긴 배는 국적을 몰랐다.
-    그래서 세관 국적과 다른 배를 가려내지 못하고 확정했다 (09-28, 평가 B14).
+    위치와 국적은 따로 받는다. 신호가 끊겨 위치 조회가 실패한 배도 국적은 알아야
+    세관 국적과 다른 배를 가려낼 수 있다.
     """
 
     def one(mmsi: int) -> tuple[int, tuple]:
         # 한 척의 상세 조회가 실패해도 후보 목록은 돌려준다. 다만 국적을 모르면 라우터가 세관 국적과
-        # 비교하지 못하고 확정할 수 있어서(평가 B14) 어느 조회가 왜 실패했는지 남긴다
+        # 비교하지 못하고 확정할 수 있어서 어느 조회가 왜 실패했는지 남긴다
         try:
             pos = client.position(mmsi)
             dest, ship_type = pos.dest, pos.ship_type
@@ -91,15 +91,15 @@ def get_vessel_candidates(
         hits = client.search(call_sign or ship_name, max=10).hits
     except ShipFinderError as e:
         return {"error": ToolError(**e.to_dict()).model_dump()}
-    # 검색이 캐시로 답했는지는 지금 읽어 둔다. 아래 상세 조회(위치·국적)가 같은 클라이언트의 last_cached_at을 덮어쓴다 (10-08)
+    # 검색이 캐시로 답했는지는 지금 읽어 둔다. 아래 상세 조회(위치·국적)가 같은 클라이언트의 last_cached_at을 덮어쓴다
     search_cached_at = client.last_cached_at
     if call_sign:
-        # 검색어는 선명·호출부호 등을 두루 찾으므로, 호출부호가 정확히 같은 배만 남긴다
-        # 호출부호는 배가 팔리거나 국적을 바꾸면 다른 배에 다시 배정된다. 09-28 실측: 같은 호출부호로 IMO가 다른 3척,
-        # 마지막 신호 0일·123일·552일 전. 아래 최근 신호 필터를 지나면 지금 쓰는 배 1척만 남는다
+        # 검색어는 선명·호출부호 등을 두루 찾으므로, 호출부호가 정확히 같은 배만 남긴다.
+        # 호출부호는 배가 팔리거나 국적을 바꾸면 다른 배에 다시 배정되므로, 같은 호출부호의 옛 배는
+        # 아래 최근 신호 필터가 걸러 지금 쓰는 배만 남긴다
         hits = same_sign(hits, call_sign)
 
-    # 기본 기간은 rules.md vessel_recent_days (10-08: 코드 숫자 7을 옮김)
+    # 기본 기간은 rules.md vessel_recent_days
     fresh = recent(newest_per_imo(hits), eta_window_days)
     fresh.sort(key=lambda h: (_similarity(ship_name, h.ship_name), h.last_time), reverse=True)
 

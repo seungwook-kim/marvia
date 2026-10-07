@@ -1,7 +1,7 @@
-"""DELETE /api/account 회원 탈퇴 (삭제 3단계).
+"""DELETE /api/account 회원 탈퇴.
 
-접수 창구만 한다: 로그인 확인 → services.account.withdraw 부르기 → 결과를 HTTP 응답으로 바꾸기.
-무엇을 어떤 순서로 지우는지(기록 먼저, 계정 나중)와 그 이유는 services/account.py에 있다.
+로그인 확인 후 services.account.withdraw를 부르고 결과를 HTTP 응답으로 바꾼다.
+지우는 순서(기록 먼저, 계정 나중)와 그 이유는 services/account.py에 있다.
 """
 from typing import Annotated
 
@@ -18,7 +18,7 @@ RETRY_LATER = "탈퇴를 끝내지 못했습니다. 잠시 뒤 다시 시도하�
 
 
 class AccountDeleteResponse(BaseModel):
-    deleted_records: int  # 지운 조회 기록 수 (결과를 사용자에게 알린다, 제36조 ②와 같은 취지)
+    deleted_records: int  # 지운 조회 기록 수 (개인정보보호법 제36조 취지로 결과를 알린다)
     account_deleted: bool  # 여기까지 오면 항상 true. 실패는 503으로 돌려준다
 
 

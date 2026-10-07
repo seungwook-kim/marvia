@@ -1,12 +1,11 @@
-"""카카오톡 "나에게 보내기" 알림 연결 /api/kakao (10-02 결정, 카카오 로그인 REST API 문서).
+"""카카오톡 "나에게 보내기" 알림 연결 /api/kakao (카카오 로그인 REST API 문서).
 
-창구만 한다: 로그인 확인 → services.kakao 부르기 → HTTP 응답. 토큰 보관·갱신·state 서명 규칙은 services/kakao.py에 있다.
+로그인 확인 후 services.kakao를 부른다. 토큰 보관·갱신·state 서명 규칙은 services/kakao.py에 있다.
 
-POST /callback도 로그인이 필요하다 (10-05 결정). 카카오 동의 화면이 끝나면 브라우저는 백엔드가 아니라 우리 화면
-(/settings/kakao)으로 돌아오고, 그 화면이 인가 코드와 state를 들고 로그인 출입증(Bearer 헤더)과 함께 이 주소를 부른다.
-예전에는 카카오가 백엔드 GET /callback으로 바로 돌아왔다. 그 요청에는 출입증이 없어서 state 속 user_id를 믿을 수밖에 없었고,
-공격자가 자기 동의 링크를 피해자에게 보내면 피해자의 카카오 토큰이 공격자 계정에 저장될 수 있었다.
-이제는 state를 만든 사람(user_id)과 지금 로그인한 사용자가 같을 때만 저장한다. 다르면 mismatch로 끝내고 인가 코드도 쓰지 않는다.
+POST /callback도 로그인이 필요하다. 카카오 동의 화면이 끝나면 브라우저는 우리 화면(/settings/kakao)으로 돌아오고,
+그 화면이 인가 코드와 state를 Bearer 토큰과 함께 이 주소로 보낸다. state를 만든 사용자와 지금 로그인한 사용자가
+같을 때만 저장한다. 그래야 공격자가 자기 동의 링크를 피해자에게 보내 피해자의 카카오 토큰을 자기 계정에 붙이는
+공격을 막는다. 다르면 mismatch로 끝내고 인가 코드도 쓰지 않는다.
 결과는 늘 HTTP 200 {"result": 이름}으로 알린다. 화면이 이름을 보고 안내 문구를 고른다:
 connected / expired / mismatch / no_consent / failed. 사용자가 동의 화면에서 '취소'를 누른 경우(denied)는
 카카오가 화면 주소에 error를 붙여 보내므로 화면이 알아서 처리하고, 백엔드는 부르지 않는다.
@@ -46,7 +45,7 @@ _TEST_FAILED = (502, "카카오톡으로 보내지 못했습니다. 잠시 뒤 �
 
 
 def _login_required(user: CurrentUser | None) -> CurrentUser:
-    """로그인 기능이 꺼진 환경에는 사람이 없으니 연결할 계정도 없다 (routers/profile.py와 같은 규칙)."""
+    """로그인한 사용자와 DB가 있어야 한다. 없으면 401 또는 503."""
     if not user:
         raise HTTPException(status_code=401, detail="로그인한 사용자만 카카오톡 알림을 쓸 수 있습니다",
                             headers={"WWW-Authenticate": "Bearer"})

@@ -1,7 +1,7 @@
-"""GET /api/me, /api/admin/* 운영자 관리 창구 (docs/specs/operator-admin.md).
+"""GET /api/me, /api/admin/* 운영자 관리 API (docs/specs/operator-admin.md).
 
-창구만 한다: 로그인 확인 → 운영자 확인 → services.operators 부르기 → HTTP 응답으로 바꾸기.
-운영자인지는 서명 확인한 출입증의 email로 서버가 정한다. 화면이 관리 탭을 숨기는 것은 편의일 뿐이다 (EC-01).
+로그인 확인과 운영자 확인 후 services.operators를 부른다.
+운영자인지는 서명을 확인한 로그인 토큰의 email로 서버가 정한다. 화면이 관리 탭을 숨기는 것은 편의일 뿐이다 (EC-01).
 고객 목록 응답에는 가린 이메일·이름만 넣는다. 원문은 services 안에서 대조에만 쓰고 버린다.
 """
 from __future__ import annotations
@@ -76,7 +76,7 @@ class CustomerItem(BaseModel):
     phone_masked: str | None = None
     address_masked: str | None = None
     profile_complete: bool = False  # 회원 정보를 입력했나
-    is_suspended: bool = False  # 운영자가 일시 정지했나 (012)
+    is_suspended: bool = False  # 운영자가 일시 정지했나
     created_at: datetime | None
     last_sign_in_at: datetime | None
     is_operator: bool
@@ -117,7 +117,7 @@ class OperatorItem(BaseModel):
     email: str
     granted_by: str
     granted_at: datetime
-    granted_by_email: str | None = None  # 등록한 사람 이메일. 이력에서 못 찾으면 null (A5)
+    granted_by_email: str | None = None  # 등록한 사람 이메일. 이력에서 못 찾으면 null
 
 
 class AuditItem(BaseModel):
@@ -251,7 +251,7 @@ def _customer_call(stage: str, fn):
 
 @router.post("/admin/customers/{user_id}/unmask", response_model=UnmaskResponse)
 def unmask_customer(user_id: str, body: UnmaskBody, user: Annotated[CurrentUser, Depends(require_operator)]) -> UnmaskResponse:
-    """사유를 남기고 한 명의 원문. 기록이 먼저 되고, 기록 실패면 원문을 주지 않는다."""
+    """사유를 남기고 고객 한 명의 원문을 돌려준다. 기록이 먼저이고, 기록에 실패하면 원문을 주지 않는다."""
     return UnmaskResponse(**_customer_call("admin_unmask",
                                            lambda c: customers_svc.unmask(c, user_id, user.id, user.email, body.reason)))
 

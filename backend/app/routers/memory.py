@@ -1,12 +1,11 @@
-"""화물 비서 기억 창구 (docs/specs/memory.md "API", 10-02 결정 7).
+"""화물 비서 기억 API (docs/specs/memory.md "API").
 
-창구만 한다: 로그인 확인 → services(memory, cargo) 부르기 → HTTP 응답. 검사·저장 규칙은 services에 있다.
-  GET    /api/memory                    내 메모장 보기 (번호 없는 마크다운 + 항목 + 화물 요약, 원본 B/L 없음)
-  DELETE /api/memory                    메모장 전부 지우기 (화물 표는 남는다, 10-02 결정 D2)
+로그인 확인 후 services(memory, cargo)를 부른다. 검사·저장 규칙은 services에 있다.
+  GET    /api/memory                    내 메모장 보기 (마크다운 + 항목 + 화물 요약, 원본 B/L 없음)
+  DELETE /api/memory                    메모장 전부 지우기 (화물 표는 남는다)
   DELETE /api/memory/items/{id}         메모장 항목 하나 지우기
-서류 사진의 B/L 조건·거래처는 10-08 사용자 결정으로 확인 화면 없이 POST /api/document가 저장한다 (services/doc_facts.py).
-예전 확인 화면용 POST /api/memory/document-facts는 그 결정으로 없앴다.
-로그인 필수다. 로그인 기능이 꺼진 채점 환경은 사람이 없어 401 (EC-08). 삭제는 실패를 숨기지 않고 503 (routers/history.py와 같다).
+서류 사진의 B/L 조건·거래처는 POST /api/document가 바로 저장한다 (services/doc_facts.py).
+로그인 필수다(로그인 기능이 꺼진 환경은 401, EC-08). 삭제 실패는 숨기지 않고 503이다.
 """
 from __future__ import annotations
 
@@ -29,7 +28,7 @@ DB_DOWN = "기억 저장소에 연결하지 못했습니다. 잠시 뒤 다시 �
 
 
 def _login_required(user_id: str | None) -> str:
-    """로그인한 사람만. 로그인 기능이 꺼진 환경에는 기억할 사람이 없다 (EC-08)."""
+    """로그인한 사용자만 통과시킨다 (EC-08)."""
     if not user_id:
         raise HTTPException(status_code=401, detail="로그인한 사용자만 기억을 볼 수 있습니다",
                             headers={"WWW-Authenticate": "Bearer"})
@@ -37,14 +36,14 @@ def _login_required(user_id: str | None) -> str:
 
 
 def _db_required(stage: str) -> None:
-    """지우기·저장은 DB가 있어야 한다. 없으면 0건으로 숨기지 않고 503 (routers/history.py와 같은 원칙)."""
+    """지우기는 DB가 있어야 한다. 없으면 0건으로 숨기지 않고 503."""
     if not os.environ.get("DATABASE_URL"):
         log_failure(stage, "not_configured")
         raise HTTPException(status_code=503, detail=DB_DOWN)
 
 
 def _summary(row: dict) -> CargoSummary:
-    """화물 줄을 화면 요약으로. 지문·잠긴 B/L·배 번호는 옮기지 않는다."""
+    """화물 행을 화면 요약으로 바꾼다. 해시·암호화된 B/L·선박 번호는 옮기지 않는다."""
     keep = {k: row.get(k) for k in CargoSummary.model_fields if k not in ("pending", "summary")}
     return CargoSummary(**keep, pending=row.get("pending") or [],
                         summary=cargo.done_summary(row) if row.get("status") == "done" else None)
@@ -74,8 +73,8 @@ def get_memory(user_id: Annotated[str | None, Depends(current_user_id)] = None) 
 
 @router.delete("/memory", response_model=MemoryDeleteResponse)
 def delete_memory(user_id: Annotated[str | None, Depends(current_user_id)] = None) -> MemoryDeleteResponse:
-    """메모장을 전부 지운다 (Spec "사용자는 전부 지울 수 있다", 개인정보보호법 제36조). deleted는 지운 메모 항목 수.
-    화물 표(기억한 화물)와 조회 기록은 남는다 (10-02 결정 D2). 화물 표는 "내 조회 기록 지우기"(DELETE /api/history)와 탈퇴가 지운다."""
+    """메모장을 전부 지운다 (개인정보보호법 제36조). deleted는 지운 메모 항목 수.
+    화물 표와 조회 기록은 남는다. 화물 표는 DELETE /api/history와 탈퇴가 지운다."""
     user_id = _login_required(user_id)
     _db_required("memory_delete")
     try:

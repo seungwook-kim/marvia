@@ -1,4 +1,4 @@
-"""지켜보는 화물 재판정 실행 진입점 (G5 등록·감시·알림, 10-05 결정, docs/Marvia_개발_작업_리스트.md).
+"""지켜보는 화물 재판정 실행 진입점.
 
     python -m worker.watch --once    # 한 번만 돈다. 결과를 한 줄 JSON으로 찍는다
 
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = connect()
     try:
-        apply_migrations(conn)  # 017 칸이 없는 DB에서도 돌게 한다 (worker/run.py와 같다)
+        apply_migrations(conn)  # 지켜보기 칸이 없는 DB에서도 돌게 한다 (worker/run.py와 같다)
         _log("watch_done", **run_watch(conn))
     finally:
         conn.close()

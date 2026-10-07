@@ -23,7 +23,7 @@ class ToolError(BaseModel):
 
 
 class VesselCandidate(BaseModel):
-    """get_vessel_candidates 결과 1건. 같은 IMO면 last_time 최신 1건만 남긴다 (B3)."""
+    """get_vessel_candidates 결과 1건. 같은 IMO면 last_time 최신 1건만 남긴다."""
 
     mmsi: int
     imo: int | None
@@ -44,7 +44,7 @@ class VesselCandidatesResult(BaseModel):
 
 
 class LivePositionResult(BaseModel):
-    """get_live_position. freshness 판정은 services/signals.py 몫이라 여기 없다 (B4 경계)."""
+    """get_live_position. freshness 판정은 services/signals.py 몫이라 여기 없다."""
 
     mmsi: int
     lat: float
@@ -70,13 +70,13 @@ class ControlEvent(BaseModel):
 
 
 class PortScheduleResult(BaseModel):
-    """get_port_schedule. 해수부 관제정보·선박운항정보 (B5·B6)."""
+    """get_port_schedule. 해수부 관제정보·선박운항정보."""
 
     planned_arrival: datetime | None
     actual_arrival: datetime | None
     facility: str | None = Field(default=None, description="fcltyNm")
     control_events: list[ControlEvent] = Field(default_factory=list)
-    # 10-08 추가 (선택 칸). 입출항 신고의 직전 기항지 prvsDpmprtPrtNm. 이미 받아 온 신고에서 꺼내므로 해수부 호출이 늘지 않는다.
+    # 선택 칸. 입출항 신고의 직전 기항지 prvsDpmprtPrtNm. 이미 받아 온 신고에서 꺼내므로 해수부 호출이 늘지 않는다.
     # 라우터가 UNI-PASS 적재항과 달라 보이면 "포워더 확인 권장" 근거 한 줄을 붙인다 (services/identify.port_mismatch_note)
     previous_port: str | None = Field(default=None, description="입항 신고의 직전 기항지 prvsDpmprtPrtNm")
     source: str = "mof"
@@ -84,7 +84,7 @@ class PortScheduleResult(BaseModel):
 
 
 class DistanceResult(BaseModel):
-    """estimate_distance. searoute로 부산 기준점까지 해리 (B7)."""
+    """estimate_distance. searoute로 부산 기준점까지 해리."""
 
     distance_nm: float
     calc_hours_at_sog: float | None = None

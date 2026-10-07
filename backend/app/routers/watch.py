@@ -1,22 +1,22 @@
-"""화물 지켜보기 /api (G5 등록·감시·알림, 10-05 결정, docs/Marvia_개발_작업_리스트.md).
+"""화물 지켜보기 API (등록·감시·알림).
 
-창구만 한다: 로그인 확인 → services.watch 부르기 → HTTP 응답. 최대 5건·반출 끝난 화물 제외 같은 규칙과
+로그인 확인 후 services.watch를 부른다. 최대 5건·반출 끝난 화물 제외 같은 규칙과
 다시 판정·알림은 services/watch.py에 있다.
 
   POST /api/cargo/watch/state   {"bl_no"}           → {"saved", "watch"}   결과 화면의 버튼 상태
   PUT  /api/cargo/watch         {"bl_no", "on"}     → {"watch"}            지켜보기 켜기·끄기
-  GET  /api/watch                                   → {"items", "updated_at", "sample"}  지켜보는 화물 목록·위치 (10-06)
+  GET  /api/watch                                   → {"items", "updated_at", "sample"}  지켜보는 화물 목록·위치
   GET  /api/watch/changes                           → {"changes": [...]}   안 본 판정 변화 (다음 접속 때 띠)
   POST /api/watch/changes/seen                      → {"cleared": 건수}    띠를 보여 줬으니 "봤음"으로
 
-  GET    /api/watch/vessels             → {"items"}            B/L 없이 배만 지켜보는 목록 (10-08 정운 실사용 57번)
+  GET    /api/watch/vessels             → {"items"}            B/L 없이 배만 지켜보는 목록
   POST   /api/watch/vessels  {mmsi | call_sign, name, flag?, dest?, eta?} → {"mmsi", "watch": true}   배 지켜보기 켜기
                                     (mmsi 없이 call_sign만 오면 ShipFinder 검색으로 MMSI를 정한다. 못 정하면 422, 검색 실패 503)
   DELETE /api/watch/vessels/{mmsi}      → {"mmsi", "watch": false}  배 지켜보기 끄기
 
 B/L 번호는 주소에 넣지 않고 요청 본문(JSON)으로만 받는다. 주소는 접속 로그·브라우저 기록에 남기 때문이다 (SDD 3.5).
 그래서 상태 조회도 GET이 아니라 POST다. 응답에는 B/L을 되돌려 주지 않는다. 변화 목록은 가린 번호(bl_masked)만 담는다.
-모두 로그인한 사용자 것만 다룬다 (user_id는 출입증에서만 꺼낸다).
+모두 로그인한 사용자 것만 다룬다 (user_id는 로그인 토큰에서만 꺼낸다).
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class WatchBody(BaseModel):
 
 
 def _login_required(user: CurrentUser | None) -> CurrentUser:
-    """로그인 기능이 꺼진 환경에는 사람이 없으니 지켜볼 화물도 없다 (routers/profile.py와 같은 규칙)."""
+    """로그인한 사용자와 DB가 있어야 한다. 없으면 401 또는 503."""
     if not user:
         raise HTTPException(status_code=401, detail="로그인한 사용자만 화물을 지켜볼 수 있습니다",
                             headers={"WWW-Authenticate": "Bearer"})
@@ -137,7 +137,7 @@ def post_seen(user: Annotated[CurrentUser | None, Depends(current_user)] = None)
         raise HTTPException(status_code=503, detail=DB_DOWN)
 
 
-# ── B/L 없이 배만 지켜보기 (10-08 정운 실사용 57번). 기존 B/L 지켜보기와 표·규칙을 섞지 않는다 ──
+# ── B/L 없이 배만 지켜보기. B/L 지켜보기와 표·규칙을 섞지 않는다 ──
 
 _VESSEL_ERRORS = {
     "limit": (409, "배 지켜보기는 최대 5척까지입니다. 다른 배를 먼저 끄세요"),
@@ -166,11 +166,11 @@ def add_vessel_watch(body: VesselBody, user: Annotated[CurrentUser | None, Depen
     try:
         mmsi = body.mmsi
         if not mmsi:
-            # DB 연결을 열기 전에 찾는다: 외부 검색이 느려도 연결을 붙잡고 있지 않게
+            # 외부 검색이 느려도 DB 연결을 붙잡지 않게 연결을 열기 전에 찾는다
             if not (body.call_sign or "").strip():
                 raise vsvc.VesselWatchError("invalid")
-            mmsi = vsvc.resolve_mmsi(body.call_sign, body.name)  # 호출부호로 못 찾으면 선명으로 한 번 더 (10-08)
-        # 상세를 안 열어 위치 캐시가 비었으면 한 번 받아 둔다. add_vessel이 그 값을 지도 첫 점으로 넣는다 (10-08)
+            mmsi = vsvc.resolve_mmsi(body.call_sign, body.name)  # 호출부호로 못 찾으면 선명으로 한 번 더
+        # 위치 캐시가 비었으면 한 번 받아 둔다. add_vessel이 그 값을 지도 첫 점으로 넣는다
         vsvc.fetch_position(mmsi)
         with ops.open_conn() as conn:
             return vsvc.add_vessel(conn, user.id, mmsi, body.name, body.flag, body.dest, body.eta)

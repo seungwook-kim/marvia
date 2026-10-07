@@ -1,19 +1,13 @@
-"""프롬프트를 이름으로 가져온다 (작업 D4, SDD 5.6·5.11).
+"""Langfuse 연동: 프롬프트를 이름으로 가져오고, LLM·도구·요청 트레이스를 남긴다 (SDD 5.6·5.11).
 
-코드에 프롬프트 문자열을 두지 않는다 (CLAUDE.md). 어디서 가져오나:
+코드에 프롬프트 문자열을 두지 않는다. 어디서 가져오나:
   1. Langfuse 키가 있으면 Langfuse Prompt에서 label(기본 production)이 붙은 버전
   2. 키가 없거나, 연결·등록·설치 중 하나라도 실패하면 backend/app/prompts/<이름>.md
-     채점자가 키 없이 재현할 때(REPLAY_MODE)와 테스트가 이 길을 탄다.
-     이 파일은 Langfuse production 버전의 사본이다. 고칠 때는 Langfuse에서 먼저 고치고 여기에 복사한다 (C-11)
+     키 없는 재현(REPLAY_MODE)과 테스트가 이 길을 탄다. 이 파일은 Langfuse production 버전의 사본이다
 돌려주는 version은 트레이스의 prompt_version 자리에 들어간다 (SDD 5.11). 파일에서 왔으면 "local".
-
-개발 중에는 모든 프롬프트가 v0이다. 배포 뒤 평가·확인을 거쳐야 v1로 올린다 (09-28 강사 지침).
-Langfuse의 버전 1이 v0이다 (09-28 다시 등록). Langfuse는 고칠 때마다 번호가 자동으로 올라가서
-version에 찍히는 숫자가 문서의 v0과 달라질 수 있다 (docs/prompt_versions.md).
+Langfuse 버전 번호와 문서의 버전 이름(v0, v1)의 대응은 docs/prompt_versions.md에 있다.
 
 prompts/를 backend/app/ 안에 둔 이유: Dockerfile이 backend/를 통째로 복사하므로 이미지에도 들어간다.
-
-LLM 호출과 MCP 도구 호출 트레이스도 여기서 남긴다 (SDD 5.11). 아래 "트레이스" 절.
 """
 from __future__ import annotations
 
@@ -53,7 +47,6 @@ def get_prompt(name: str, label: str = "production") -> Prompt:
             remote = Langfuse().get_prompt(name, label=label)
             return Prompt(name=name, text=remote.prompt, version=str(remote.version), source=remote)
         except Exception as e:  # 미설치·연결 실패·미등록 모두 같은 처리: 로컬 파일
-            # 레포 파일로 대신한다. 버전이 local로 찍히므로 Langfuse 버전과 다를 수 있다
             log_failure("langfuse_prompt", f"{type(e).__name__} fallback=local_file")
 
     path = PROMPT_DIR / f"{name}.md"
@@ -62,9 +55,9 @@ def get_prompt(name: str, label: str = "production") -> Prompt:
 
 # ── 트레이스 (SDD 5.11) ─────────────────────────────────────────
 # LLM을 한 번 부를 때마다 Langfuse에 generation 하나를 남긴다. services/llm.py의 _ask_json()이 부른다.
-# MCP 도구를 한 번 부를 때마다 tool 관측 하나도 남긴다. services/mcp_client.py의 call_tool()이 부른다 (10-02).
-# 키가 없거나 Langfuse 쪽이 실패해도 판정은 막지 않는다. 트레이스만 빠진다 (get_prompt와 같은 원칙).
-# SDD 5.11은 @traced 데코레이터로 적었지만, 결과(토큰·비용)와 실패를 둘 다 남기려고 시작·끝 함수 둘로 나눴다.
+# MCP 도구를 한 번 부를 때마다 tool 관측 하나도 남긴다. services/mcp_client.py의 call_tool()이 부른다.
+# 키가 없거나 Langfuse 쪽이 실패해도 판정은 막지 않는다. 트레이스만 빠진다.
+# 데코레이터 대신 시작·끝 함수 둘로 나눈 것은 결과(토큰·비용)와 실패를 둘 다 남기려는 것이다.
 
 
 def _keys_set() -> bool:
@@ -75,9 +68,9 @@ def session_scope(session_id: str, user_id: str | None = None) -> AbstractContex
     """이 with 안에서 남기는 트레이스에 session_id를 붙인다. 라우터가 요청 하나를 이걸로 감싼다.
 
     같은 세션의 조회·후속 질문을 Langfuse Sessions 화면에서 한 줄로 볼 수 있다.
-    로그인했으면 user_id도 붙인다 (G3). Supabase 사용자 ID(무작위 UUID)라 이메일·이름은 Langfuse에 가지 않는다.
+    로그인했으면 user_id도 붙인다. Supabase 사용자 ID(무작위 UUID)라 이메일·이름은 Langfuse에 가지 않는다.
     잘못된 값(ASCII가 아니거나 200자 초과)은 langfuse가 경고만 남기고 버린다. 요청은 막히지 않는다.
-    같은 범위에서 LLM 토큰 사용량을 누구 몫으로 쌓을지도 정한다 (services/quota.py, 10-02). 트레이스 키가 없어도 정한다.
+    같은 범위에서 LLM 토큰 사용량을 누구 몫으로 쌓을지도 정한다 (services/quota.py). 트레이스 키가 없어도 정한다.
     """
     return _scoped(session_id, user_id)
 
@@ -112,13 +105,13 @@ def start_generation(name: str, input: Any, prompt: Any = None) -> Any:
     HTTP 요청 밖(scripts/의 스모크 등)은 요청 ID가 비어 있어 매번 새 트레이스가 된다.
 
     prompt: get_prompt()가 Langfuse에서 받은 PromptClient. 주면 generation에 연결돼 Langfuse 프롬프트 화면에서
-    어느 호출이 어느 버전을 썼는지 보인다 (가이드 9-2 "트레이스에 프롬프트 버전 연결"). 로컬 파일이면 None
+    어느 호출이 어느 버전을 썼는지 보인다. 로컬 파일이면 None
     """
     extra = {"prompt": prompt} if prompt is not None else {}
     return _start_observation(name, "generation", input, **extra)
 
 
-# 지금 요청의 루트 span (request_span이 채운다). 관측을 새로 열 때 이것을 부모로 삼는다 (10-07).
+# 지금 요청의 루트 span (request_span이 채운다). 관측을 새로 열 때 이것을 부모로 삼는다.
 # ContextVar라 라우터가 부른 스레드풀·chat_stream의 복사 문맥으로도 따라간다. 요청 밖(스크립트·워커)은 None
 _root_var: ContextVar[Any] = ContextVar("langfuse_root_span", default=None)
 
@@ -127,9 +120,9 @@ def _start_observation(name: str, as_type: str, input: Any, **extra: Any) -> Any
     """generation·tool·span 기록을 여는 공통 부분. 같은 요청의 기록을 한 트레이스로 묶는다.
 
     start_generation()·start_tool()·request_span()이 같이 쓴다. 키가 없거나 실패하면 None (트레이스만 빠진다).
-    부모를 정하는 순서 (10-07):
+    부모를 정하는 순서:
       1. 요청 루트 span이 열려 있으면 그 트레이스에 그 span의 자식으로 붙인다
-      2. 없고 요청 ID가 있으면 요청 ID를 씨앗으로 한 trace_id (루트 없이 같은 트레이스로만 묶인다. 옛 동작)
+      2. 없고 요청 ID가 있으면 요청 ID를 씨앗으로 한 trace_id (루트 없이 같은 트레이스로만 묶인다)
       3. 둘 다 없으면 SDK의 현재 문맥을 따른다. 평가 실행기에서는 SDK가 만든 experiment-item-run 아래로 간다
     """
     if not _keys_set():
@@ -166,7 +159,7 @@ class _SpanHandle:
 
 @contextmanager
 def request_span(path: str, method: str = "POST"):
-    """요청 하나 전체를 span 하나로 감싼다 (10-07, 작업 메모 "요청 루트 span").
+    """요청 하나 전체를 루트 span 하나로 감싼다.
 
     이 안에서 여는 generation·tool·외부 호출 span은 전부 이 span의 자식이라 Langfuse 타임라인에서
     관측 사이 빈 시간이 루트 막대 안의 틈으로 보인다. 이름은 "request:<경로>".
@@ -206,7 +199,7 @@ def request_span(path: str, method: str = "POST"):
 
 @contextmanager
 def tool_span(name: str, input: Any = None):
-    """외부 호출(UNI-PASS·해수부·OCR) 한 구간을 tool 관측 하나로 남긴다 (10-07). mcp_client.call_tool과 같은 방식.
+    """외부 호출(UNI-PASS·해수부·OCR) 한 구간을 tool 관측 하나로 남긴다. mcp_client.call_tool과 같은 방식.
 
     with 안에서 handle.metadata에 재시도 횟수·건수 같은 것을, handle.error에 오류 코드를 적는다.
     예외가 나가면 error에 예외 종류를 적고(이미 적었으면 그대로) 예외는 그대로 올린다. latency_ms는 자동으로 붙는다.
@@ -238,7 +231,7 @@ def start_tool(name: str, input: Any) -> Any:
 def end_tool(tool: Any, output: Any, metadata: dict[str, Any], error: str | None = None) -> None:
     """start_tool()이 연 기록에 결과를 적고 닫는다. tool이 None이면 아무것도 안 한다.
 
-    output: 결과 요약만 넣는다. ShipFinder 약관상 응답 원본은 저장하지 않는다 (CLAUDE.md "할 것")
+    output: 결과 요약만 넣는다. ShipFinder 약관상 응답 원본은 저장하지 않는다
     error:  오류 코드. 있으면 level=ERROR로 남아 Langfuse에서 걸러 볼 수 있다
     """
     if tool is None:
@@ -274,8 +267,8 @@ def end_generation(generation: Any, result: LLMResult | None, prompt_version: st
                 fields["cost_details"] = {"total": result.cost}  # OpenRouter가 준 실제 금액 (크레딧 = USD)
             fields["metadata"].update({
                 "retry_count": result.attempts - 1,  # 첫 시도는 재시도가 아니다
-                # 입력 중 캐시에서 읽은 토큰 (09-30). usage_details가 아니라 metadata에 둔다. usage에 넣으면 Langfuse가
-                # 모델 가격표로 비용을 계산할 때 입력 토큰과 겹쳐 두 번 셀 수 있어서다 (가격표 키 대응은 확인 안 함)
+                # 입력 중 캐시에서 읽은 토큰. usage_details가 아니라 metadata에 둔다. usage에 넣으면 Langfuse가
+                # 모델 가격표로 비용을 계산할 때 입력 토큰과 겹쳐 두 번 셀 수 있어서다
                 "cached_tokens": result.cached_tokens,
                 "provider": result.provider,
                 "openrouter_id": result.request_id,
@@ -291,9 +284,9 @@ def end_generation(generation: Any, result: LLMResult | None, prompt_version: st
 
 def end_web_search(generation: Any, found: list[dict] | None, usage: Any = None, model: str | None = None,
                    error: str | None = None) -> None:
-    """llm.web_search()가 연 generation(start_generation)에 결과를 적고 닫는다. generation이 None이면 아무것도 안 한다 (10-05).
+    """llm.web_search()가 연 generation(start_generation)에 결과를 적고 닫는다. generation이 None이면 아무것도 안 한다.
 
-    웹 검색도 OpenRouter 호출이라 돈이 든다(검색 한 번 약 $0.008). 요청 트레이스에 보이게 남긴다.
+    웹 검색도 OpenRouter 호출이라 비용이 든다. 요청 트레이스에 보이게 남긴다.
     output: 결과 제목·URL 목록만. 본문(text)은 길고 외부 글이라 저장하지 않는다
     usage:  OpenRouter 응답의 usage (토큰·cost). 없으면 비용·토큰은 비운다
     error:  실패 이유. 있으면 level=ERROR. 검색어(input)는 호출하는 쪽이 이미 가린 것이다
@@ -324,9 +317,8 @@ def end_web_search(generation: Any, found: list[dict] | None, usage: Any = None,
 def flush() -> None:
     """모아 둔 트레이스를 지금 Langfuse로 보낸다. 서버가 꺼질 때 main.py lifespan이 부른다.
 
-    Langfuse SDK는 트레이스를 모았다가 뒤에서 보낸다. 보내기 전에 서버가 꺼지면 그 트레이스는 사라진다
-    (09-29 데모: 서류 사진 두 번째 요청 직후 서버를 끄자 그 트레이스가 Langfuse에 없었다).
-    Cloud Run은 요청이 없으면 인스턴스를 끄므로 배포에서 더 자주 생긴다. 실패해도 종료는 막지 않는다.
+    Langfuse SDK는 트레이스를 모았다가 뒤에서 보낸다. 보내기 전에 서버가 꺼지면 그 트레이스는 사라진다.
+    배포 환경은 요청이 없으면 인스턴스를 끄므로 더 자주 생긴다. 실패해도 종료는 막지 않는다.
     """
     if not _keys_set():
         return

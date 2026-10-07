@@ -1,13 +1,12 @@
-"""서류 사진 응답 계약 (docs/specs/document-extract.md "How"). 계약 C1~C8 밖의 새 파일이다.
+"""서류 사진 응답 계약 (docs/specs/document-extract.md "How").
 
-책임: POST /api/document가 돌려주는 모양을 고정한다. 프론트 확인 화면이 이 모양을 그대로 그린다.
-판정 요청(AgentRequest)으로 바로 넘기지 않는다. 사용자가 확인·수정한 값만 /api/agent로 간다 (SDD 비전 울타리).
-필드를 바꾸면 프론트가 같이 깨지므로 PR 리뷰를 거친다 (CLAUDE.md 계약 파일 규칙).
-10-08 사용자 결정: 채팅 입력창 사진 첨부는 확인 화면 없이 bl_status가 ok일 때만 바로 조회한다 (bl_status, important 추가, 선택 칸).
-10-02 (정운 승인, 결정 6): B/L 조건 세 칸 + 인코텀즈와 화물 인도 연락처(회사·역할·회사 전화) 칸을 더했다.
-이 칸들은 서류에 없는 경우가 흔해서(도착 통지서엔 운임 조건이 없기도 하다) 비어도 missing을 걸지 않는다.
-값이 있을 때만 검사(not_in_text, format, ambiguous)를 건다. 10-08 사용자 결정으로 확인 화면을 없앴다: 로그인 사용자의 사진이고
-B/L이 검사를 통과하면(bl_status ok) 검사를 통과한 칸만 서버가 바로 저장하고 저장한 칸 이름을 facts_saved로 알린다 (services/doc_facts.py).
+책임: POST /api/document가 돌려주는 모양을 고정한다. 화면이 이 모양을 그대로 그린다.
+판정 요청(AgentRequest)으로 바로 넘기지 않는다. 필드를 바꾸면 프론트가 같이 깨진다 (CLAUDE.md 계약 파일 규칙).
+채팅 입력창 사진 첨부는 bl_status가 ok일 때만 확인 화면 없이 바로 조회한다.
+B/L 조건(원본 필요·은행 지시식·운임 조건), 인코텀즈, 화물 인도 연락처 칸은 서류에 없는 경우가 흔해서
+비어도 missing을 걸지 않고, 값이 있을 때만 검사(not_in_text, format, ambiguous)를 건다.
+로그인 사용자의 사진이고 B/L이 검사를 통과하면 검사를 통과한 칸만 서버가 바로 저장하고
+저장한 칸 이름을 facts_saved로 알린다 (services/doc_facts.py).
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # 검사 이름은 services/doc_ocr.check_fields와 같다. 빈 목록이면 통과
-Check = Literal["missing", "not_in_text", "format", "ambiguous"]  # ambiguous: 같은 칸 이름표가 두 번 이상 (09-30)
+Check = Literal["missing", "not_in_text", "format", "ambiguous"]  # ambiguous: 같은 칸 이름표가 두 번 이상
 
 
 class FieldResult(BaseModel):
@@ -32,12 +31,12 @@ class DocumentFields(BaseModel):
     pol: FieldResult      # 선적항
     pod: FieldResult      # 양하항
     item: FieldResult     # 품명. 사용자 서류에서 읽은 값이며 저장하지 않는다 (Spec "규칙과의 관계")
-    # 10-06: 출항일 YYYY-MM-DD. 도착 통지서의 E.T.D. 또는 B/L의 Shipped/Laden on board 날짜를 서류에서 옮긴 값이다
+    # 출항일 YYYY-MM-DD. 도착 통지서의 E.T.D. 또는 B/L의 Shipped/Laden on board 날짜를 서류에서 옮긴 값이다
     # (계산하지 않는다). 화물 시트 출항 칸에 채운다. 서류에 없는 경우가 흔해서 비어도 missing을 걸지 않고, 값이 있을 때만
     # 날짜 검사를 건다. 입항일(eta)보다 늦으면 format (services/doc_ocr.check_fields). 기본값을 둬서 etd 이전 모양의 응답도 읽힌다
     etd: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]),
                              description="출항일 YYYY-MM-DD. 서류에 적힌 날짜만, 없으면 null")
-    # 10-02 결정 6. 판정 등급에는 쓰지 않는다. 비서가 짚을 거리(원본 B/L·은행 L/G, 착불 운임)로만 쓴다
+    # B/L 조건. 판정 등급에는 쓰지 않는다. 비서가 짚을 거리(원본 B/L·은행 L/G, 착불 운임)로만 쓴다
     original_bl: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]),
                                      description="required(원본 필요) / surrendered(서렌더, 원본 불필요)")
     to_order_bank: FieldResult = Field(default_factory=lambda: FieldResult(value=None, checks=[]),
@@ -68,24 +67,24 @@ class DocumentResponse(BaseModel):
     fields: DocumentFields
     ocr: OcrInfo
     trace_id: str
-    # 적하목록 관리번호. "MRN" 이름표 옆 값을 코드가 뽑는다(LLM 아님). 세관에 아직 없는 화물의 대체 조회용 (docs/specs/mrn-fallback.md, 10-01)
+    # 적하목록 관리번호. "MRN" 이름표 옆 값을 코드가 뽑는다(LLM 아님). 세관에 아직 없는 화물의 대체 조회용 (docs/specs/mrn-fallback.md)
     mrn: str | None = None
-    # 서류 종류 (LLM이 고름, 10-02). 거래처를 메모장에 저장할 때 출처(B/L·A/N)로 쓴다. 모르면 null이고 거래처는 저장하지 않는다
+    # 서류 종류 (LLM이 고름). 거래처를 메모장에 저장할 때 출처(B/L·A/N)로 쓴다. 모르면 null이고 거래처는 저장하지 않는다
     doc_kind: Literal["B/L", "A/N"] | None = None
-    # 10-06 (additive, 선택): LLM 단계가 실패했을 때 실패 종류(LLMError.kind: bad_format, timeout, overloaded 등). 성공이면 null.
+    # 선택: LLM 단계가 실패했을 때 실패 종류(LLMError.kind: bad_format, timeout, overloaded 등). 성공이면 null.
     # status는 그대로 partial이고 코드가 뽑은 B/L도 그대로 준다. 화면이 "AI가 서류 글자를 정리하지 못했어요"를 보여 주고,
     # 평가 스크립트가 제공사 실패와 틀린 답을 가르는 데 쓴다. 옛 모양의 응답도 읽히도록 기본값을 null로 둔다
     llm_error: str | None = None
-    # 10-08 사용자 결정 (additive, 선택): 채팅 입력창에 사진을 붙여 보내면 확인 화면 없이 바로 조회한다.
+    # 선택: 채팅 입력창에 사진을 붙여 보내면 확인 화면 없이 바로 조회한다.
     # 그래서 "B/L로 바로 조회해도 되나"를 코드가 정해 화면에 준다 (routers/document.bl_status_of). LLM이 정하지 않는다.
     #   ok: B/L을 읽었고 검사를 모두 통과 → 화면이 그 B/L로 바로 조회한다
     #   uncertain: B/L 모양 값은 있지만 검사에 걸렸다 → 조회하지 않고 사용자에게 직접 입력을 부탁한다
     #   none: B/L을 못 읽었다
     # 옛 모양의 응답도 읽히도록 기본값을 둔다 (화면은 없으면 fields로 같은 규칙을 다시 계산한다)
     bl_status: Literal["ok", "uncertain", "none"] = "none"
-    # 10-08: 검사를 통과한 "중요한 칸"의 이름만 (vessel, voyage, eta, etd). 값은 넣지 않는다.
-    # 사진을 다시 보여 주지 않기로 해서(10-08 사용자 결정), 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다
+    # 검사를 통과한 "중요한 칸"의 이름만 (vessel, voyage, eta, etd). 값은 넣지 않는다.
+    # 사진을 다시 보여 주지 않으므로 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다
     important: list[Literal["vessel", "voyage", "eta", "etd"]] = Field(default_factory=list)
-    # 10-08 사용자 결정 (additive, 선택): 이번 사진에서 저장한 B/L 조건·거래처의 칸 이름만 (값 없음). 확인 화면 없이 저장했으므로
+    # 선택: 이번 사진에서 저장한 B/L 조건·거래처의 칸 이름만 (값 없음). 확인 화면 없이 저장했으므로
     # 화면이 "운임 조건·인코텀즈를 저장해 두었어요"라고 알린다 (web/lib/docAttach.ts). 로그인 안 함·DB 없음·B/L 검사 걸림이면 빈 목록
     facts_saved: list[Literal["original_bl", "to_order_bank", "freight_term", "incoterm", "contact"]] = Field(default_factory=list)

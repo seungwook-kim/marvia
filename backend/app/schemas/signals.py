@@ -1,8 +1,8 @@
 """계약 C3(SignalSet). 근거: SDD 3.3, 5.4.
 
 책임: 1층(코드)이 계산한 신호 7종의 출력 형태. services/signals.py가 만들고 LLM 입력과 reasons에 쓰인다.
-신호 id 7개는 skills/ais-reliability/rules.md "1층 신호 7종" 표의 id와 같아야 한다. 기준값은 skills/*/rules.md에 나뉘어 있다 (10-01).
-sales_date_exceeded는 09-23 D4에서 추가: 배가 정상이어도 신뢰 ETA가 판매 예정일을 넘기면 act (PRD 6.2).
+신호 id 7개는 skills/ais-reliability/rules.md "1층 신호 7종" 표의 id와 같아야 한다. 기준값은 skills/*/rules.md에 나뉘어 있다.
+sales_date_exceeded: 배가 정상이어도 신뢰 ETA가 판매 예정일을 넘기면 act (PRD 6.2).
 """
 from __future__ import annotations
 

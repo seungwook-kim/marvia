@@ -1,6 +1,6 @@
-"""도구 get_port_schedule (작업 B6). 부산항 입항 일정과 접안 시설을 가져온다.
+"""도구 get_port_schedule. 부산항 입항 일정과 접안 시설을 가져온다.
 
-해수부 API 두 개를 합쳐서 돌려준다 (B5 MofClient).
+해수부 API 두 개를 합쳐서 돌려준다 (clients/mof.py MofClient).
 
 - 관제정보: 이미 일어난 실적. 실제 입항 시각과 접안 시설
 - 선박운항정보: 입출항 신고. 아직 안 들어온 배의 입항 예정
@@ -26,7 +26,7 @@ from backend.app.clients.mof import MofClient, MofError, SailingPlan, VesselCall
 from backend.app.services.rules import rule
 from mcp_server.schemas import ControlEvent, PortScheduleResult, ToolError
 
-# 조회 기간과 선명 비교 기준은 skills/port-busan/rules.md 프론트매터가 원본이다 (C6, 10-06 점검: 코드 숫자를 옮김).
+# 조회 기간과 선명 비교 기준은 skills/port-busan/rules.md 프론트매터가 원본이다 (C6).
 # 도구 입력 스키마의 기본값이 되어야 해서 불러올 때 한 번 읽어 둔다
 LOOKBACK_DAYS = rule("port_schedule_lookback_days")  # 실적을 며칠 전까지 볼지
 LOOKAHEAD_DAYS = rule("port_schedule_lookahead_days")  # 입항 예정을 며칠 뒤까지 볼지
@@ -71,13 +71,12 @@ def _by_name(records: list, ship_name: str | None) -> list:
 
 
 def _same_ship(records: list, call_sign: str | None, ship_name: str | None) -> list:
-    """이 배의 기록만 남긴다. 호출부호로 조회했으면 호출부호가 같은 기록을 선명과 상관없이 쓴다 (10-05).
+    """이 배의 기록만 남긴다. 호출부호로 조회했으면 호출부호가 같은 기록을 선명과 상관없이 쓴다.
 
-    해수부는 국적선 선명을 한글로 준다(예: 테스트트윈사십팔). 세관·ShipFinder 선명은 영문이라, 호출부호로 정확히
-    찾은 기록을 선명으로 다시 거르면 국적선의 입항 예정·실적이 모두 버려졌다 (데모 TESTBL48, mof_eta 없음 → partial).
-    호출부호는 배마다 하나라 선명보다 정확하다. 비교 기준은 routers/agent.py _same_call_sign과 같다 (대소문자·앞뒤 공백 무시).
-    호출부호가 같은 기록이 하나도 없으면(호출부호 칸이 빈 기록 등) 예전처럼 선명으로 거른다.
-    선명만으로 조회했으면 지금까지와 같다 (_by_name).
+    해수부는 국적선 선명을 한글로 주고 세관·ShipFinder 선명은 영문이라, 호출부호로 찾은 기록을 선명으로 다시
+    거르면 국적선 기록이 모두 버려진다. 호출부호는 배마다 하나라 선명보다 정확하다.
+    비교 기준은 routers/agent.py _same_call_sign과 같다 (대소문자·앞뒤 공백 무시).
+    호출부호가 같은 기록이 없거나 선명만으로 조회했으면 선명으로 거른다 (_by_name).
     """
     if call_sign:
         wanted = call_sign.strip().upper()
@@ -104,8 +103,7 @@ def _pick(calls: list[VesselCall], ship_name: str | None, call_sign: str | None 
 def _pick_plan(plans: list[SailingPlan], ship_name: str | None, call_sign: str | None = None) -> SailingPlan | None:
     """예정 중 한 건. 가장 이른 입항 예정을 쓴다. 신고가 여러 번 바뀌어도 시각 기준으로 고른다.
 
-    최종 신고는 뺀다. 입항 뒤 최종이 되면 시각이 실제 입항 시각으로 바뀌어 예정이 아니다
-    (mof.py 모듈 설명, 2026-09-23 부산 실측).
+    최종 신고는 뺀다. 입항 뒤 최종이 되면 시각이 실제 입항 시각으로 바뀌어 예정이 아니다 (mof.py 모듈 설명).
     """
     plans = [p for p in _same_ship(plans, call_sign, ship_name) if p.expected_arrival]
     if not plans:
@@ -115,7 +113,7 @@ def _pick_plan(plans: list[SailingPlan], ship_name: str | None, call_sign: str |
 
 def _previous_port(plans: list[SailingPlan], plan: SailingPlan | None, ship_name: str | None,
                    call_sign: str | None) -> str | None:
-    """이 배 입항 신고의 직전 기항지 (10-08). 고른 예정(plan)에 있으면 그것을, 없으면 이 배의 신고 중 입항 시각이 가장 늦은 것을 쓴다.
+    """이 배 입항 신고의 직전 기항지. 고른 예정(plan)에 있으면 그것을, 없으면 이 배의 신고 중 입항 시각이 가장 늦은 것을 쓴다.
     최종 신고(입항 뒤)도 직전 기항지는 그대로라 여기서는 빼지 않는다. 이미 받은 신고에서만 꺼낸다 (해수부 호출이 늘지 않는다)."""
     if plan is not None and plan.previous_port:
         return plan.previous_port
@@ -148,8 +146,8 @@ def get_port_schedule(
     today = date.today()
     # 호출부호가 있으면 API가 걸러 주므로 한 페이지면 된다. 선명으로 찾을 때는 뒤 페이지까지 본다
     pages = 1 if call_sign else NAME_SEARCH_PAGES
-    # 클라이언트 만들기(키 없음 = bad_key)와 결과 조립까지 try 안에 둔다 (10-06 점검). 전에는 make_client()와
-    # PortScheduleResult가 try 밖이라 예외가 도구 밖으로 새어 계약(C4)의 {error} 대신 MCP 오류 문장이 나갔다
+    # 클라이언트 만들기(키 없음 = bad_key)와 결과 조립까지 try 안에 둔다.
+    # 예외가 도구 밖으로 새면 계약(C4)의 {error} 대신 MCP 오류 문장이 나간다
     try:
         client = make_client()
         calls = client.control_records(today - timedelta(days=lookback_days), today, call_sign=call_sign, max_pages=pages)
@@ -160,7 +158,7 @@ def get_port_schedule(
         )
 
         fetched_at = datetime.now(timezone.utc)
-        # 호출부호로 조회했으면 호출부호가 같은 기록을 선명과 상관없이 쓴다 (_same_ship, 10-05)
+        # 호출부호로 조회했으면 호출부호가 같은 기록을 선명과 상관없이 쓴다 (_same_ship)
         chosen = _pick(calls, ship_name, call_sign)
         plan = _pick_plan(plans, ship_name, call_sign)
 

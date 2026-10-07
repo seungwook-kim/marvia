@@ -1,12 +1,10 @@
-"""외부 API 응답 캐시 (작업 B8).
+"""외부 API 응답 캐시.
 
-ShipFinder 스타터 키는 호출 빈도 제한이 있다(status 23, 29). 제한에 걸렸을 때
-아무 값도 못 주면 판정 자체가 막히므로, 마지막으로 성공한 응답을 TTL 안에서 돌려준다.
-값이 오래됐다는 사실은 응답에 담긴 fetched_at으로 드러난다.
+ShipFinder 키는 호출 빈도 제한이 있다(status 23, 29). 제한에 걸렸을 때 아무 값도 못 주면
+판정이 막히므로, 마지막으로 성공한 응답을 TTL 안에서 돌려준다. 값의 나이는 fetched_at으로 드러난다.
 
-지금은 프로세스 메모리에 둔다. SDD 3.9의 api_cache 테이블(Postgres)은 DB 계층이
-생긴 뒤 이 클래스의 get·set만 바꿔 끼우면 된다. TTL 기본값은 skills/ais-reliability/rules.md api_cache_ttl_hours다
-(SDD 5.2의 6시간, 10-06 점검: 코드 숫자를 rules.md로 옮김).
+프로세스 메모리에 둔다. SDD 3.9의 api_cache 테이블로 옮길 때는 get·set만 바꾸면 된다.
+TTL 기본값은 skills/ais-reliability/rules.md api_cache_ttl_hours (SDD 5.2).
 """
 from __future__ import annotations
 
@@ -39,7 +37,7 @@ class ResponseCache:
         self._store: dict[str, CacheEntry] = {}
 
     def set(self, key: str, value: Any, cached_at: datetime | None = None) -> None:
-        """cached_at을 안 주면 지금 시각. 평가 실행기는 평가셋에 적힌 담긴 시각을 그대로 넣는다 (F02)."""
+        """cached_at을 안 주면 지금 시각. 평가 실행기는 평가셋에 적힌 시각을 그대로 넣는다."""
         self._store[key] = CacheEntry(value=value, cached_at=cached_at or datetime.now(timezone.utc))
 
     def get(self, key: str) -> Any | None:
@@ -51,7 +49,7 @@ class ResponseCache:
         """값과 함께 언제 담겼는지도 알아야 할 때 쓴다. 근거 카드에 캐시 시각을 적는다 (SDD 8절).
 
         TTL이 지난 값은 None으로 돌려주되 지우지는 않는다. ignore_ttl이면 지난 값도 돌려준다.
-        ShipFinder 시간 초과는 오래된 위치라도 "마지막 수신 위치"로 쓰기로 해서(09-29 결정) 남겨 둬야 한다.
+        ShipFinder 시간 초과 때 오래된 위치라도 "마지막 수신 위치"로 쓰기 때문이다.
         같은 키에 새 값이 들어오면 덮이므로 키마다 하나만 남는다.
         """
         entry = self._store.get(key)

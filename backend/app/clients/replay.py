@@ -1,17 +1,16 @@
 """REPLAY_MODE 재생 transport. 외부 API 대신 evals/fixtures/replay/의 가공 응답을 돌려준다 (SDD 6.1).
 
-채점자가 키 없이 compose up만으로 데모를 돌려 보게 하려는 장치다 (CLAUDE.md "REPLAY_MODE=true면 키 없이").
-클라이언트는 그대로 두고 httpx transport만 바꿔 끼운다. 그래서 파싱·상태 코드 매핑·재시도 경로가
-실제 호출과 똑같이 돈다. 테스트가 MockTransport로 fixture를 먹이는 방식과 같다.
+키 없이 compose up만으로 데모를 돌려 보게 하는 장치다. 클라이언트는 그대로 두고 httpx transport만 바꿔 끼우므로
+파싱·상태 코드 매핑·재시도 경로가 실제 호출과 똑같이 돈다.
 
 재생하는 외부 API는 ShipFinder, 해수부, UNI-PASS다. searoute는 원래 외부 호출이 없다.
-LLM은 여기서 재생하지 않는다. LLM_MODEL이 비어 있으면 services/llm.py가 replay/llm/의 녹화 답을 쓴다 (_replay_answer).
+LLM은 여기서 재생하지 않는다. LLM_MODEL이 비어 있으면 services/llm.py가 replay/llm/의 녹화 답을 쓴다.
 
 재생 파일 위치 (값은 전부 실제와 형식만 같은 가공값, SDD 7절):
   shipfinder/<엔드포인트>/<키>.json   VesselSearch는 keywords, VesselPositionSingle·VesselFlagInfo는 mmsi가 키
   mof/<API>/<호출부호>.xml            CntlVssl2(관제), VsslEtrynd5(선박운항정보). 호출부호가 없으면 _ALL.xml
   unipass/<B/L 번호>.xml              mblNo 또는 hblNo. 모의 번호만 쓴다
-  positions/<MMSI>.json               워커가 6시간마다 모은 위치 이력 [{"at","lat","lng","sog"}] (10-06, 라이브 데모용. position_history)
+  positions/<MMSI>.json               6시간 간격 위치 이력 [{"at","lat","lng","sog"}] (position_history)
 파일이 없으면 "그런 대상 없음"으로 답한다. 검색은 빈 목록, 위치·국적은 status 3, 해수부는 빈 결과, UNI-PASS는 tCnt 0.
 실제 API가 모르는 배에 답하는 모양과 같아서, 라우터는 0척 되묻기 같은 평소 경로를 탄다.
 """
@@ -60,11 +59,10 @@ def _read(path: Path) -> str | None:
 
 
 def position_history(mmsi: int) -> list[dict] | None:
-    """재생 폴더의 위치 이력(positions/<MMSI>.json)을 읽는다. 파일이 없으면 None (10-06 정운 결정, 라이브 데모 10건).
+    """재생 폴더의 위치 이력(positions/<MMSI>.json)을 읽는다. 파일이 없으면 None.
 
-    왜 필요한가: 서버는 이력을 DB(positions 표, 워커 6시간 수집)에서 읽는데, 재생 모드 서버에는 데모 배의 이력이 없다.
-    그러면 부산 앞에서 30시간 멈춘 배(데모 5번)도 anchor_wait이 "정지 시간 미확인"(unknown)이 되어 긴급이 안 나온다.
-    그래서 make_demo가 데모 배마다 6시간 간격 이력 파일을 쓰고, 라우터(_position_history)가 재생 모드일 때 이 파일을 먼저 본다.
+    서버는 이력을 DB(positions 표)에서 읽는데 재생 모드에는 데모 배의 이력이 없어, 오래 정박한 배도
+    anchor_wait이 unknown이 된다. 그래서 make_demo가 이력 파일을 쓰고, 라우터가 재생 모드일 때 이 파일을 먼저 본다.
     """
     body = _read(REPLAY_DIR / "positions" / f"{mmsi}.json")
     return json.loads(body) if body is not None else None

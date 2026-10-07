@@ -1,12 +1,10 @@
-"""IMF PortWatch 항구별 일일 입항 집계 클라이언트 (10-08 결정, 부산항 입항 추세 카드).
+"""IMF PortWatch 항구별 일일 입항 집계 클라이언트 (부산항 입항 추세 카드).
 
-부르는 것: ArcGIS FeatureServer의 Daily_Ports_Data 표. 키가 필요 없는 공개 자료다.
-IMF 이용 조건상 출처 "IMF PortWatch"를 밝히면 쓸 수 있고, 상업적 재사용은 허락이 필요하다.
-이 프로젝트는 비상업 포트폴리오라 출처 표기로 쓴다 (화면 카드와 응답 source에 남긴다).
+ArcGIS FeatureServer의 Daily_Ports_Data 표를 부른다. 키가 필요 없는 공개 자료다.
+IMF 이용 조건상 출처 "IMF PortWatch"를 밝히면 비상업적으로 쓸 수 있어 화면 카드와 응답 source에 남긴다.
 
-알아 둘 점:
-- 자료는 위성 AIS를 IMF가 하루 단위로 묶은 것이고 약 5일 늦게, 주 단위로 갱신된다.
-  그래서 "지금 부산이 붐빈다"가 아니라 "지난주 부산 입항이 평소보다 많았다" 수준의 맥락이다
+- 위성 AIS를 하루 단위로 묶은 자료로 약 5일 늦게, 주 단위로 갱신된다.
+  "지금 붐빈다"가 아니라 "지난주 입항이 평소보다 많았다" 수준의 맥락이다
 - date 칸이 epoch 밀리초로 올 때도, 문자열로 올 때도 있어 둘 다 받는다
 - ArcGIS는 잘못된 질의에도 HTTP 200에 {"error": {...}}를 돌려준다. 그 모양도 실패로 본다
 
@@ -27,8 +25,8 @@ from backend.app.clients.retry import with_retry
 
 BASE_URL = "https://services9.arcgis.com/weJ1QsnbMYJlCHdG/arcgis/rest/services/Daily_Ports_Data/FeatureServer/0/query"
 OUT_FIELDS = "date,portcalls,portcalls_container,import_container,export_container"
-TIMEOUT_SEC = float(os.environ.get("PORTWATCH_TIMEOUT_SEC", 15))  # 다른 외부 클라이언트(mof.py)와 같은 기본값
-CONNECT_TIMEOUT_SEC = 3.0  # 연결이 안 되는 곳은 오래 기다려도 안 된다 (mof.py와 같은 이유)
+TIMEOUT_SEC = float(os.environ.get("PORTWATCH_TIMEOUT_SEC", 15))
+CONNECT_TIMEOUT_SEC = 3.0  # 연결이 안 되는 곳은 오래 기다려도 안 된다
 SOURCE = "imf_portwatch"
 
 # REPLAY_MODE와 테스트가 읽는 가공 응답. 실제 응답이 아니라 형식만 같은 값이다 (CLAUDE.md fixture 규칙)

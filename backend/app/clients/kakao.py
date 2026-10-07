@@ -1,23 +1,17 @@
-"""카카오 로그인·카카오톡 메시지 API 호출 (카카오톡 "나에게 보내기" 알림, 10-02).
+"""카카오 로그인·카카오톡 "나에게 보내기" API 호출.
 
-이 파일은 카카오 서버에 HTTP 요청을 보내고 결과를 Tokens나 KakaoError로 바꿔 주는 일만 한다.
-토큰을 DB에 저장하거나 언제 보낼지 정하는 일은 services/kakao.py, 주소 연결은 routers/kakao.py 몫이다.
-동의 화면이 끝나면 카카오는 브라우저를 우리 화면(/settings/kakao)으로 돌려보낸다. 그 화면이 로그인 출입증을 붙여
-routers/kakao.py의 POST /callback을 부른다 (10-05 결정). 백엔드 주소로 바로 돌려보내지 않는다.
+카카오 서버에 HTTP 요청을 보내고 결과를 Tokens나 KakaoError로 바꾸는 일만 한다. 토큰 저장과 발송 시점은
+services/kakao.py, 주소 연결은 routers/kakao.py가 맡는다. 동의 화면이 끝나면 카카오는 브라우저를 화면(/settings/kakao)으로
+돌려보내고, 그 화면이 로그인 토큰을 붙여 routers/kakao.py의 POST /callback을 부른다.
 
-왜 이렇게 했나:
-- exchange_code와 send_memo는 재시도하지 않는다. 인가 코드는 한 번만 쓸 수 있어서 다시 보내면 어차피 실패하고,
-  보내기는 응답만 늦게 온 경우에 다시 부르면 같은 알림이 두 번 갈 수 있다. 실패는 호출한 쪽이 판단한다
-- refresh와 unlink는 같은 요청을 두 번 보내도 결과가 같아서 clients/retry.py(타임아웃·5xx만 재시도)를 건다
-- 클라이언트 시크릿, 인가 코드, access/refresh 토큰은 로그·예외 메시지·repr에 넣지 않는다.
-  KakaoError에는 kind와 숫자 코드만 담고, httpx 예외는 `from None`으로 끊어 URL이나 본문이 따라 나오지 않게 한다.
-  httpx 요청 로그는 main에서 WARNING으로 꺼 두었다 (b3b1825)
-- 키와 시크릿은 함수를 부를 때마다 환경변수에서 읽는다. 값이 바뀌어도 서버를 다시 켤 필요가 없고 테스트에서 바꾸기 쉽다
-- 타임아웃은 supabase_admin.py와 같은 10초다 (SDD 8절 외부 호출 규칙)
-- transport는 테스트가 가짜 서버(httpx.MockTransport)를 꽂는 자리다. 운영에서는 None이다
+- exchange_code와 send_memo는 재시도하지 않는다. 인가 코드는 한 번만 쓸 수 있고, 보내기를 다시 부르면 알림이 두 번 갈 수 있다
+- refresh와 unlink는 두 번 보내도 결과가 같아서 clients/retry.py(타임아웃·5xx만 재시도)를 건다
+- 시크릿, 인가 코드, 토큰은 로그·예외 메시지·repr에 넣지 않는다. KakaoError에는 kind와 숫자 코드만 담고,
+  httpx 예외는 `from None`으로 끊어 URL이나 본문이 따라 나오지 않게 한다. httpx 요청 로그는 main에서 꺼 두었다
+- 키와 시크릿은 부를 때마다 환경변수에서 읽는다. 재시작 없이 바뀌고 테스트에서 바꾸기 쉽다
+- 타임아웃 10초 (SDD 8절). transport는 테스트가 httpx.MockTransport를 꽂는 자리다
 
-출처: 카카오 로그인 REST API 문서(인가 코드·토큰 받기·토큰 갱신), 카카오톡 메시지 REST API 문서(나에게 보내기),
-카카오 로그인 REST API 문서(연결 끊기). 10-02 결정(로그인 사용자별 "나에게 보내기" 알림).
+출처: 카카오 로그인 REST API 문서(인가 코드, 토큰, 연결 끊기), 카카오톡 메시지 REST API 문서(나에게 보내기).
 """
 from __future__ import annotations
 
@@ -32,10 +26,10 @@ from backend.app.clients.retry import with_retry
 
 KAUTH = "https://kauth.kakao.com"
 KAPI = "https://kapi.kakao.com"
-DEFAULT_REDIRECT_URI = "http://localhost:3000/settings/kakao"  # 우리 화면 주소. 백엔드가 아니라 화면이 카카오 결과를 받는다 (10-05 결정)
+DEFAULT_REDIRECT_URI = "http://localhost:3000/settings/kakao"  # 백엔드가 아니라 화면이 카카오 결과를 받는다
 SCOPE = "talk_message"
 
-TIMEOUT_SEC = 10  # supabase_admin.py와 같은 값 (SDD 8절)
+TIMEOUT_SEC = 10  # SDD 8절
 FORM_HEADERS = {"Content-Type": "application/x-www-form-urlencoded;charset=utf-8"}  # 토큰 요청 형식 (카카오 로그인 문서)
 UNAUTHORIZED_CODE = -401  # 카카오 API 오류 코드: 토큰이 유효하지 않다
 NO_CONSENT_CODES = (-402, -3)  # -402: 사용자가 동의하지 않음 / -3: 앱에서 이 동의 항목이 꺼져 있음 (메시지 REST API 문서)
@@ -70,7 +64,7 @@ def config() -> tuple[str, str, str]:
     """(REST API 키, 클라이언트 시크릿, 리다이렉트 주소(우리 화면 /settings/kakao)). 키나 시크릿이 비면 KakaoError(not_configured)."""
     key = os.environ.get("KAKAO_REST_API_KEY", "").strip()
     secret = os.environ.get("KAKAO_CLIENT_SECRET", "").strip()
-    redirect = os.environ.get("KAKAO_REDIRECT_URI", "").strip() or DEFAULT_REDIRECT_URI  # 비우면 로컬 화면 주소
+    redirect = os.environ.get("KAKAO_REDIRECT_URI", "").strip() or DEFAULT_REDIRECT_URI
     if not key or not secret:
         raise KakaoError("not_configured")
     return key, secret, redirect
@@ -144,7 +138,7 @@ def exchange_code(code: str, *, transport: httpx.BaseTransport | None = None) ->
                  data={"grant_type": "authorization_code", "client_id": key, "redirect_uri": redirect,
                        "code": code, "client_secret": secret})
     if resp.status_code != 200:
-        raise KakaoError("failed", resp.status_code)  # invalid_grant(코드 만료·재사용)도 여기서는 failed다. 처음부터 다시 연결해야 한다
+        raise KakaoError("failed", resp.status_code)  # invalid_grant(코드 만료·재사용)도 failed. 처음부터 다시 연결한다
     return _tokens(resp)
 
 

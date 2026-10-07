@@ -1,7 +1,7 @@
 """GET·PUT /api/profile 본인 회원 정보 (docs/specs/user-profile.md).
 
-창구만 한다: 로그인 확인 → services.profile 부르기 → HTTP 응답. 검사·암호화·마스킹 규칙은 services/profile.py에 있다.
-본인 정보라 원문을 돌려준다. 다른 사람 정보는 이 경로로 볼 수 없다 (user_id는 출입증에서만 꺼낸다).
+로그인 확인 후 services.profile을 부른다. 검사·암호화·마스킹 규칙은 services/profile.py에 있다.
+본인 정보라 원문을 돌려준다. user_id는 로그인 토큰에서만 꺼내므로 다른 사람 정보는 볼 수 없다.
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class ProfileResponse(BaseModel):
 
 
 def _login_required(user: CurrentUser | None) -> CurrentUser:
-    """로그인 기능이 꺼진 환경에는 사람이 없으니 회원 정보도 없다 (EC-05)."""
+    """로그인한 사용자와 DB가 있어야 한다. 로그인 기능이 꺼진 환경은 401 (EC-05)."""
     if not user:
         raise HTTPException(status_code=401, detail="로그인한 사용자만 회원 정보를 쓸 수 있습니다",
                             headers={"WWW-Authenticate": "Bearer"})
@@ -52,7 +52,7 @@ def _login_required(user: CurrentUser | None) -> CurrentUser:
 
 @router.get("/profile", response_model=ProfileResponse)
 def get_profile(user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> ProfileResponse:
-    """본인 정보 원문. 아직 없거나 열쇠가 바뀌어 못 열면 404 (화면은 입력 화면을 보여 준다, EC-07)."""
+    """본인 정보 원문. 아직 없거나 암호화 키가 바뀌어 못 열면 404라 화면이 입력 화면을 보여 준다 (EC-07)."""
     user = _login_required(user)
     try:
         with ops.open_conn() as conn:
@@ -67,7 +67,7 @@ def get_profile(user: Annotated[CurrentUser | None, Depends(current_user)] = Non
 
 @router.put("/profile", response_model=ProfileResponse)
 def put_profile(body: ProfileBody, user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> ProfileResponse:
-    """저장(처음 입력과 수정 같음). 형식이 틀리면 400, 열쇠가 없으면 503 (EC-01~04)."""
+    """저장(처음 입력과 수정 같음). 형식이 틀리면 400, 암호화 키가 없으면 503 (EC-01~04)."""
     user = _login_required(user)
     try:
         p = svc.clean(body.name, body.phone, body.address, body.consent)
@@ -76,7 +76,7 @@ def put_profile(body: ProfileBody, user: Annotated[CurrentUser | None, Depends(c
     try:
         with ops.open_conn() as conn:
             svc.save(conn, user.id, p)
-    except svc.ProfileError:  # no_key. 원문을 그대로 저장하지 않는다
+    except svc.ProfileError:  # no_key: 암호화 없이 원문을 저장하지 않는다
         log_failure("profile_write", "no_key")
         raise HTTPException(status_code=503, detail="회원 정보를 안전하게 저장할 수 없습니다. 관리자에게 알려 주세요")
     except Exception as e:

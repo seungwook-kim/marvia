@@ -1,4 +1,4 @@
-"""구조화 로그 (작업 A5).
+"""구조화 로그: 요청 ID 부여, 요청당 JSON 한 줄, 실패 단계 로그.
 
 요청 1건이 로그 한 줄이 된다. JSON으로 남겨야 배포 로그(Railway)에서 필드로 검색된다.
 형식은 SDD 5.11: {request_id, path, model, tokens_in, tokens_out, latency_ms, status}.
@@ -59,7 +59,7 @@ def setup_logging(level: int = logging.INFO) -> None:
 
     # HTTP 클라이언트는 INFO로 요청 주소 전체를 남긴다. 외부 API 주소에는 키(UNI-PASS crkyCn,
     # 공공데이터 serviceKey, ShipFinder key)와 B/L 번호가 들어 있어 로그에 그대로 쌓인다
-    # (09-28 실제 B/L 호출에서 발견, SDD 3.5 "로그에는 가린 번호만" 위반). 경고 이상만 남긴다.
+    # (SDD 3.5 "로그에는 가린 번호만"). 경고 이상만 남긴다.
     for name in NOISY_URL_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
@@ -79,13 +79,12 @@ def current_request_id() -> str:
 
 
 def log_failure(stage: str, error: str) -> None:
-    """어디서(stage) 무엇이(error) 실패했는지 WARNING 한 줄을 남긴다 (D6 에러 로깅).
+    """어디서(stage) 무엇이(error) 실패했는지 WARNING 한 줄을 남긴다.
 
     라우터는 실패를 partial·failed 응답으로 바꿔 돌려주므로 요청 로그의 status는 200이다.
     이 줄이 없으면 로그만 보고는 어느 단계가 왜 실패했는지 알 수 없다. request_id로 요청 로그·트레이스와 잇는다.
     error에는 오류 종류·코드만 넣는다. 예외 메시지는 넣지 않는다. 외부 API 주소(키)나 B/L이 섞일 수 있다 (SDD 3.5).
-    메시지에도 stage·error를 적는다. JSON 핸들러가 없는 곳(평가 실행기 터미널)에서는 메시지만 찍혀서,
-    전에는 "failure" 한 단어만 보여 무엇이 실패했는지 알 수 없었다 (09-29 평가 실행).
+    메시지에도 stage·error를 적는다. JSON 핸들러가 없는 곳(평가 실행기 터미널)에서는 메시지만 찍히기 때문이다.
     """
     failure_logger.warning("failure stage=%s error=%s", stage, error,
                            extra={"request_id": current_request_id(), "stage": stage, "error": error})

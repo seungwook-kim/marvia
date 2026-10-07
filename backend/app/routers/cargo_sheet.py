@@ -1,14 +1,14 @@
-"""내 화물 현황 표 /api (019, 10-06 결정, 아버지가 손으로 쓰는 관리표 기준).
+"""내 화물 현황 표 API (수입상이 손으로 쓰는 화물 관리표를 화면으로 옮긴 것).
 
-창구만 한다: 로그인 확인 → services.cargo_sheet 부르기 → HTTP 응답. 묶는 규칙·신용장 처리·엑셀 만들기는 서비스에 있다.
+로그인 확인 후 services.cargo_sheet를 부른다. 묶는 규칙·신용장 처리·엑셀 만들기는 서비스에 있다.
 
   GET /api/cargo/sheet                          → {"groups": [{"lc": {...}|null, "rows": [...]}], "truncated": bool}  신용장별로 묶은 표 (truncated: 500줄 넘어 잘림)
   PUT /api/cargo/sheet/{cargo_key}/lc           {"lc_no", "opened_on"}      → 바뀐 표   신용장 잇기·풀기 (lc_no null이면 풀기, opened_on null이면 개설일 비움, 키 생략이면 유지)
   PUT /api/cargo/sheet/{cargo_key}/departed     {"departed_on", "source"}   → 바뀐 표   출항일 쓰기
   GET /api/cargo/sheet.xlsx                     → 엑셀 파일 (Content-Disposition: attachment)
 
-주소에 들어가는 cargo_key는 B/L을 되돌릴 수 없게 바꾼 지문(HMAC)이다. B/L 번호 자체는 주소에도 응답 JSON에도 없다 (SDD 3.5).
-그 사용자의 화물이 아니면 404다. 남의 지문과 없는 지문을 구별해 주지 않는다. 모두 로그인한 사용자 것만 다룬다 (user_id는 출입증에서만).
+주소의 cargo_key는 B/L의 HMAC이라 되돌릴 수 없다. B/L 번호 자체는 주소에도 응답에도 없다 (SDD 3.5).
+내 화물이 아니면 404이고, 남의 키와 없는 키를 구별해 주지 않는다. user_id는 로그인 토큰에서만 꺼낸다.
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class DepartedBody(BaseModel):
 
 
 def _login_required(user: CurrentUser | None) -> CurrentUser:
-    """로그인 기능이 꺼진 환경에는 사람이 없으니 표도 없다 (routers/watch.py와 같은 규칙)."""
+    """로그인한 사용자와 DB가 있어야 한다. 없으면 401 또는 503."""
     if not user:
         raise HTTPException(status_code=401, detail="로그인한 사용자만 화물 현황 표를 쓸 수 있습니다",
                             headers={"WWW-Authenticate": "Bearer"})
@@ -74,7 +74,7 @@ def get_sheet(user: Annotated[CurrentUser | None, Depends(current_user)] = None)
 
 @router.get("/sheet.xlsx")
 def get_sheet_xlsx(user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> Response:
-    """엑셀로 내려받기. 파일은 서버에 남기지 않고 바로 돌려준다. 캐시도 막는다(개인 화물 목록이라 중간에 남기지 않는다)."""
+    """엑셀로 내려받기. 개인 화물 목록이라 서버에 파일을 남기지 않고 캐시도 막는다."""
     user = _login_required(user)
     try:
         with ops.open_conn() as conn:
@@ -87,7 +87,7 @@ def get_sheet_xlsx(user: Annotated[CurrentUser | None, Depends(current_user)] = 
 
 
 def _write(user: CurrentUser | None, action: str, write) -> dict:
-    """PUT 둘이 같이 쓰는 틀. 쓰고 나서 바뀐 표를 돌려준다. 없는 화물은 404, DB 실패는 503(내용은 알리지 않는다)."""
+    """PUT 두 개가 같이 쓰는 틀. 쓰고 나서 바뀐 표를 돌려준다. 없는 화물은 404, DB 실패는 503(원인은 알리지 않는다)."""
     user = _login_required(user)
     try:
         with ops.open_conn() as conn:
@@ -103,7 +103,7 @@ def _write(user: CurrentUser | None, action: str, write) -> dict:
 @router.put("/sheet/{cargo_key}/lc")
 def put_lc(cargo_key: str, body: LcBody, user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> dict:
     """화물 한 건을 신용장에 잇거나(lc_no 있음) 푼다(lc_no null).
-    개설일: 요청에 opened_on 키가 없으면 기존 값을 두고, 명시적으로 null을 보내면 비운다 (model_fields_set으로 가른다, 10-06 S3)."""
+    개설일: 요청에 opened_on 키가 없으면 기존 값을 두고, 명시적으로 null을 보내면 비운다 (model_fields_set으로 가른다)."""
     return _write(user, "cargo_sheet_lc", lambda conn, uid: svc.set_lc(conn, uid, cargo_key, body.lc_no, body.opened_on,
                                                     clear_opened="opened_on" in body.model_fields_set))
 

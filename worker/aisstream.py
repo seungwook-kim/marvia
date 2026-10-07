@@ -1,8 +1,8 @@
-"""aisstream.io 실시간 AIS 시험 수집 (10-08 결정, 파일럿). 지켜보는 배의 위치를 watch_positions에 쌓는다.
+"""aisstream.io 실시간 AIS 시험 수집(파일럿). 지켜보는 배의 위치를 watch_positions에 쌓는다.
 
 왜: ShipFinder는 하루 50회 한도라 지켜보는 배 위치가 6시간에 한 번뿐이다. aisstream.io는 무료 웹소켓 AIS라
 부산 근처에서 받히면 더 촘촘한 경로를 그릴 수 있다. 다만 이용 약관과 부산 수신 범위(지상국 커버리지)를
-아직 확인하지 않았다. 그래서 기본은 꺼져 있고, AISSTREAM_KEY가 있을 때만 돈다 (.env.example).
+확인하지 않아서 기본은 꺼져 있고, AISSTREAM_KEY가 있을 때만 돈다 (.env.example).
 
     python -m worker.aisstream          # 키가 있으면 계속 돈다. Ctrl+C로 끈다
     AISSTREAM_ENABLED=true + AISSTREAM_KEY 가 있으면 worker/run.py 주기 실행이 이 수집을 뒤 스레드로 같이 띄운다
@@ -13,7 +13,7 @@
 2. wss://stream.aisstream.io/v0/stream에 붙고 3초 안에 구독 메시지를 보낸다 (aisstream 규칙: 늦으면 끊는다)
    범위는 rules.md aisstream_bbox_busan(기본) 또는 aisstream_bbox_wide(AISSTREAM_BBOX=wide)
 3. PositionReport가 오면 순수 함수 parse_position으로 한 줄을 만들고
-   worker/collector.INSERT_WATCH_POSITION과 같은 SQL로 넣는다. 같은 (mmsi, ts)는 한 줄 (017 UNIQUE)
+   worker/collector.INSERT_WATCH_POSITION과 같은 SQL로 넣는다. 같은 (mmsi, ts)는 한 줄 (UNIQUE 제약)
 4. rules.md aisstream_refresh_minutes마다 지켜보는 배 목록을 다시 읽고, 바뀌었으면 다시 붙어 구독을 갈아 낀다
 끊기면 지수 백오프로 다시 붙는다. 어떤 예외에도 프로세스를 죽이지 않는다. 로그에는 오류 종류만 남긴다(키·메시지 원문 금지).
 

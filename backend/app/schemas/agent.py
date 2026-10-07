@@ -3,7 +3,7 @@
 책임: 프론트와 백엔드가 주고받는 요청·응답의 모양을 고정한다.
 - 첫 조회, 되묻기 답, 후속 질문이 전부 같은 AgentRequest 하나로 들어온다 (SDD 4.3).
 - 응답은 성공·실패 모두 같은 AgentResponse 틀이고 status로 갈린다 (SDD 8절).
-- 여기 필드를 바꾸면 평가셋(C7)·프론트·fixture가 같이 깨지므로 PR 리뷰를 거친다 (CLAUDE.md).
+- 여기 필드를 바꾸면 평가셋(C7)·프론트·fixture가 같이 깨진다 (CLAUDE.md).
 """
 from __future__ import annotations
 
@@ -17,19 +17,19 @@ from .customs import CustomsDetailRow
 
 # ---- 공용 열거값 (SDD 3.2) ----
 Verdict = Literal["fine", "watch", "act"]
-# unsupported: 지원 범위 밖 요청(부산 외 항만 등). 외부 조회 없이 끝낸다. failed(처리 실패)와 구분한다 (09-23 결정).
+# unsupported: 지원 범위 밖 요청(부산 외 항만 등). 외부 조회 없이 끝낸다. failed(처리 실패)와 구분한다.
 Status = Literal["ok", "partial", "insufficient", "failed", "unsupported"]
 VesselMatch = Literal["confirmed", "uncertain", "none"]
 Freshness = Literal["fresh", "stale", "unknown"]
 
 # B/L 번호 형식: 영문 대문자+숫자 8~20자 (SDD 3.1). 공백은 검증 전에 제거한다.
 _BL_PATTERN = re.compile(r"^[A-Z0-9]{8,20}$")
-_MRN_PATTERN = re.compile(r"^[0-9]{2}[A-Z0-9]{8}[IE]$")  # 적하목록 관리번호 (mrn-fallback, 10-01)
-# 항차 번호 (10-06 점검). 이 값은 배 고르기 LLM(llm.pick_vessel) 프롬프트에 그대로 들어가서, 자유 글이면 지시문을 넣을 수 있었다.
+_MRN_PATTERN = re.compile(r"^[0-9]{2}[A-Z0-9]{8}[IE]$")  # 적하목록 관리번호 (docs/specs/mrn-fallback.md)
+# 항차 번호. 배 고르기 LLM(llm.pick_vessel) 프롬프트에 그대로 들어가므로 자유 글을 막아 지시문 주입을 차단한다.
 # 실제 항차 모양(0925W, 2634E, 108A, 045S/N, FE-12)에 맞춰 영문·숫자로 시작하고 영문·숫자·공백·하이픈·슬래시·점만, 20자까지
 VOYAGE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9 ./-]{0,19}$"
 # 세션 ID 길이 상한. 화면은 crypto.randomUUID()(36자), 지켜보기는 watch-YYYYMMDD, 데모는 marvia-demo-session을 쓴다.
-# 넉넉히 128자. 이력·트레이스·사용량 이름에 그대로 들어가는 값이라 끝없이 긴 값을 받지 않는다 (10-06 점검)
+# 이력·트레이스·사용량 이름에 그대로 들어가는 값이라 끝없이 긴 값을 받지 않는다
 SESSION_ID_MAX = 128
 
 
@@ -37,11 +37,11 @@ class AgentRequest(BaseModel):
     """C2. 필수 4개 + 선택 4개. 선택 칸이 채워졌는지로 첫 조회/되묻기 답/후속 질문을 구분한다."""
 
     bl_no: str = Field(description="B/L 번호. 영문+숫자 8~20자, 공백 제거")
-    # B/L 구분. None이면 "모름"이다 (10-08 결정): 사용자는 자기 B/L이 마스터인지 하우스인지 모르는 경우가 많다.
-    # 모르면 판정 흐름이 하우스, 마스터 순서로 UNI-PASS를 조회하고, 정했으면 그 구분 먼저 그다음 반대쪽을 본다 (routers/agent._fetch_customs)
+    # B/L 구분. None이면 "모름"이다. 사용자는 자기 B/L이 마스터인지 하우스인지 모르는 경우가 많다.
+    # 모르면 하우스, 마스터 순서로 UNI-PASS를 조회하고, 정했으면 그 구분 먼저 그다음 반대쪽을 본다 (routers/agent._fetch_customs)
     bl_type: Literal["MASTER", "HOUSE"] | None = None
-    # 선택 입력 (09-29 결정). 필수는 B/L 하나다. 판매일이 정해진 경우가 많지만 품목에 따라 안 정하는 경우도 많다
-    # (하정운 실무 경험). 없으면 여유 일수 없이 배 상태만으로 판정한다 (routers/agent.py, skills/cargo-verdict/rules.md 판정 표)
+    # 선택 입력. 필수는 B/L 하나다. 품목에 따라 판매일을 정하지 않는 경우도 많아서,
+    # 없으면 여유 일수 없이 배 상태만으로 판정한다 (skills/cargo-verdict/rules.md 판정 표)
     sale_due_date: date | None = Field(default=None, description="판매 예정일 (필요 입고일). 선택")
     session_id: str = Field(max_length=SESSION_ID_MAX)
     follow_up_question: str | None = Field(default=None, max_length=300, description="후속 질의. 300자 제한 (SDD 7절)")
@@ -49,16 +49,16 @@ class AgentRequest(BaseModel):
     voyage_no: str | None = Field(default=None, max_length=20, pattern=VOYAGE_PATTERN,
                                   description="되묻기 후 입력. 영문·숫자·공백·-·/·. 20자까지 (10-06 점검)")
     forwarder_eta: date | None = None
-    # 적하목록 관리번호(예: 26PCLUVK37I). UNI-PASS에 B/L이 아직 없을 때 해수부 입항 신고로 배를 찾는 데만 쓴다 (docs/specs/mrn-fallback.md, 10-01)
+    # 적하목록 관리번호(예: 26PCLUVK37I). UNI-PASS에 B/L이 아직 없을 때 해수부 입항 신고로 배를 찾는 데만 쓴다 (docs/specs/mrn-fallback.md)
     mrn: str | None = Field(default=None, description="MRN 11자. 선택")
-    # 서류 사진에서 사용자가 확인한 출항일 (10-06). 내 화물 현황 표 출항 칸(user_cargo.departed_on, source 'document')에 적는 데만 쓴다
+    # 서류 사진에서 사용자가 확인한 출항일. 내 화물 현황 표 출항 칸(user_cargo.departed_on, source 'document')에 적는 데만 쓴다
     # (services/cargo.upsert_assessment). 판정·되묻기 구분·LLM 입력에는 쓰지 않는다. 사용자가 직접 적은 날짜(manual)는 덮지 않는다
     departed_on: date | None = Field(default=None, description="서류 사진에서 읽은 출항일 (10-06)")
 
     @field_validator("voyage_no", mode="before")
     @classmethod
     def _trim_voyage(cls, v):
-        """앞뒤 공백을 떼고, 비면 None. 화면이 빈 칸을 ""로 보내도 422가 나지 않게 한다 (기존 동작과 맞춤)."""
+        """앞뒤 공백을 떼고, 비면 None. 화면이 빈 칸을 ""로 보내도 422가 나지 않게 한다."""
         if isinstance(v, str):
             v = v.strip()
             return v or None
@@ -105,9 +105,8 @@ class Reason(BaseModel):
 class Conflict(BaseModel):
     """신호가 어긋났을 때 어느 출처를 왜 골랐나. chosen은 evidence[].source에 있어야 한다 (V6)."""
 
-    # 1개 이상 (09-29 변경, 전에는 2개 이상). eta_conflict처럼 신호 하나가 그 자체로 "AIS와 해수부가 다르다"는
-    # 상충인 경우가 있다. 2개를 요구했더니 Gemini가 ["eta_conflict"]로 맞게 답하고도 형식 오류로 3번 탈락했다
-    # (평가 B04·B09, Langfuse 확인). 구조화 출력(strict)은 minItems를 LLM에 전하지 못해 LLM은 이 조건을 알 수도 없었다
+    # 1개 이상. eta_conflict처럼 신호 하나가 그 자체로 "AIS와 해수부가 다르다"는 상충인 경우가 있다.
+    # 구조화 출력(strict)은 minItems를 LLM에 전하지 못해 더 엄격한 조건은 맞는 답도 탈락시킨다
     signals: list[str] = Field(min_length=1, description="상충한 신호 id 1개 이상")
     chosen: str
     why: str
@@ -127,7 +126,7 @@ class VesselCandidate(BaseModel):
 
 
 class VesselInfo(BaseModel):
-    """식별이 끝난 배. 프론트 VesselCard가 그대로 그린다 (SDD 3.2, 09-22 D3에서 7필드로 확정)."""
+    """식별이 끝난 배. 프론트 VesselCard가 그대로 그린다 (SDD 3.2)."""
 
     mmsi: int
     imo: int | None
@@ -169,13 +168,13 @@ class CustomsInfo(BaseModel):
     next_stage: str | None
     needs_broker: bool
     history: list[dict] = Field(default_factory=list, description="{code, name, at}")
-    # 화물이 어디서 어디로 가나. UNI-PASS 값 그대로 (코드가 채움, LLM 아님). 10-01 추가, 없으면 null
+    # 화물이 어디서 어디로 가나. UNI-PASS 값 그대로 (코드가 채움, LLM 아님). 없으면 null
     loading_port: str | None = Field(default=None, description="적재항 코드 ldprCd (예: CNTAO)")
     loading_port_name: str | None = Field(default=None, description="적재항 이름 ldprNm (예: Qingdao)")
     loading_country: str | None = Field(default=None, description="적출국 코드 lodCntyCd (예: CN)")
     discharge_port: str | None = Field(default=None, description="양륙항 코드 dsprCd (예: KRPUS)")
     discharge_port_name: str | None = Field(default=None, description="양륙항 이름 dsprNm (예: 부산항)")
-    # 10-06 추가. UNI-PASS 값 그대로 (코드가 채움), 없으면 null. container_no는 LLM에 넘기지 않고 화면·엑셀에만 쓴다
+    # UNI-PASS 값 그대로 (코드가 채움), 없으면 null. container_no는 LLM에 넘기지 않고 화면·엑셀에만 쓴다
     forwarder_name: str | None = Field(default=None, description="포워더명 frwrEntsConm")
     carrier_name: str | None = Field(default=None, description="선사·항공사 shcoFlco")
     container_no: str | None = Field(default=None, description="컨테이너 번호 cntrNo. 여러 개면 ', '로 이은 한 문자열")
@@ -188,7 +187,7 @@ class BerthInfo(BaseModel):
 
 
 class AnchorageInfo(BaseModel):
-    """해수부 관제 이벤트로 코드가 센 묘박지 대기 사실 (10-08, services/port_facts.anchorage). 판정 신호가 아니라 등급에 안 쓴다.
+    """해수부 관제 이벤트로 코드가 센 묘박지 대기 사실 (services/port_facts.anchorage). 판정 신호가 아니라 등급에 안 쓴다.
     지난 일만 담는다. 앞으로 얼마나 더 기다릴지는 없다."""
 
     anchored_at: datetime = Field(description="가장 최근 투묘(닻 내림) 시각")
@@ -199,7 +198,7 @@ class AnchorageInfo(BaseModel):
 
 
 class StageElapsed(BaseModel):
-    """이미 처리된 통관 단계 두 개 사이에 걸린 시간 (10-08, services/port_facts.customs_timing). 시각은 UNI-PASS 값 그대로(한국 시각)."""
+    """이미 처리된 통관 단계 두 개 사이에 걸린 시간 (services/port_facts.customs_timing). 시각은 UNI-PASS 값 그대로(한국 시각)."""
 
     from_stage: str
     to_stage: str
@@ -209,7 +208,7 @@ class StageElapsed(BaseModel):
 
 
 class CustomsTiming(BaseModel):
-    """통관 이력의 지난 소요 시간 (10-08). 앞으로 걸릴 시간은 예측하지 않는다 (PRD 4절)."""
+    """통관 이력의 지난 소요 시간. 앞으로 걸릴 시간은 예측하지 않는다 (PRD 4절)."""
 
     steps: list[StageElapsed] = Field(default_factory=list)
     arrived_at: datetime | None = Field(default=None, description="입항보고 수리 처리 시각. 없으면 null")
@@ -218,7 +217,7 @@ class CustomsTiming(BaseModel):
 
 
 class EtaChange(BaseModel):
-    """지난 조회 때 저장한 신뢰 ETA 날짜와 이번 신뢰 ETA 날짜가 기준(rules.md eta_change_alert_hours) 이상 달라졌다 (10-08).
+    """지난 조회 때 저장한 신뢰 ETA 날짜와 이번 신뢰 ETA 날짜가 기준(rules.md eta_change_alert_hours) 이상 달라졌다.
     from·to는 파이썬 예약어라 from_eta·to_eta로 둔다. hours는 늦어지면 양수, 당겨지면 음수."""
 
     from_eta: date
@@ -227,7 +226,7 @@ class EtaChange(BaseModel):
 
 
 class AgentResponse(BaseModel):
-    """C1. 성공·실패 모두 같은 틀. status가 ok/partial/insufficient/failed/unsupported를 가른다 (SDD 8절, unsupported는 09-23 추가).
+    """C1. 성공·실패 모두 같은 틀. status가 ok/partial/insufficient/failed/unsupported를 가른다 (SDD 8절).
 
     - insufficient면 verdict는 None이고 missing_inputs 또는 vessel_candidates가 채워진다 (V4·V5).
     - days_margin은 코드 계산값. LLM이 다른 값을 내도 evidence.py가 덮어쓴다 (SDD 5.8).
@@ -251,13 +250,13 @@ class AgentResponse(BaseModel):
     evidence: list[Evidence]
     answer: str
     trace_id: str
-    # UNI-PASS 처리 이력 원문, 화면 전용 (docs/specs/customs-detail.md, 10-02). 라우터가 판정 뒤에 붙이고,
+    # UNI-PASS 처리 이력 원문, 화면 전용 (docs/specs/customs-detail.md). 라우터가 판정 뒤에 붙이고,
     # 이력 저장(routers/agent.py _logged)과 후속 질문 LLM 입력(llm.answer_follow_up)에서는 뺀다
     customs_detail: list[CustomsDetailRow] = Field(default_factory=list)
-    # 10-08 추가. 모두 코드가 센 지난 사실이고 선택 칸이라 옛 응답·이력 JSON도 그대로 읽힌다. 등급에는 쓰지 않는다 (services/port_facts.py)
+    # 모두 코드가 센 지난 사실이고 선택 칸이라 옛 응답·이력 JSON도 그대로 읽힌다. 등급에는 쓰지 않는다 (services/port_facts.py)
     anchorage: AnchorageInfo | None = Field(default=None, description="해수부 관제 이벤트로 센 묘박지 대기")
     customs_timing: CustomsTiming | None = Field(default=None, description="통관 단계 사이 걸린 시간·입항 뒤 지난 시간")
     eta_change: EtaChange | None = Field(default=None, description="지난 조회 대비 도착 예정 변화")
-    # 10-08 추가. UNI-PASS에서 실제로 찾은 B/L 구분. 요청 구분을 몰라도(None) 하우스·마스터를 차례로 조회하므로 어느 쪽에서 찾았는지
+    # UNI-PASS에서 실제로 찾은 B/L 구분. 요청 구분을 몰라도(None) 하우스·마스터를 차례로 조회하므로 어느 쪽에서 찾았는지
     # 화면·채팅이 말할 수 있게 둔다. 통관 정보를 못 받았으면(없음·실패·MRN 대체) None. 선택 칸이라 옛 이력 JSON도 그대로 읽힌다
     bl_type_used: Literal["MASTER", "HOUSE"] | None = Field(default=None, description="UNI-PASS에서 찾은 B/L 구분")

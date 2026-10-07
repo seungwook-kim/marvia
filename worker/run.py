@@ -1,4 +1,4 @@
-"""수집 워커 실행 진입점 (작업 D1, SDD 5.10). compose의 worker 서비스가 이걸 띄운다.
+"""수집 워커 실행 진입점 (SDD 5.10). compose의 worker 서비스가 이걸 띄운다.
 
     python -m worker.run --once                      # 한 번만 돈다. 개발 중 확인용
     python -m worker.run --once --shipfinder-calls 0 # 해수부만 받고 ShipFinder는 안 부른다
@@ -6,9 +6,9 @@
     WATCH_ENABLED=on python -m worker.run --once     # 수집 뒤에 지켜보는 화물도 다시 판정 (python -m worker.watch --once는 그것만)
     AISSTREAM_ENABLED=true AISSTREAM_KEY=... python -m worker.run  # 주기 실행에 aisstream 시험 수집 스레드를 같이 띄운다 (worker/aisstream.py)
 
-스케줄러는 기본 꺼져 있다 (09-23 결정). ShipFinder 스타터 키가 하루 50회라서 개발 중에 계속 돌면
+스케줄러는 기본 꺼져 있다. ShipFinder 스타터 키가 하루 50회라서 개발 중에 계속 돌면
 테스트할 몫이 남지 않는다. 켜면 WORKER_INTERVAL_HOURS마다 돈다.
-주기 6시간, 한 번 실행에 ShipFinder 12회가 기본이다 (09-23 결정). 하루 4회 x 12 = 48회로 한도 50 안이고,
+주기 6시간, 한 번 실행에 ShipFinder 12회가 기본이다. 하루 4회 x 12 = 48회로 한도 50 안이고,
 추적 대상 12척(collector.MAX_TARGETS)이 매 실행 위치를 한 번씩 받는다.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ from backend.app.services.watch import RUN_LIMIT, SHIPFINDER_CALLS_PER_KNOWN_VES
 from worker import aisstream
 from worker.collector import Budget, collect_port, collect_positions, collect_watch_positions, purge_positions, select_targets
 
-DEFAULT_INTERVAL_HOURS = 6.0  # 09-23 결정. SDD 5.10의 3시간에서 바꿨다 (위키 "문서와 달라진 점")
+DEFAULT_INTERVAL_HOURS = 6.0  # SDD 5.10은 3시간이지만 ShipFinder 하루 한도에 맞춰 6시간으로 둔다
 DEFAULT_SHIPFINDER_CALLS = 12  # 위 설명 참고. 하루 한도 50회
 
 
@@ -39,7 +39,7 @@ def _log(event: str, **fields) -> None:
 
 
 def watch_enabled() -> bool:
-    """WATCH_ENABLED가 켜졌나. 기본은 꺼짐이다 (G5, 10-05). 켜면 수집 뒤에 지켜보는 화물을 다시 판정한다.
+    """WATCH_ENABLED가 켜졌나. 기본은 꺼짐이다. 켜면 수집 뒤에 지켜보는 화물을 다시 판정한다.
     다시 판정은 ShipFinder와 LLM을 쓰므로 개발 중에 저절로 돌지 않게 WORKER_SCHEDULE처럼 명시해야 켜진다."""
     return os.environ.get("WATCH_ENABLED", "off").strip().lower() in ("on", "true", "1")
 
@@ -63,7 +63,7 @@ def run_once(shipfinder_calls: int) -> dict:
     budget = Budget(shipfinder_calls)
     # 지켜보기 재판정(run_watch)도 화물마다 ShipFinder를 부르는데 Budget을 거치지 않는다 (MCP·판정 경로).
     # 그래서 재판정할 화물 몫의 예산을 먼저 떼어 두고, 수집은 남은 예산으로 한다. 안 그러면 한 번 실행이
-    # WORKER_SHIPFINDER_CALLS_PER_RUN을 넘어 하루 50회 한도를 깰 수 있다 (10-06 점검).
+    # WORKER_SHIPFINDER_CALLS_PER_RUN을 넘어 하루 50회 한도를 깰 수 있다.
     # 재판정은 api 프로세스의 MCP(/mcp)를 거쳐 api 쪽 ShipFinderClient로 부른다. 이 워커의 ShipFinderClient 캐시와는
     # 프로세스가 달라 아래 collect_watch_positions가 받아 둔 위치를 다시 쓰지 못한다. 화물마다 실제로 호출된다고 센다.
     # 배를 아는 화물만 다시 판정한다(known_vessel_only): 그 경로는 화물당 SHIPFINDER_CALLS_PER_KNOWN_VESSEL회(위치 1회)다.
@@ -72,7 +72,7 @@ def run_once(shipfinder_calls: int) -> dict:
     if watch_enabled():
         try:
             due = min(known_vessel_due_count(conn), RUN_LIMIT)
-        except Exception:  # 017 칸이 없는 DB 등. 아래 run_watch도 같은 이유로 실패해 결과에 남는다
+        except Exception:  # 지켜보기 칸이 없는 옛 DB 등. 아래 run_watch도 같은 이유로 실패해 결과에 남는다
             due = 0
         watch_limit = min(due, budget.remaining // SHIPFINDER_CALLS_PER_KNOWN_VESSEL)
         budget.remaining -= watch_limit * SHIPFINDER_CALLS_PER_KNOWN_VESSEL
@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
 
     interval = float(os.environ.get("WORKER_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS)) * 3600
     _log("schedule_on", interval_hours=interval / 3600, shipfinder_calls=args.shipfinder_calls)
-    # aisstream 시험 수집 (worker/aisstream.py, 10-08). AISSTREAM_KEY가 있고 AISSTREAM_ENABLED=true일 때만 뒤 스레드로 돈다.
+    # aisstream 시험 수집 (worker/aisstream.py). AISSTREAM_KEY가 있고 AISSTREAM_ENABLED=true일 때만 뒤 스레드로 돈다.
     # 약관·부산 수신 범위를 확인하지 않은 파일럿이라 기본은 꺼짐. 실패해도 이 주기 수집에는 영향이 없다
     aisstream.start_in_thread()
     while True:
