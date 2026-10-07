@@ -685,6 +685,8 @@ export async function downloadCargoSheet(): Promise<{blob: Blob; filename: strin
 /** GET /api/me. 탭을 나누는 데만 쓴다. 관리 API는 서버가 다시 확인한다.
  * 데모 모드는 관리 화면도 볼 수 있게 운영자로 둔다(가공 데이터). 못 읽으면 일반 사용자로 본다. */
 export async function getMe(): Promise<MeResponse> {
+  // 데모 둘러보기는 일반 사람이 보는 화면이라 운영자 메뉴(평가 지표·관리)를 보이지 않는다 (10-07)
+  if (tour) return {user_id: 'demo', email: null, is_operator: false, profile_complete: true};
   if (!isLive) return {user_id: 'demo', email: null, is_operator: true, profile_complete: true};
   try { return await (await call('/api/me', {}, HISTORY_TIMEOUT_MS)).json(); }
   // 정지면 안내 화면으로. 그 밖에 못 읽으면 일반 사용자로 보고 입력 화면으로 막지도 않는다 (user-profile EC-06)
