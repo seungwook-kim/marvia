@@ -93,6 +93,10 @@ async def _call(name: str, arguments: dict) -> dict:
         # 실패하므로 도구의 입력 오류와 같은 bad_input·retryable=False로 낸다 (port_schedule.py와 같은 코드)
         if "validation error" in text:
             return _failed(text[:200], code="bad_input", retryable=False)
+        # 없는 도구 이름(FastMCP 문장 "Unknown tool: <이름>")도 다시 불러도 같다. 일시 장애(mcp_failed, 재시도)로
+        # 보이면 LLM 도구 반복과 재시도가 헛돈다 (10-08 QA E2-7)
+        if text.startswith("Unknown tool"):
+            return _failed(text[:200], code="unknown_tool", retryable=False)
         return _failed(text[:200])
     return json.loads(text)
 
@@ -184,9 +188,10 @@ def read_only_tools() -> list[dict]:
 
 
 def get_vessel_candidates(ship_name: str, nationality: str | None = None, eta_window_days: int | None = None,
-                          call_sign: str | None = None) -> dict:
+                          call_sign: str | None = None, detail_limit: int | None = None) -> dict:
+    # detail_limit: 상세 조회를 붙일 후보 수. 비우면 도구 기본값(rules.md vessel_candidate_lookups). 자세히 보기는 1 (10-08 QA E2-1)
     return call_tool("get_vessel_candidates", ship_name=ship_name, nationality=nationality,
-                     eta_window_days=eta_window_days, call_sign=call_sign)
+                     eta_window_days=eta_window_days, call_sign=call_sign, detail_limit=detail_limit)
 
 
 def get_live_position(mmsi: int) -> dict:

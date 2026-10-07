@@ -18,7 +18,9 @@ const SOURCE_LABEL: Record<string, string> = {mof: '해수부 입항 일정', sh
 // 출처별 실패 안내. 서버 message에는 엔드포인트·키 이름·예외명이 섞여 있어 화면에 내지 않고 고정 문구만 쓴다
 const SOURCE_FAIL: Record<string, string> = {mof: '지금 받지 못했어요', shipfinder: '지금 받지 못했어요', searoute: '계산하지 못했어요'};
 // 출처보다 구체적인 실패 이유가 있을 때의 문장 (서버 errors[].code). ambiguous: 같은 호출부호를 쓴 최근 배가 여럿이라 고르지 않았다 (services/vessel_pick.py)
-const ERROR_TEXT: Record<string, string> = {ambiguous: '같은 호출부호를 쓰는 배가 여러 척이라 어느 배인지 정하지 못했어요', not_found: 'AIS에서 이 배를 찾지 못했어요'};
+const ERROR_TEXT: Record<string, string> = {ambiguous: '같은 호출부호를 쓰는 배가 여러 척이라 어느 배인지 정하지 못했어요', not_found: 'AIS에서 이 배를 찾지 못했어요',
+  // 검색은 됐지만 최근 신호(rules.md vessel_recent_days, 7일)가 없는 배만 있을 때 (services/vessel_detail._choose, 10-08 QA)
+  stale_only: '최근 7일 동안 AIS 신호가 없어요'};
 
 // 펼쳐 보기의 출처 표기. 모르는 이름은 서버가 준 글자 그대로 보인다
 const SOURCE_NAME: Record<string, string> = {mof: '해수부', shipfinder: 'ShipFinder', searoute: '바닷길 계산'};

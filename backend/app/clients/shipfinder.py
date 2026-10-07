@@ -44,6 +44,18 @@ _STATUS_CODES = {
     # 38 = 하루 호출 한도 소진. 오늘은 다시 불러도 같은 답이라 retryable이 아니다
     38: "quota_exhausted",
 }
+# 상태 번호 없이 문구로만 오는 키 문제. 실제로 "Key time-out"(키 사용 기간 만료)이 목록 밖 번호로 와서 "error"로 묶이고
+# 영문 원문이 화면 쪽까지 갔다 (10-08 QA E2-6). 문구에 key와 아래 낱말이 같이 있으면 bad_key로 본다(다시 불러도 같다)
+_KEY_PROBLEM_WORDS = ("time-out", "timeout", "expire", "invalid")
+# 코드별 고정 문구. 응답의 영문 msg는 화면·LLM으로 내보내지 않고 상태 번호만 남긴다 (모르는 코드는 번호만 적는다)
+_MESSAGES = {
+    "not_found": "ShipFinder에 이 배 정보가 없습니다",
+    "bad_key": "ShipFinder 키가 만료됐거나 맞지 않습니다",
+    "busy": "ShipFinder 서버가 바쁩니다",
+    "no_permission": "ShipFinder 키에 이 조회 권한이 없습니다",
+    "rate_limited": "ShipFinder 호출 빈도 제한에 걸렸습니다",
+    "quota_exhausted": "ShipFinder 오늘 호출 한도를 다 썼습니다",
+}
 _RETRYABLE = {"busy", "rate_limited", "timeout"}
 # 마지막 성공 값으로 대신하는 실패: 빈도 초과(SDD 5.2), 시간 초과, 하루 한도 소진.
 # 셋 다 "지금 못 받았을 뿐 배의 정보는 있다"는 뜻이다. 권한 없음·없는 배는 사실이라 캐시로 가리지 않는다
@@ -91,6 +103,18 @@ def reset_quota_block() -> None:
     global _quota_out_on
     with _quota_lock:
         _quota_out_on = None
+
+
+def status_code(status, msg) -> str:
+    """ShipFinder 응답 status(와 msg)를 오류 코드로 (SDD 5.2 매핑). 번호가 목록에 있으면 그것, 없으면 문구로 키 문제를 가르고,
+    그래도 모르면 "error". 키 만료 문구는 번호가 목록 밖으로 와서 문구로 본다 (_KEY_PROBLEM_WORDS)."""
+    code = _STATUS_CODES.get(status)
+    if code:
+        return code
+    text = str(msg or "").lower()
+    if "key" in text and any(w in text for w in _KEY_PROBLEM_WORDS):
+        return "bad_key"
+    return "error"
 
 
 class ShipFinderError(Exception):
@@ -256,15 +280,21 @@ class ShipFinderClient:
             raise ShipFinderError("timeout", f"{endpoint} 응답 시간 초과") from e
         except httpx.HTTPStatusError as e:
             raise ShipFinderError("error", f"{endpoint} HTTP {e.response.status_code}") from e
+        except httpx.InvalidURL as e:
+            # 아주 긴 검색어처럼 주소 자체를 만들 수 없는 입력. HTTPError가 아니라 위에서 안 잡힌다 (10-08 QA E2-7).
+            # 같은 입력이면 다시 불러도 같으므로 bad_request(재시도 안 함)
+            raise ShipFinderError("bad_request", f"{endpoint} 요청 주소를 만들 수 없는 입력") from e
         except (httpx.HTTPError, ValueError) as e:
             raise ShipFinderError("error", f"{endpoint} 호출 실패: {type(e).__name__}") from e
 
         status = body.get("status")
         if status != 0:
-            code = _STATUS_CODES.get(status, "error")
+            code = status_code(status, body.get("msg"))
             if code == "quota_exhausted":
                 _mark_quota_out()
-            raise ShipFinderError(code, body.get("msg") or f"status {status}", status=status)
+            if code == "error":
+                log_failure(f"shipfinder:{endpoint}", f"status {status}")  # 목록 밖 번호는 번호만 남겨 나중에 _STATUS_CODES에 더한다
+            raise ShipFinderError(code, f"{endpoint} {_MESSAGES.get(code, '응답 오류')} (status {status})", status=status)
         return body
 
     def search(self, keywords: str, max: int = 10) -> SearchResult:

@@ -432,9 +432,14 @@ def vessel_detail_view(call_sign: str | None = Query(default=None, max_length=20
 
     하루 횟수 상한: 캐시(10분)에 없는 새 조회만 사용자당 하루 rules.md vessel_detail_daily_limit번까지.
     한 번에 ShipFinder를 2~3회 쓰고 하루 50회를 다 쓰면 판정까지 막히기 때문이다. 캐시에서 답하는 조회는 언제나 된다.
-    로그인 없이 쓰면(인증 꺼짐) 모두 한 몫을 같이 쓴다."""
+    같은 배를 누가 조회 중이면 그 결과를 같이 받고, 방금(10분 안에) 본 배는 서버를 다시 띄운 뒤에도 횟수를 안 쓴다.
+    외부 호출이 모두 실패하면 쓴 횟수를 돌려준다. 세는 규칙은 services/vessel_detail.lookup 한 곳에 있다 (10-08 QA E2-2·3·9).
+    응답 remaining: 오늘 남은 횟수(모르면 null). 로그인 없이 쓰면(인증 꺼짐) 모두 한 몫을 같이 쓴다.
+    공백뿐인 값은 없는 값으로 본다 (10-08 QA E2-4: 공백뿐인 호출부호가 200으로 외부까지 갔다)."""
+    call_sign, ship_name = vessel_detail.clean(call_sign, ship_name)
     if not (call_sign or ship_name):
         raise HTTPException(status_code=400, detail="호출부호나 선명이 필요합니다")
-    if not vessel_detail.cached(call_sign, ship_name) and not vessel_detail.take_daily_slot(user_id):
-        raise HTTPException(status_code=429, detail="오늘 선박 자세히 보기 조회 횟수를 다 썼습니다. 내일 다시 시도해 주세요.")
-    return vessel_detail.detail(call_sign, ship_name)
+    try:
+        return vessel_detail.lookup(call_sign, ship_name, user_id)
+    except vessel_detail.DailyLimitReached:
+        raise HTTPException(status_code=429, detail="오늘 선박 자세히 보기 조회 횟수를 다 썼습니다. 내일 다시 시도해 주세요.") from None

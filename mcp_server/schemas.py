@@ -38,6 +38,8 @@ class VesselCandidate(BaseModel):
 
 class VesselCandidatesResult(BaseModel):
     candidates: list[VesselCandidate]
+    # 10-08 QA E2-5: 검색은 됐지만 최근 신호(rules.md vessel_recent_days)가 없어 뺀 배 수. 기본 0이라 옛 응답과 호환된다
+    stale_count: int = Field(default=0, ge=0, description="검색됐지만 최근 신호가 없어 후보에서 뺀 배 수")
     source: str = "shipfinder"
     fetched_at: datetime
     cached_at: datetime | None = Field(default=None, description="빈도 초과로 캐시 값을 돌려줬을 때 그 값이 담긴 시각 (SDD 8절)")

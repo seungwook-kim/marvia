@@ -5,6 +5,8 @@
 - 라우터: GET /api/port/busan/traffic이 로그인 없이 200
 """
 import json
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -224,3 +226,71 @@ def test_verdict_side_does_not_import_port_traffic():
     for name in ("verdict.py", "signals.py", "validate.py"):
         text = (services / name).read_text(encoding="utf-8")
         assert "port_traffic" not in text and "portwatch" not in text, name
+
+
+# ── 10-08 QA E2-8 ──
+
+def test_partial_lag_days_is_recounted_from_now():
+    """partial로 돌려주는 지난 값의 lag_days는 받은 날이 아니라 지금 기준이다."""
+    first = port_traffic.get_busan_traffic(now=NOW, client_factory=lambda: _client(_fixture_handler))
+    later = NOW + timedelta(days=3)
+    out = port_traffic.get_busan_traffic(now=later, client_factory=lambda: _client(lambda r: httpx.Response(429)))
+    assert out["status"] == "partial" and out["lag_days"] == first["lag_days"] + 3
+
+
+def test_now_argument_sets_lag_days():
+    out = port_traffic.get_busan_traffic(now=datetime(2026, 10, 10, 3, tzinfo=timezone.utc),
+                                         client_factory=lambda: _client(_fixture_handler))
+    assert out["latest_date"] == "2026-09-30" and out["lag_days"] == 10
+
+
+def test_future_and_duplicate_days_are_dropped():
+    rows = _rows(40, 40)
+    rows.append(DailyPortCalls(date(2030, 1, 1), None, 999, None, None))  # 미래
+    rows += [DailyPortCalls(date(2026, 9, 30), None, 999, None, None)] * 5  # 같은 날 반복
+    out = port_traffic.summarize(rows, NOW, today=date(2026, 10, 7))
+    assert out["latest_date"] == "2026-09-30" and out["lag_days"] == 7
+    assert out["days_used"] == 28 and out["avg28"] < 100
+
+
+def test_concurrent_requests_get_stale_value_while_one_thread_refreshes():
+    """캐시가 지났을 때 원천 호출은 한 스레드만 하고, 그동안 다른 요청은 지난 값을 바로 받는다."""
+    port_traffic.get_busan_traffic(now=NOW, client_factory=lambda: _client(_fixture_handler))
+    later = NOW + timedelta(hours=float(rule("port_traffic_cache_hours")) + 1)
+    calls, started, release = [], threading.Event(), threading.Event()
+
+    def slow(request):
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        return httpx.Response(200, json=FIXTURE)
+
+    out = {}
+    leader = threading.Thread(target=lambda: out.setdefault("leader", port_traffic.get_busan_traffic(
+        now=later, client_factory=lambda: _client(slow))))
+    leader.start()
+    assert started.wait(5)
+    t0 = time.monotonic()
+    follower = port_traffic.get_busan_traffic(now=later, client_factory=lambda: _client(slow))
+    assert time.monotonic() - t0 < 1 and follower["status"] == "ok" and follower["avg7"] == 40.0
+    release.set()
+    leader.join(5)
+    assert out["leader"]["status"] == "ok" and len(calls) == 1
+
+
+def test_concurrent_first_requests_share_one_upstream_call():
+    """받은 적이 없을 때 동시에 온 요청은 한 호출의 결과를 같이 기다린다 (원천 호출은 한 클라이언트 몫뿐)."""
+    calls = []
+
+    def slow(request):
+        calls.append(1)
+        time.sleep(0.3)
+        return httpx.Response(503)
+
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(port_traffic.get_busan_traffic(
+        now=NOW, client_factory=lambda: _client(slow)))) for _ in range(6)]
+    [t.start() for t in threads]
+    [t.join(10) for t in threads]
+    assert len(results) == 6 and all(r["status"] == "unavailable" for r in results)
+    assert len(calls) == 3  # 최초 1 + 재시도 2 (SDD 8절). 요청 6개가 각자 부르지 않았다
