@@ -219,13 +219,25 @@ class ShipFinderClient:
         여기서 꺼낸 값은 방금 받은 값과 같다고 본다. 그래서 last_cached_at은 None으로 둔다: 라우터가 이 값을
         "캐시로 대신한 partial"로 알리면 안 된다. 값의 fetched_at은 처음 받은 시각 그대로라 언제 값인지는 남는다.
         """
+        entry = self._fresh_entry(key, window)
+        if entry is None:
+            return None
+        self.last_cached_at = None
+        return entry.value
+
+    def _fresh_entry(self, key: str, window: timedelta):
+        """window 안에 성공으로 받아 둔 캐시 칸. 없거나 오래됐거나 값이 비었으면 None. _recent와 position_reusable이 같은 기준을 쓴다."""
         if window <= timedelta(0):
             return None
         entry = self.cache.entry(key, ignore_ttl=True)
         if entry is None or entry.value is None or datetime.now(timezone.utc) - entry.cached_at >= window:
             return None
-        self.last_cached_at = None
-        return entry.value
+        return entry
+
+    def position_reusable(self, mmsi: int | str) -> bool:
+        """position(mmsi)가 지금 부르면 외부 호출 없이 받아 둔 값을 줄 것인가 (rules.md position_reuse_minutes, 10-08).
+        워커(worker/collector.py)가 호출 예산(Budget)을 실제로 부를 때만 쓰려고 미리 본다. 상태를 바꾸지 않는다."""
+        return self._fresh_entry(f"shipfinder:pos:{mmsi}", position_reuse_window()) is not None
 
     def close(self) -> None:
         self._http.close()

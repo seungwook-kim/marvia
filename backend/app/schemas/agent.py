@@ -37,7 +37,9 @@ class AgentRequest(BaseModel):
     """C2. 필수 4개 + 선택 4개. 선택 칸이 채워졌는지로 첫 조회/되묻기 답/후속 질문을 구분한다."""
 
     bl_no: str = Field(description="B/L 번호. 영문+숫자 8~20자, 공백 제거")
-    bl_type: Literal["MASTER", "HOUSE"]
+    # B/L 구분. None이면 "모름"이다 (10-08 결정): 사용자는 자기 B/L이 마스터인지 하우스인지 모르는 경우가 많다.
+    # 모르면 판정 흐름이 하우스, 마스터 순서로 UNI-PASS를 조회하고, 정했으면 그 구분 먼저 그다음 반대쪽을 본다 (routers/agent._fetch_customs)
+    bl_type: Literal["MASTER", "HOUSE"] | None = None
     # 선택 입력 (09-29 결정). 필수는 B/L 하나다. 판매일이 정해진 경우가 많지만 품목에 따라 안 정하는 경우도 많다
     # (하정운 실무 경험). 없으면 여유 일수 없이 배 상태만으로 판정한다 (routers/agent.py, skills/cargo-verdict/rules.md 판정 표)
     sale_due_date: date | None = Field(default=None, description="판매 예정일 (필요 입고일). 선택")
@@ -256,3 +258,6 @@ class AgentResponse(BaseModel):
     anchorage: AnchorageInfo | None = Field(default=None, description="해수부 관제 이벤트로 센 묘박지 대기")
     customs_timing: CustomsTiming | None = Field(default=None, description="통관 단계 사이 걸린 시간·입항 뒤 지난 시간")
     eta_change: EtaChange | None = Field(default=None, description="지난 조회 대비 도착 예정 변화")
+    # 10-08 추가. UNI-PASS에서 실제로 찾은 B/L 구분. 요청 구분을 몰라도(None) 하우스·마스터를 차례로 조회하므로 어느 쪽에서 찾았는지
+    # 화면·채팅이 말할 수 있게 둔다. 통관 정보를 못 받았으면(없음·실패·MRN 대체) None. 선택 칸이라 옛 이력 JSON도 그대로 읽힌다
+    bl_type_used: Literal["MASTER", "HOUSE"] | None = Field(default=None, description="UNI-PASS에서 찾은 B/L 구분")

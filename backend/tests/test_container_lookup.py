@@ -172,8 +172,8 @@ def test_stored_type_does_not_leak_to_next_request(monkeypatch, bl_key):
     _agent(monkeypatch, [("check_cargo", {"bl_ref": "[BL1]"})])
     agent, run = _agent_calls()
     svc.handle(f"{C1} 어디야", "s1", None, run, user_id="u1")
-    svc.handle(f"{BL} 어디야", "s2", None, run, user_id="u1")  # B/L을 직접 쓴 다음 요청은 평소대로 HOUSE
-    assert [a.bl_type for a in agent] == ["MASTER", "HOUSE"]
+    svc.handle(f"{BL} 어디야", "s2", None, run, user_id="u1")  # B/L을 직접 쓴 다음 요청은 평소대로 구분 모름 (10-08)
+    assert [a.bl_type for a in agent] == ["MASTER", None]
 
 
 # ── handle: 못 찾았을 때 ──

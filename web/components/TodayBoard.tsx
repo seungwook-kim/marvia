@@ -72,7 +72,7 @@ export function TodayBoard() {
     if (!no) { setFormError('B/L 번호를 넣어 주세요.'); return; }
     setFormError('');
     router.push('/');  // 결과는 물어보기 화면에 보인다
-    await lookup({bl_no: no, bl_type: 'HOUSE', sale_due_date: sale || null, session_id: ''});
+    await lookup({bl_no: no, bl_type: null, sale_due_date: sale || null, session_id: ''});  // 구분 모름: 서버가 하우스·마스터를 차례로 본다 (10-08)
   }
 
   return <div className="today">

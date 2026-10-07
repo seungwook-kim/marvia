@@ -269,7 +269,13 @@ class _WatchConn:
 
 
 class _FakeSF:
-    """position(mmsi)만 흉내 낸다. 999는 위치가 없는 배."""
+    """position(mmsi)만 흉내 낸다. 999는 위치가 없는 배. reusable에 든 배는 받아 둔 위치를 다시 쓴다(예산을 안 쓴다, 10-08)."""
+
+    def __init__(self, reusable=()):
+        self.reusable = set(reusable)
+
+    def position_reusable(self, mmsi):
+        return mmsi in self.reusable
 
     def position(self, mmsi):
         from datetime import datetime, timezone

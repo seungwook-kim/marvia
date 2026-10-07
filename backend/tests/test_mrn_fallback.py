@@ -89,9 +89,10 @@ def test_document_reads_mrn_with_ocr_confusion():
 def test_agent_uses_fallback_only_for_missing_customs(monkeypatch):
     from backend.app.routers import agent
     from backend.app.routers.agent import _response
-    monkeypatch.setattr(agent, "_fetch_customs", lambda req: (None, _response(status="insufficient", answer="없음")))
+    # 10-08: 마스터·하우스 둘 다 없음은 failed + NO_CARGO다 (routers/agent.is_not_found). 세관 장애는 문구가 달라 대체하지 않는다
+    monkeypatch.setattr(agent, "_fetch_customs", lambda req: (None, _response(status="failed", answer=agent.NO_CARGO), None))
     monkeypatch.setattr(svc, "assess", lambda req: _response(status="partial", answer="대체"))
     assert agent._assess(_req()).answer == "대체"
-    assert agent._assess(_req(mrn=None)).status == "insufficient"
-    monkeypatch.setattr(agent, "_fetch_customs", lambda req: (None, _response(status="failed", answer="세관 장애")))
+    assert agent._assess(_req(mrn=None)).answer == agent.NO_CARGO
+    monkeypatch.setattr(agent, "_fetch_customs", lambda req: (None, _response(status="failed", answer="세관 장애"), None))
     assert agent._assess(_req()).status == "failed"  # EC-04

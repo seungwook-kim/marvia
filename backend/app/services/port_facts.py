@@ -2,7 +2,7 @@
 
   anchorage()       해수부 관제 이벤트(투묘·양묘·접안)로 묘박지에서 얼마나 기다렸나
   customs_timing()  UNI-PASS 통관 이력의 단계 사이 걸린 시간과 입항 뒤 지난 시간
-  eta_change()      지난 조회의 신뢰 ETA(user_cargo.last_eta)와 이번 신뢰 ETA가 얼마나 달라졌나
+  eta_change()      지난 조회의 신뢰 ETA(user_cargo.last_eta_at, 없으면 last_eta)와 이번 신뢰 ETA가 얼마나 달라졌나
 
 세 값 모두 외부 호출 없이 이미 받은 값(get_port_schedule control_events, CustomsRecord.stage_history, 화물 표 한 칸)으로 센다.
 지난 일만 센다. 앞으로 며칠 걸릴지는 예측하지 않는다 (PRD 4절 "통관 소요 예측"·"창고 수령일 예측"은 만들지 않는 것).
@@ -98,18 +98,33 @@ def customs_timing(customs: CustomsRecord | None, now: datetime | None = None) -
                          measured_until=until)
 
 
-def eta_change(previous: date | None, trusted: datetime | None) -> EtaChange | None:
-    """지난 조회의 신뢰 ETA 날짜(user_cargo.last_eta)와 이번 신뢰 ETA의 한국 날짜가 기준 이상 달라졌으면 그 변화를 돌려준다.
+def _signed_hours(later: datetime, earlier: datetime) -> int:
+    """두 시각 차이를 부호 있는 정수 시간으로 반올림한다 (당겨지면 음수). _hours와 같은 반올림을 절댓값에 건다."""
+    seconds = (later - earlier).total_seconds()
+    whole = int(abs(seconds) / 3600 + 0.5)
+    return whole if seconds >= 0 else -whole
 
-    기준은 skills/ais-reliability/rules.md eta_change_alert_hours. 저장 값이 한국 날짜뿐이라(services/cargo.py upsert_assessment)
-    날짜 차이 x 24시간으로 센다. 그래서 실제로는 하루 단위로 잡힌다(기준 12시간이면 날짜가 하루만 바뀌어도 알린다).
-    hours는 늦어지면 양수, 당겨지면 음수다. 둘 중 하나라도 없으면(처음 조회, 이번에 ETA 없음) None.
-    판정 신호가 아니다. 등급은 지금처럼 판정 표가 정한다.
+
+def eta_change(previous: date | datetime | None, trusted: datetime | None) -> EtaChange | None:
+    """지난 조회의 신뢰 ETA와 이번 신뢰 ETA가 기준 이상 달라졌으면 그 변화를 돌려준다.
+
+    기준은 skills/ais-reliability/rules.md eta_change_alert_hours.
+    - previous가 시각(datetime, user_cargo.last_eta_at, 024, 10-08)이면 실제 시간 차이로 센다. 같은 날 안에서 14시간 밀린 것도 잡고,
+      자정을 넘겨 2시간 밀린 것은 잡지 않는다
+    - previous가 날짜뿐(date, 옛 줄의 user_cargo.last_eta)이면 전처럼 한국 날짜 차이 x 24시간으로 센다 (하루 단위)
+    from_eta·to_eta는 화면·알림 글이 쓰는 한국 날짜다. hours는 늦어지면 양수, 당겨지면 음수다.
+    둘 중 하나라도 없으면(처음 조회, 이번에 ETA 없음) None. 판정 신호가 아니다. 등급은 지금처럼 판정 표가 정한다.
     """
     if previous is None or trusted is None:
         return None
-    current = _aware(trusted, timezone.utc).astimezone(KST).date()
-    hours = (current - previous).days * 24
+    now_at = _aware(trusted, timezone.utc)
+    current = now_at.astimezone(KST).date()
+    if isinstance(previous, datetime):
+        before_at = _aware(previous, timezone.utc)
+        hours = _signed_hours(now_at, before_at)
+        previous = before_at.astimezone(KST).date()
+    else:
+        hours = (current - previous).days * 24
     if abs(hours) < rule("eta_change_alert_hours"):
         return None
     return EtaChange(from_eta=previous, to_eta=current, hours=hours)

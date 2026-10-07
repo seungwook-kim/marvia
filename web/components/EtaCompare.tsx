@@ -19,7 +19,9 @@ export function EtaCompare({response:r,part='schedule'}:{response:AgentResponse;
   const a=r.anchorage,m=r.eta_change;
   const anchorText=a?(a.state==='anchored'?`${dateTime(a.anchored_at,true)} 부산 묘박지에 닻을 내리고 ${hoursText(a.waited_hours)}째 기다리는 중이에요 (해수부 관제 기록).`
    :`${dateTime(a.anchored_at,true)}부터 묘박지에서 ${hoursText(a.waited_hours)} 기다린 뒤 ${a.state==='berthed'?'부두에 댔어요':'닻을 올렸어요'} (해수부 관제 기록).`):null;
-  const moveText=m?`지난 조회 때 ${day(m.from_eta)}이던 도착 예정이 ${day(m.to_eta)}로 약 ${hoursText(Math.abs(m.hours))} ${m.hours>0?'늦어졌어요':'당겨졌어요'}.`:null;
+  // 10-08: 서버가 시각으로 세면 같은 날 안의 변화도 온다. 그때는 "5일에서 5일로"라고 쓰지 않는다
+  const moveWay=m?`약 ${hoursText(Math.abs(m.hours))} ${m.hours>0?'늦어졌어요':'당겨졌어요'}`:'';
+  const moveText=m?(m.from_eta===m.to_eta?`지난 조회 때보다 도착 예정(${day(m.to_eta)})이 ${moveWay}.`:`지난 조회 때 ${day(m.from_eta)}이던 도착 예정이 ${day(m.to_eta)}로 ${moveWay}.`):null;
   return <><section className="schedule-row" aria-label="일정">
    <div className="sch-node"><small>출항</small><strong className={from?undefined:'unknown'}>{from??'확인 안 됨'}</strong>{c?.loading_country&&<em>{countryLabel(c.loading_country)}</em>}</div>
    <span className="sch-line" aria-hidden="true"/>

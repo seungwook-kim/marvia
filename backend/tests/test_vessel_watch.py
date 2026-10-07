@@ -373,6 +373,6 @@ def test_worker_collects_positions_for_vessel_watch_too():
 def test_migration_023_is_last_and_creates_table():
     from pathlib import Path
     names = sorted(p.name for p in (Path(__file__).parents[1] / "app/db/migrations").glob("*.sql"))
-    assert names[-1] == "023_vessel_watch.sql"
-    text = (Path(__file__).parents[1] / "app/db/migrations" / names[-1]).read_text()
+    assert "023_vessel_watch.sql" in names  # 10-08 뒤로 024가 붙었다 (test_bl_type_retry.py)
+    text = (Path(__file__).parents[1] / "app/db/migrations" / "023_vessel_watch.sql").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS vessel_watch" in text and "ENABLE ROW LEVEL SECURITY" in text

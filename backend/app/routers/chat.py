@@ -55,7 +55,8 @@ class ChatContext(BaseModel):
     """화면이 지금 보고 있는 화물. 후속 질문과 "다시 조회"에 쓴다. B/L은 서버 안에서만 쓰고 LLM에는 가는 일이 없다."""
 
     bl_no: str
-    bl_type: Literal["MASTER", "HOUSE"]
+    # None이면 구분 모름 (10-08). 판정 흐름이 하우스·마스터를 차례로 조회한다 (routers/agent._fetch_customs)
+    bl_type: Literal["MASTER", "HOUSE"] | None = None
     sale_due_date: str | None = None
     mrn: str | None = None  # 세관에 아직 없는 화물의 대체 조회용 (docs/specs/mrn-fallback.md)
 

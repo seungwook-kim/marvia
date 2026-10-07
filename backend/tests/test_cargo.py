@@ -93,7 +93,7 @@ def test_released_cargo_is_done(bl_key):
 @pytest.mark.parametrize("over", [
     {"status": "failed"},                                          # 통관 조회 실패
     {"status": "unsupported"},                                     # 부산 밖
-    {"status": "insufficient", "missing_inputs": ["bl_type"]},     # 세관에 없는 번호(오타일 수 있다)
+    {"status": "failed", "answer": "조회 결과가 없습니다. 마스터·하우스 B/L 둘 다 조회했지만 찾지 못했어요. B/L 번호를 다시 확인해 주세요."},  # 세관에 없는 번호 (10-08)
 ])
 def test_no_row_for_unfound_cargo(bl_key, over):
     conn = FakeConn()

@@ -56,7 +56,8 @@ def is_cargo_ship(ship_kind: str | None, purpose: str | None) -> bool:
     return ship_kind in rules["cargo_ship_kinds"] and purpose in rules["cargo_purposes"]
 MESSAGE_MAX = 500          # 입력 문장 상한 (EC-07)
 DAYS_DEFAULT, DAYS_MAX = 7, 14  # 입항 예정 검색 기간. 해수부 한 번 조회가 20쪽까지라 길게 잡지 않는다
-DEFAULT_BL_TYPE = "HOUSE"  # 구분을 말하지 않으면 House로 조회하고 답에 알린다 (소량 수입자는 보통 House B/L)
+# B/L 구분을 말하지 않으면 None으로 넘긴다. 판정 흐름이 하우스, 마스터 순서로 둘 다 조회하고 찾은 쪽을 알려 준다 (10-08 결정,
+# routers/agent._fetch_customs). 전에는 하우스로만 조회하고 "마스터면 다시 말해 달라"고 안내했다
 CACHE_SEC = 600            # 같은 기간 입항 예정은 10분 동안 다시 받지 않는다
 
 # B/L 모양: 영문·숫자 8~20자, 숫자를 하나 이상 포함 (schemas/agent.py _BL_PATTERN + 일반 영어 단어 제외)
@@ -256,6 +257,9 @@ class ChatResult:
     # 위치 [{id, start, end, evidence_ref}] (start/end는 reply 안 "[E1]"의 자리). 코드 문장·고정 문구는 citations가 비고 evidence_items만 있다
     evidence_items: list[dict] = field(default_factory=list)
     citations: list[dict] = field(default_factory=list)
+    # 어느 B/L 구분으로 찾았는지 코드가 쓴 한 줄 (10-08, found_type_note). 한 개짜리 답은 reply에 이미 붙어 있고,
+    # 여러 B/L 표 답(_multi_table)이 줄마다 모아 쓴다. 화면 응답(routers/chat.ChatResponse)에는 없는 칸이라 무시된다
+    type_note: str | None = None
 
 
 # 후속 답 근거 카드의 조회 시각이 이번 문장 시작보다 이만큼 이전이면 지난 문장의 카드로 본다 (시계 차이 여유)
@@ -377,7 +381,7 @@ CONTAINER_NOT_FOUND = ("내 화물 목록에서 이 컨테이너 번호를 찾�
 CONTAINER_NEED_LOGIN = ("컨테이너 번호로 찾기는 로그인한 뒤 조회한 적 있는 화물에서만 돼요. "
                         "로그인하거나 B/L 번호로 조회해 주세요.")
 # 컨테이너 번호로 찾은 화물의 저장된 B/L 구분 {대문자 B/L: MASTER|HOUSE}. handle이 요청마다 채운다.
-# 이유: 구분을 말하지 않으면 _cargo가 HOUSE로 조회하는데, 저장된 화물이 MASTER면 세관에서 못 찾는다.
+# 이유: 저장된 구분부터 조회하면 UNI-PASS를 한 번만 부른다 (10-08부터는 구분을 몰라도 하우스·마스터를 차례로 조회한다).
 # 인자로 내려보내려면 handle~_cargo 사이 시그니처 여럿을 바꿔야 해서, memory.user_text처럼 contextvar로 둔다
 # (여러 B/L을 동시에 조회하는 스레드는 contextvars.copy_context로 이 값을 이어 받는다)
 _STORED_TYPES: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar("chat_stored_bl_types", default=None)
@@ -768,9 +772,7 @@ def _classic_cargo(bls: list[str], bl_type: str | None, sale_due_date: str | Non
     if len(found) == 1:
         return replace(found[0], reply="\n".join([found[0].reply, *notices]))
     need_lines, rows, chosen = _multi_table(found)
-    lines = [MULTI_TABLE_LEAD.format(n=len(found)), *need_lines]
-    if bl_type is None and any(not _stored_type(bl) for bl in picked):
-        lines.append(HOUSE_NOTICE)
+    lines = [MULTI_TABLE_LEAD.format(n=len(found)), *need_lines, *_type_notes(found)]
     lines.extend(notices)
     return replace(chosen, reply="\n".join(lines), map=None, cargos=rows)
 
@@ -796,11 +798,14 @@ LOOKUP_FALLBACK_LEAD = "조회한 결과를 그대로 전해 드려요."
 LOOKUP_FALLBACK_SAME = "방금과 같은 조회 결과예요."  # 바로 앞 답과 글자가 같을 때 앞에 붙인다 (같은 답 연속 금지)
 # 같은 B/L이 연달아 "조회 결과 없음"일 때 (10-07 정운 실사용 54: "다시 해줄래"에 같은 문장이 되풀이됐다).
 # 같은 조회를 반복해도 결과가 같으니 번호와 구분을 고쳐 보게 한다. 구분은 코드가 아는 값으로 반대쪽을 권한다
-NO_RESULT_REPLY = "조회 결과가 없어요. B/L 번호와 마스터·하우스 구분을 다시 확인해 주세요."  # routers/agent.NO_CARGO의 "~요" 버전 (10-07 말투 통일)
-NO_RESULT_AGAIN = ("같은 번호로 다시 조회해도 결과가 없어요. 번호를 한 글자씩 다시 확인해 주세요. "
-                   "지금은 {now} B/L로 조회했는데, {other} B/L이면 \"{other_ko}로 다시\"라고 말해 주세요.")
+# 10-08부터 마스터·하우스를 둘 다 조회하고도 없을 때만 나온다. 구분을 바꿔 보라고 권하지 않는다 (둘 다 이미 봤다)
+NO_RESULT_REPLY = "조회 결과가 없어요. 마스터·하우스 B/L 둘 다 조회했지만 찾지 못했어요. B/L 번호를 다시 확인해 주세요."  # routers/agent.NO_CARGO의 "~요" 버전 (10-07 말투 통일)
+NO_RESULT_AGAIN = "같은 번호로 다시 조회해도 결과가 없어요. 마스터·하우스 둘 다 찾아봤으니 번호를 한 글자씩 다시 확인해 주세요."
 NO_RESULT_THIRD = "그래도 안 나오면 포워더나 선사에게 B/L 번호를 다시 받아서 확인해 주세요."
 BL_TYPE_KO = {"MASTER": "마스터", "HOUSE": "하우스"}
+# 어느 구분으로 찾았는지 알리는 코드 문장 (10-08, found_type_note). 사용자가 말한 구분과 다른 쪽에서 찾았을 때와, 말하지 않았을 때
+TYPE_FOUND_OTHER = "(말씀하신 {asked} B/L로는 없어 {used} B/L로 찾았어요.)"
+TYPE_FOUND = "({used} B/L로 찾았어요.)"
 # 도구 없는 실무 질문인데 Skill 문서로 받칠 수 없을 때 (answer_kind=not_in_skills, 또는 근거 조각 검사 V14에 끝내 걸렸을 때).
 # 도메인 조언은 제품 담당이 쓴 skills/*.md에서만 나온다. 문서에 없으면 지어내지 않고 없다고 말한다 (10-05 실측)
 NOT_IN_SKILLS = "그 내용은 마르비아가 가진 자료에 없어요. " + OTHER_REPLY
@@ -1107,7 +1112,7 @@ ROW_NOTE_NOT_FOUND = "조회 결과 없음"
 ROW_NOTE_MORE_INFO = "정보 더 필요"
 ROW_SAY_SAME_NAME = "{bl}는 같은 이름의 배가 여러 척이라 항차 번호나 포워더 입항 예정일이 필요해요."
 ROW_SAY_STILL_SAME = "{bl}는 알려 주신 항차나 입항 예정일로도 어느 배인지 가르지 못했어요."
-ROW_SAY_NOT_FOUND = "{bl}는 조회 결과가 없어요. B/L 번호와 마스터·하우스 구분을 확인해 주세요."
+ROW_SAY_NOT_FOUND = "{bl}는 마스터·하우스 B/L 둘 다 조회 결과가 없어요. B/L 번호를 확인해 주세요."
 ROW_SAY_MORE_INFO = "{bl}는 판정에 필요한 정보가 더 필요해요."
 # B/L로 읽지 못한 식별자 모양 글자 안내 (10-06 정운 화면: "tesbl41"이 말없이 빠졌다)
 UNREAD_NOTICE = "(B/L 번호로 읽지 못한 글자가 있어요: {names}. 번호를 확인해 주세요.)"
@@ -1116,12 +1121,13 @@ UNREAD_MAX = 3
 
 def row_need(agent: AgentResponse) -> tuple[str, str] | None:
     """판정을 못 낸 줄(insufficient)이 무엇을 필요로 하는가: (표에 적을 짧은 이유, 답에 넣을 문장 틀). 판정이 났으면 None.
-    판정 흐름이 정한 answer 문구로 갈래를 정한다 (같은 이름 되묻기·되묻기 뒤에도 못 가름·결과 없음). 그 밖은 일반 안내."""
+    판정 흐름이 정한 answer 문구로 갈래를 정한다 (같은 이름 되묻기·되묻기 뒤에도 못 가름·결과 없음). 그 밖은 일반 안내.
+    결과 없음은 10-08부터 마스터·하우스를 둘 다 조회한 뒤의 failed라 status를 보기 전에 먼저 가른다 (routers/agent.is_not_found)."""
+    from backend.app.routers import agent as agent_router  # noqa: PLC0415 - 서로 불러오는 순환을 피하려고 쓰는 자리에서 가져온다
+    if agent_router.is_not_found(agent):
+        return ROW_NOTE_NOT_FOUND, ROW_SAY_NOT_FOUND
     if agent.status != "insufficient":
         return None
-    from backend.app.routers import agent as agent_router  # noqa: PLC0415 - 서로 불러오는 순환을 피하려고 쓰는 자리에서 가져온다
-    if agent.answer == agent_router.NO_CARGO:
-        return ROW_NOTE_NOT_FOUND, ROW_SAY_NOT_FOUND
     if agent.answer == agent_router.ASK_BACK:
         return ROW_NOTE_SAME_NAME.format(n=len(agent.vessel_candidates)), ROW_SAY_SAME_NAME
     if agent.answer == agent_router.ASK_BACK_AFTER_EVIDENCE:
@@ -1152,8 +1158,26 @@ def unread_ids(masked: str, bls: list[str]) -> list[str]:
     known = {b.upper() for b in bls}
     found = [m.group(0) for m in _ID_LIKE.finditer(masked) if m.group(0).upper() not in known]
     return list(dict.fromkeys(found))[:UNREAD_MAX]
-HOUSE_NOTICE = ("(B/L 구분을 말하지 않아 하우스 B/L(포워더가 발행한 B/L)로 조회했어요. "
-                "선사가 발행한 마스터 B/L이면 \"마스터로 다시\"라고 말해 주세요.)")
+def found_type_note(asked: str | None, remembered: str | None, used: str | None) -> str | None:
+    """어느 B/L 구분으로 찾았는지 알리는 코드 문장 (10-08 결정). 알릴 것이 없으면 None. LLM은 쓰지 않는다.
+
+    asked: 사용자가 이번에 말한 구분. remembered: 말하지 않았을 때 코드가 아는 구분(컨테이너로 찾은 화물·지금 화물·화물 표).
+    used: UNI-PASS에서 실제로 찾은 구분(AgentResponse.bl_type_used). 못 찾았으면 None이라 알리지 않는다.
+    - 말한 구분과 다른 쪽에서 찾았으면 그렇다고 알린다 (사용자가 잘못 안 구분을 고쳐 준다)
+    - 말하지 않았고 기억한 구분도 없으면 찾은 구분을 알린다 (다음에 서류를 볼 때 도움이 된다)
+    - 말한 대로 찾았거나 기억한 구분 그대로면 알리지 않는다 (매번 같은 줄이 붙지 않게)"""
+    if used not in BL_TYPE_KO:
+        return None
+    if asked in BL_TYPE_KO:
+        return None if asked == used else TYPE_FOUND_OTHER.format(asked=BL_TYPE_KO[asked], used=BL_TYPE_KO[used])
+    if remembered == used:
+        return None
+    return TYPE_FOUND.format(used=BL_TYPE_KO[used])
+
+
+def _type_notes(found: list[ChatResult]) -> list[str]:
+    """여러 B/L 표 답에 붙일 구분 안내. 줄마다 "{B/L}: (…로 찾았어요.)" 모양이고, 알릴 것이 없는 줄은 뺀다 (10-08)."""
+    return [f"{r.request.bl_no}: {r.type_note}" for r in found if r.type_note and r.request]
 
 
 def _repeats_reply(text: str, replies: list[str]) -> bool:
@@ -1486,8 +1510,6 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             outcomes = [f.result() for f in futures]
         multi_state["over"] = len(bls) > MAX_BLS_PER_TURN
         multi_state["failed"] = any(o is None for o in outcomes)
-        # 컨테이너 번호로 찾은 화물은 저장된 구분을 썼으니 "구분을 말하지 않아 하우스로 조회" 안내를 붙이지 않는다
-        multi_state["house"] = bl_type is None and any(not _stored_type(bl) for bl in picked)
         multi_state["results"] = [o for o in outcomes if o is not None]
         token_of = {bl: token for token, bl in message_refs.items()}
         summaries = [{"bl_ref": token_of.get(bl), **_cargo_summary(o.agent)} for bl, o in zip(picked, outcomes) if o is not None]
@@ -1501,7 +1523,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         routers.agent는 이 모듈이 올라올 때 서로 부르지 않게 쓰는 자리에서 가져온다."""
         from backend.app.routers import agent as agent_router  # noqa: PLC0415
         resp = result.agent
-        if not (resp and resp.status == "insufficient" and resp.answer == agent_router.NO_CARGO and len(bl) >= bl_parse.GLUED_MIN):
+        if not (agent_router.is_not_found(resp) and len(bl) >= bl_parse.GLUED_MIN):
             return []
         parts = bl_parse.split_not_found(bl, bl_parse.exists_in_customs)
         for part in parts:
@@ -2093,8 +2115,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             lines = [said or MULTI_TABLE_LEAD.format(n=len(found))]
             need_lines, rows, chosen = _multi_table(found)  # 표 줄과 판정 못 낸 줄 안내 (전 방식과 같이 쓴다, 10-06 점검)
             lines.extend(need_lines)
-            if multi_state.get("house"):
-                lines.append(HOUSE_NOTICE)
+            lines.extend(_type_notes(found))  # 어느 구분으로 찾았는지 (10-08, found_type_note)
             lines.extend(notices)
             unread = unread_ids(masked, message_bls)
             if unread:
@@ -2225,24 +2246,20 @@ def _safe_reply(reply: str | None, message: str) -> str:
 
 
 def _is_no_result(r: ChatResult) -> bool:
-    """판정 흐름이 "조회 결과 없음"(routers/agent.NO_CARGO)으로 끝낸 결과인가."""
+    """판정 흐름이 "조회 결과 없음"(routers/agent.NO_CARGO, 마스터·하우스 둘 다 없음)으로 끝낸 결과인가."""
     from backend.app.routers import agent as agent_router  # noqa: PLC0415 - 서로 불러오는 순환을 피하려고 쓰는 자리에서 가져온다
-    return bool(r.agent and r.agent.status == "insufficient" and r.agent.answer == agent_router.NO_CARGO)
+    return agent_router.is_not_found(r.agent)
 
 
 def _no_result_text(r: ChatResult, last: str | None) -> str:
     """"조회 결과 없음" 답이 바로 앞 답과 같은 안내면 다른 문장으로 바꾼다 (10-07 정운 실사용 54). 아니면 reply 그대로.
-    같은 조회를 되풀이하면 같은 결과라서, 두 번째부터는 번호 확인과 마스터·하우스 구분 바꾸기를 권한다.
-    "지금 쓴 구분"은 요청에 든 값(코드가 아는 값)이고, 권하는 쪽은 그 반대다. 구분을 못 알면 되풀이 방지만 한다."""
+    같은 조회를 되풀이하면 같은 결과라서, 두 번째는 번호를 한 글자씩 확인하라고, 세 번째부터는 번호를 다시 받아 오라고 한다.
+    10-08부터 판정 흐름이 마스터·하우스를 둘 다 조회하므로 구분을 바꿔 보라고 권하지 않는다."""
     if not _is_no_result(r) or not last or "결과가없어요" not in _flat_text(last):
         return r.reply
     if "다시조회해도" in _flat_text(last):  # 세 번째부터는 번호를 다시 받아 오라고 한다. 같은 문장을 세 번 내지 않는다
         return r.reply.replace(NO_RESULT_REPLY, NO_RESULT_THIRD)
-    now = r.request.bl_type if r.request else None
-    if now not in BL_TYPE_KO:
-        return r.reply.replace(NO_RESULT_REPLY, "같은 번호로 다시 조회해도 결과가 없어요. 번호를 한 글자씩 다시 확인해 주세요.")
-    other = "HOUSE" if now == "MASTER" else "MASTER"
-    return r.reply.replace(NO_RESULT_REPLY, NO_RESULT_AGAIN.format(now=BL_TYPE_KO[now], other=BL_TYPE_KO[other], other_ko=BL_TYPE_KO[other]))
+    return r.reply.replace(NO_RESULT_REPLY, NO_RESULT_AGAIN)
 
 
 def _cargo(bl: str, bl_type: str | None, sale_due_date: str | None, session_id: str, context: AgentRequest | None,
@@ -2257,18 +2274,24 @@ def _cargo(bl: str, bl_type: str | None, sale_due_date: str | None, session_id: 
     # 돌려줘도 사용자에게 보이지 않게 여기서 한 번 더 거른다. 가득 참은 설정 "내 기억" 화면만 보여 준다
     notes = [n for n in memory.lookup_notes(user_id, bl) if n.startswith(PREVIOUS_LINE_PREFIX)]
     same = context is not None and context.bl_no == bl
-    # 사용자가 말한 구분 > 컨테이너 번호로 찾은 화물의 저장된 구분 > 지금 화물의 구분. 저장된 구분이 없으면 아래에서 HOUSE로 조회하고 알린다
-    kind = bl_type or _stored_type(bl) or (context.bl_type if same else None)
-    req = AgentRequest(bl_no=bl, bl_type=kind or DEFAULT_BL_TYPE, session_id=session_id,
+    # 사용자가 말한 구분 > 컨테이너 번호로 찾은 화물의 저장된 구분 > 지금 화물의 구분 > 화물 표에 저장된 구분.
+    # 그 구분부터 조회하고, 없으면 반대쪽도 본다. 다 모르면 None으로 넘겨 하우스부터 본다 (10-08, routers/agent._fetch_customs)
+    remembered = _stored_type(bl) or (context.bl_type if same else None) or (None if bl_type else memory.saved_bl_type(user_id, bl))
+    kind = bl_type or remembered
+    req = AgentRequest(bl_no=bl, bl_type=kind, session_id=session_id,
                        sale_due_date=sale_due_date or (context.sale_due_date if same else None),
                        mrn=mrn or (context.mrn if same else None),
                        voyage_no=voyage_no, forwarder_eta=forwarder_eta)
     resp = run_agent(req)
+    # 다음 문장의 문맥(지금 화물)에는 실제로 찾은 구분을 남긴다. "이 화물 다시"가 맞는 구분으로 바로 간다 (10-08)
+    from backend.app.routers.agent import matched_request  # noqa: PLC0415 - 서로 불러오는 순환을 피하려고 쓰는 자리에서 가져온다
+    req = matched_request(req, resp)
     reply = resp.answer
     if _is_no_result(ChatResult(kind="cargo", reply=reply, agent=resp, request=req)):
         reply = NO_RESULT_REPLY  # 판정 흐름(routers/agent.py)의 문구는 "~습니다"라 화면 말투(~요)로 맞춘다. 뜻은 같다 (10-07 정운 실사용 38)
-    if not kind:
-        reply = f"{reply}\n{HOUSE_NOTICE}"
+    type_note = found_type_note(bl_type, remembered, getattr(resp, "bl_type_used", None))
+    if type_note:
+        reply = f"{reply}\n{type_note}"
     if notes:
         reply = "\n".join([reply, *notes])
-    return ChatResult(kind="cargo", reply=reply, agent=resp, request=req)
+    return ChatResult(kind="cargo", reply=reply, agent=resp, request=req, type_note=type_note)

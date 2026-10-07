@@ -96,7 +96,7 @@ def test_assess_attaches_detail_after_judging(monkeypatch):
         seen["response"] = agent_router._response(status="ok", answer="판정")
         return seen["response"]
 
-    monkeypatch.setattr(agent_router, "_fetch_customs", lambda request: (record, None))
+    monkeypatch.setattr(agent_router, "_fetch_customs", lambda request: (record, None, "HOUSE"))
     monkeypatch.setattr(agent_router, "_after_customs", fake_after)
     out = agent_router._assess(AgentRequest(bl_no="TESTBL01", bl_type="HOUSE", session_id="s1"))
     assert not seen["response"].customs_detail

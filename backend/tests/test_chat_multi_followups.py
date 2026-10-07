@@ -27,8 +27,10 @@ def _mixed_run(first="ask", answer=ASK_BACK):
     def run(req):
         if req.bl_no.endswith("02"):
             cands = [_cand(1), _cand(2)] if first == "ask" else []
+            if answer == NO_CARGO:  # 10-08: 마스터·하우스 둘 다 없음은 되묻기가 아니라 failed다 (routers/agent.is_not_found)
+                return _response(status="failed", answer=answer)
             return _response(status="insufficient", answer=answer, vessel_match="uncertain", vessel_candidates=cands,
-                             missing_inputs=[] if cands else ["bl_type"])
+                             missing_inputs=[] if cands else ["voyage_no"])
         return ok(req)
     return run
 

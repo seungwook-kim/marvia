@@ -83,7 +83,9 @@ function CargoRow({c}: {c: CargoSummary}) {
   if (c.last_stage) rows.push(['통관 단계', c.last_stage]);
   if (c.last_checked_at && c.last_verdict) rows.push(['마지막 확인', `${kstMonthDayTime(c.last_checked_at)} 판정`]);
   // 보조 정보는 한 줄로 합친다: B/L 종류와 거래 조건
-  const sub = [c.bl_type === 'HOUSE' ? 'House B/L' : 'Master B/L', ...conditions(c)].join(' · ');
+  // 구분을 아직 모르는 줄(서류만 넣고 조회 전, 10-08)은 구분을 적지 않는다
+  const kind = c.bl_type === 'HOUSE' ? 'House B/L' : c.bl_type === 'MASTER' ? 'Master B/L' : null;
+  const sub = [...(kind ? [kind] : []), ...conditions(c)].join(' · ');
   return <li className="memory-cargo">
     <div className="mc-head"><strong>{name}</strong>{c.last_verdict ? <VerdictBadge verdict={c.last_verdict}/> : <span className="mc-none">판정 이력 없음</span>}</div>
     <p className="mc-cond">{sub}</p>

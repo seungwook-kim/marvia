@@ -610,6 +610,25 @@ def lookup_notes(user_id: str | None, bl_no: str) -> list[str]:
     return [line] if line else []
 
 
+def saved_bl_type(user_id: str | None, bl_no: str) -> str | None:
+    """로그인 사용자의 화물 표에 저장된 이 화물의 B/L 구분 (지난 조회에서 UNI-PASS가 찾은 쪽, 10-08). 모르면 None.
+    채팅(services/chat._cargo)이 구분을 말하지 않은 조회를 이 구분부터 하고, "…로 찾았어요" 안내를 되풀이하지 않으려고 쓴다.
+    사용자·DB·열쇠가 없거나 읽기가 실패하면 None (그러면 판정 흐름이 하우스부터 본다)."""
+    if not user_id or not _db_ready():
+        return None
+    key = cargo.cargo_key(bl_no)
+    if not key:
+        return None
+    try:
+        with connect() as conn:
+            row = cargo.get_row(conn, user_id, key)
+    except Exception as e:  # noqa: BLE001
+        log_failure("memory_read", type(e).__name__)
+        return None
+    kind = (row or {}).get("bl_type")
+    return kind if kind in ("MASTER", "HOUSE") else None
+
+
 def view(conn, user_id: str) -> dict:
     """GET /api/memory 재료: 번호 없는 마크다운, 항목 목록(지우기용 번호 포함), 화물 요약(원본 B/L 없음)."""
     every = _cargo_rows(conn, user_id)

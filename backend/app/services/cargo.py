@@ -42,7 +42,7 @@ PENDING_FIELDS = ("sale_due_date", "forwarder_eta", "label")
 COLUMNS = (
     "cargo_key", "bl_masked", "bl_type", "label", "status", "sale_due_date", "sale_due_asked",
     "forwarder_eta", "forwarder_eta_noted_at", "vessel_mmsi", "voyage_no", "vessel_source",
-    "last_verdict", "last_checked_at", "last_days_margin", "last_eta", "last_stage", "done_at",
+    "last_verdict", "last_checked_at", "last_days_margin", "last_eta", "last_eta_at", "last_stage", "done_at",
     "original_bl", "to_order_bank", "freight_term", "incoterm", "pending", "goods_name",
 )
 
@@ -116,10 +116,9 @@ def all_rows(conn, user_id: str, limit: int = 100) -> list[dict]:
 
 
 def found_cargo(response: AgentResponse) -> bool:
-    """화물 표에 줄을 만들 만한 조회인가. 세관에 없는 번호(오타일 수 있다), 통관 조회 실패, 부산 밖 화물은 만들지 않는다."""
-    if response.status in ("failed", "unsupported"):
-        return False
-    return not (response.status == "insufficient" and "bl_type" in response.missing_inputs)
+    """화물 표에 줄을 만들 만한 조회인가. 세관에 없는 번호(오타일 수 있다), 통관 조회 실패, 부산 밖 화물은 만들지 않는다.
+    10-08부터 세관에 없는 번호는 마스터·하우스를 둘 다 조회한 뒤 failed로 끝나므로 status만 보면 된다 (routers/agent._fetch_customs)."""
+    return response.status not in ("failed", "unsupported")
 
 
 def clean_stage(name: str | None) -> str | None:
@@ -212,13 +211,18 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
     entered =[f for f in ("sale_due_date", "forwarder_eta") if getattr(request, f)]
     values = {
         "user_id": user_id, "cargo_key": key, "bl_masked": mask_bl(request.bl_no),
-        "bl_encrypted": crypto.encrypt(request.bl_no), "bl_type": request.bl_type,
+        "bl_encrypted": crypto.encrypt(request.bl_no),
+        # UNI-PASS에서 실제로 찾은 구분이 먼저다 (10-08). 다음 조회가 이 구분으로 바로 간다(routers/agent.run_agent).
+        # 찾은 구분도 요청 구분도 없으면(MRN 대체 조회) NULL이고, 아래 SQL이 저장된 값을 지킨다
+        "bl_type": response.bl_type_used or request.bl_type,
         "status": "done" if released else "active",
         "sale_due_date": request.sale_due_date,
         "forwarder_eta": request.forwarder_eta, "forwarder_eta_noted_at": today if request.forwarder_eta else None,
         "vessel_mmsi": mmsi, "voyage_no": request.voyage_no, "vessel_source": source,
         "last_verdict": response.verdict, "last_checked_at": now, "last_days_margin": response.days_margin,
         "last_eta": _kst_date(response.eta.trusted_eta) if response.eta else None,
+        # 신뢰 ETA 시각 (024, 10-08). 날짜(last_eta)만으로는 도착 예정 변화(port_facts.eta_change)가 하루 단위로만 잡혔다
+        "last_eta_at": response.eta.trusted_eta if response.eta else None,
         "last_stage": clean_stage(response.customs.stage_name) if response.customs else None,
         "done_at": now if released else None,
         # 내 화물 현황 표 (019). 날짜는 실제 신고된 날만, 회사 이름·컨테이너는 UNI-PASS 값 그대로. 이번에 없으면 저장 값을 둔다
@@ -243,7 +247,7 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
             ON CONFLICT (user_id, cargo_key) DO UPDATE SET
               bl_masked = EXCLUDED.bl_masked,
               bl_encrypted = COALESCE(EXCLUDED.bl_encrypted, user_cargo.bl_encrypted),
-              bl_type = EXCLUDED.bl_type,
+              bl_type = COALESCE(EXCLUDED.bl_type, user_cargo.bl_type),
               status = EXCLUDED.status,
               sale_due_date = COALESCE(EXCLUDED.sale_due_date, user_cargo.sale_due_date),
               forwarder_eta = COALESCE(EXCLUDED.forwarder_eta, user_cargo.forwarder_eta),
@@ -255,6 +259,7 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
               last_checked_at = EXCLUDED.last_checked_at,
               last_days_margin = EXCLUDED.last_days_margin,
               last_eta = EXCLUDED.last_eta,
+              last_eta_at = EXCLUDED.last_eta_at,
               last_stage = EXCLUDED.last_stage,
               done_at = CASE WHEN EXCLUDED.status = 'done' THEN COALESCE(user_cargo.done_at, EXCLUDED.done_at) END,
               arrived_on = COALESCE(EXCLUDED.arrived_on, user_cargo.arrived_on),
@@ -309,7 +314,7 @@ def add_pending(conn, user_id: str, key: str, changes: list[dict]) -> int:
     return len(changes) if cur.rowcount else 0
 
 
-def apply_document_facts(conn, user_id: str, bl_no: str, bl_type: str, facts: dict) -> str | None:
+def apply_document_facts(conn, user_id: str, bl_no: str, bl_type: str | None, facts: dict) -> str | None:
     """서류 사진에서 사용자가 확인한 B/L 조건을 화물 줄에 적는다 (10-02 결정 7). 화물 지문을 돌려준다(열쇠 없으면 None).
 
     facts: original_bl, to_order_bank, freight_term, incoterm. None인 칸은 "모름"이라 기존 값을 지우지 않는다.
@@ -405,7 +410,9 @@ def conditions_text(row: dict) -> list[str]:
 def cargo_line(row: dict) -> str:
     """<user_cargo> 블록의 한 줄. 가린 번호만 쓴다. 내부 번호(id)는 넣지 않는다 (Spec "번호를 보여 주는 LLM은 기억 뽑기 하나뿐")."""
     name = f"{row['label']} ({row['bl_masked']})" if row.get("label") else row["bl_masked"]
-    parts = [name, "하우스 B/L" if row.get("bl_type") == "HOUSE" else "마스터 B/L"]
+    # 구분을 아직 모르는 줄(서류만 넣고 조회 전, 024)은 구분을 적지 않는다. 틀린 구분을 LLM에 주지 않으려고 (10-08)
+    kind = {"HOUSE": "하우스 B/L", "MASTER": "마스터 B/L"}.get(row.get("bl_type") or "")
+    parts = [name, *([kind] if kind else [])]
     if row.get("goods_name"):
         # 세관 품명 (020, 10-06 오후). "고추 화물 어디야?"처럼 품명으로 물을 때 어느 줄인지 LLM이 알게. 저장할 때 주입 모양은 걸렀다
         parts.append(f"품명 {row['goods_name']}")
