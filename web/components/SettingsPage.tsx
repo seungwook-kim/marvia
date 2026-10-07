@@ -5,7 +5,7 @@
  * 카카오에서 돌아오면(?kakao=) 연결 상태가 있는 "설정" 탭을 연다. KakaoPanel이 그 값을 읽고 주소에서 지우므로 여기서는 지우지 않는다.
  * 탭 종류는 TABS가 정하고, 각 탭 안의 화면은 기존 컴포넌트(ProfileForm·HistoryTable·MemoryPanel·KakaoPanel·AccountPanel)를 그대로 쓴다 (동작·접근성 유지).
  */
-import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useId, useLayoutEffect, useRef, useState} from 'react';
 import {Info, LockKeyhole} from 'lucide-react';
 import {useApp} from './AppProvider';
 import {ProfileForm} from './ProfileForm';
@@ -13,7 +13,7 @@ import {HistoryTable} from './HistoryTable';
 import {MemoryPanel} from './MemoryPanel';
 import {KakaoPanel} from './KakaoPanel';
 import {AccountPanel} from './AccountPanel';
-import {applyTheme, readThemePref, THEME_OPTIONS, type ThemePref} from '@/lib/theme';
+import {applyTheme, contrastWarnings, DEFAULT_CUSTOM, isHex, readCustom, readThemePref, THEME_OPTIONS, type CustomTheme, type ThemePref} from '@/lib/theme';
 
 type Tab = 'profile' | 'history' | 'memory' | 'rules' | 'account';
 const TABS: {key: Tab; label: string; lead: string}[] = [
@@ -96,19 +96,63 @@ function RulesTab(){
 /** 화면 색 (10-07). 고르면 바로 화면 전체에 반영되고 이 기기에 저장된다 (lib/theme.ts). 로그인 없이도 쓸 수 있다 */
 function ThemeCard(){
   const [pref, setPref] = useState<ThemePref>('system');
-  useEffect(() => { setPref(readThemePref()); }, []);
-  function pick(v: ThemePref) { setPref(v); applyTheme(v); }
+  const [custom, setCustom] = useState<CustomTheme>(DEFAULT_CUSTOM);
+  useEffect(() => { setPref(readThemePref()); setCustom(readCustom()); }, []);
+  function pick(v: ThemePref) { setPref(v); applyTheme(v, true, v === 'custom' ? custom : undefined); }
+  /** 색을 움직이는 동안 바로 화면에 반영하고 저장한다. HEX 칸에 쓰다 만 값은 화면에만 남기고 반영하지 않는다 */
+  function edit(next: Partial<CustomTheme>) {
+    const c = {...custom, ...next};
+    setCustom(c);
+    if (isHex(c.brand) && isHex(c.bg) && isHex(c.nav)) { setPref('custom'); applyTheme('custom', true, c); }
+  }
+  const valid = isHex(custom.brand) && isHex(custom.bg) && isHex(custom.nav);
+  const warnings = valid ? contrastWarnings(custom) : [];
+  const preview = valid ? [custom.brand, custom.bg, custom.nav] : THEME_OPTIONS[4].swatch;
   return <section className="st-card st-theme">
     <h2>화면 색</h2>
-    <p className="st-sub">오래 보면 눈이 피로할 수 있어요. 고르면 바로 바뀌고, 이 기기에 저장돼요.</p>
+    <p className="st-sub">오래 보면 눈이 피로할 수 있어요. 고르면 바로 바뀌고, 이 기기에 저장돼요. "직접 만들기"에서는 팔레트로 색을 골라요.</p>
     <fieldset className="theme-picker"><legend className="sr-only">화면 색 고르기</legend>
       {THEME_OPTIONS.map(o => <label key={o.value} className="theme-opt">
         <input type="radio" name="marvia-theme" value={o.value} checked={pref === o.value} onChange={() => pick(o.value)}/>
-        <span className="theme-swatch" aria-hidden="true">{o.swatch.map(c => <i key={c} style={{background: c}}/>)}</span>
+        <span className="theme-swatch" aria-hidden="true">{(o.value === 'custom' ? preview : o.swatch).map((c, i) => <i key={`${c}-${i}`} style={{background: c}}/>)}</span>
         <strong>{o.label}</strong><small>{o.note}</small>
       </label>)}
     </fieldset>
+    {pref === 'custom' && <div className="theme-editor" role="group" aria-label="직접 만들기 색 조절">
+      <ColorField label="강조색 (버튼·선택 표시)" value={custom.brand} onChange={v => edit({brand: v})}/>
+      <ColorField label="바탕색" value={custom.bg} onChange={v => edit({bg: v})}/>
+      <ColorField label="사이드바색" value={custom.nav} onChange={v => edit({nav: v})}/>
+      <label className="theme-field"><span>글자 진하기 {custom.text}%</span>
+        <input type="range" min={40} max={100} step={1} value={custom.text} onChange={e => edit({text: Number(e.target.value)})} aria-valuetext={`${custom.text}%`}/></label>
+      <div className="theme-presets"><span>빠른 시작</span>
+        {PRESETS.map(p => <button key={p.label} type="button" onClick={() => edit(p.theme)}>{p.label}</button>)}
+        <button type="button" onClick={() => edit(DEFAULT_CUSTOM)}>기본값으로</button></div>
+      {!valid ? <p className="theme-warn" role="status">색은 #과 6자리(예: #1D4ED8)로 넣어 주세요.</p>
+        : warnings.length ? <ul className="theme-warn" role="status">{warnings.map(w => <li key={w}>{w}</li>)}</ul>
+        : <p className="theme-ok" role="status">글자와 버튼이 잘 읽히는 대비예요.</p>}
+    </div>}
   </section>;
+}
+
+/** 직접 만들기의 빠른 시작 예시. 여기서 출발해 조금씩 바꾸면 된다 */
+const PRESETS: {label: string; theme: CustomTheme}[] = [
+  {label: '남색 기본', theme: DEFAULT_CUSTOM},
+  {label: '숲', theme: {brand: '#15803d', bg: '#f4f7f2', nav: '#1f3a2c', text: 95}},
+  {label: '먹', theme: {brand: '#374151', bg: '#f5f5f4', nav: '#1c1917', text: 100}},
+  {label: '한밤', theme: {brand: '#60a5fa', bg: '#0f172a', nav: '#020617', text: 90}},
+  {label: '종이', theme: {brand: '#9a3412', bg: '#f6f1e7', nav: '#3b2f25', text: 85}},
+];
+
+/** 팔레트(운영체제 색 고르기 창)와 HEX 칸. 팔레트는 움직이는 동안 바로 반영된다 */
+function ColorField({label, value, onChange}: {label: string; value: string; onChange: (v: string) => void}){
+  const id = useId();
+  return <div className="theme-field"><span id={id}>{label}</span>
+    <div className="theme-color">
+      <input type="color" value={isHex(value) ? value : '#000000'} onChange={e => onChange(e.target.value)} aria-labelledby={id}/>
+      <input type="text" value={value} maxLength={7} spellCheck={false} aria-label={`${label} HEX 값`}
+        onChange={e => { const v = e.target.value.trim(); onChange(v.startsWith('#') ? v : `#${v}`); }}/>
+    </div>
+  </div>;
 }
 
 /** 운영자용 모델·프롬프트 설정. isOperator일 때만 그려진다(위 RulesTab). 값이 있는 줄만 보이고, 하나도 없으면 한 줄로 알린다.

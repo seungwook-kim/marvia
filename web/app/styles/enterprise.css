@@ -217,3 +217,30 @@ tbody tr:hover{background:var(--hover)}
  .sidebar nav .nav-link[href="/settings"],.sidebar nav .nav-link[href="/metrics"]{margin-left:13px;position:relative;overflow:visible}
  .sidebar nav .nav-link[href="/settings"]::before,.sidebar nav .nav-link[href="/metrics"]::before{content:"";position:absolute;left:-7px;top:8px;bottom:8px;border-left:1px dashed var(--nav-mute);opacity:.55}
 }
+/* 직접 만들기(data-theme=custom): 색 변수는 lib/theme.ts가 <html style>에 넣는다. 여기서는 흰 글자를 고정으로 쓰던 곳만 계산값으로 바꾼다 */
+[data-theme="custom"] .button.primary,[data-theme="custom"] .send{background:var(--brand-fill);border-color:var(--brand-fill);color:var(--on-brand)}
+[data-theme="custom"] .button.primary:hover:not(:disabled){filter:brightness(.92)}
+[data-theme="custom"] .brand,[data-theme="custom"] .brand-text strong,
+[data-theme="custom"] .nav-link:hover,[data-theme="custom"] .nav-sub-item:hover,[data-theme="custom"] .about-link:hover,
+[data-theme="custom"] .nav-link.active,[data-theme="custom"] .nav-link.active span,[data-theme="custom"] .nav-sub-item.active,[data-theme="custom"] .nav-sub-item.active span,
+[data-theme="custom"] .nav-group-head .nav-link.active,[data-theme="custom"] .about-link.active{color:var(--nav-strong)}
+[data-theme="custom"] input,[data-theme="custom"] select,[data-theme="custom"] textarea{background:var(--surface);color:var(--text)}
+
+/* 직접 만들기 편집기 */
+.theme-editor{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 16px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
+.theme-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:var(--text-xs);color:var(--text-2)}
+.theme-field>span{font-weight:600}
+.theme-color{display:flex;align-items:center;gap:8px}
+.theme-color input[type=color]{flex:none;width:40px;height:32px;padding:2px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);cursor:pointer}
+.theme-color input[type=text]{width:100%;min-width:0;height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius);font-family:var(--mono);font-size:var(--text-xs);text-transform:uppercase}
+.theme-field input[type=range]{width:100%;accent-color:var(--brand-fill,var(--brand))}
+.theme-presets{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:var(--text-xs);color:var(--muted)}
+.theme-presets button{height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:var(--text-xs)}
+.theme-presets button:hover{border-color:var(--brand)}
+.theme-warn{grid-column:1/-1;margin:0;padding:8px 10px;border:1px solid var(--grade-watch);border-radius:var(--radius);color:var(--text);font-size:var(--text-xs)}
+.theme-warn li{margin-left:16px}
+.theme-ok{grid-column:1/-1;margin:0;color:var(--muted);font-size:var(--text-xs)}
+@media(max-width:900px){.theme-editor{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.theme-picker{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1100px){.theme-picker{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.theme-picker{grid-template-columns:repeat(2,minmax(0,1fr))}}
