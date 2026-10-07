@@ -1,0 +1,66 @@
+/* 담당 영역: 기능만 옮겨 온 화면 부품의 최소 스타일 (근거 칩·모음, 선박 후보 칩, 배 지켜보기 버튼·목록, 답 단계 요약, 서류 경과 초).
+ * 원본 디자인은 가져오지 않고 지금 화면의 토큰(globals.css :root)으로만 짠다 */
+
+/* ---------- 답 속 근거 칩과 상자 (EvidencePopover) ---------- */
+.ev-text{white-space:pre-wrap}
+.ev-wrap{position:relative;display:inline-block;margin-left:4px;vertical-align:baseline}
+.ev-chip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-2);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
+.ev-chip:hover,.ev-chip.open{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+.ev-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:30;display:block;width:min(320px,80vw);max-height:320px;overflow:auto;padding:12px;border:1px solid var(--border);border-radius:var(--small-radius);background:var(--surface);box-shadow:var(--shadow);white-space:normal;font-size:var(--text-sm);color:var(--text)}
+.ev-pop-item{display:block}
+.ev-pop-item+.ev-pop-item{margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.ev-pop-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
+.ev-pop-head time{color:var(--muted);font-size:12px}
+.ev-pop-values{display:grid;gap:4px}
+.ev-pop-row{display:flex;gap:8px}
+.ev-pop-key{min-width:84px;color:var(--muted)}
+.ev-pop-val{word-break:break-word}
+.ev-pop-link{display:inline-block;margin-top:8px;color:var(--brand)}
+
+/* ---------- 대화 위 "근거 N개" 버튼과 모음 (ConversationEvidence) ---------- */
+.chat-evidence-bar{display:flex;justify-content:flex-end;margin-bottom:8px}
+.ev-collect-btn{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-2);font-size:13px;cursor:pointer}
+.ev-collect-btn:hover{border-color:var(--brand);color:var(--brand)}
+.ev-collect-group+.ev-collect-group{margin-top:16px}
+.ev-collect-group h3{display:flex;justify-content:space-between;margin:0 0 8px;font-size:var(--text-base)}
+.ev-collect-group h3 span{color:var(--muted);font-weight:400;font-size:var(--text-sm)}
+.ev-collect-group ul{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.ev-collect-group li{display:grid;gap:2px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--small-radius)}
+.ev-collect-field,.ev-collect-group time{color:var(--muted);font-size:12px}
+.ev-collect-group a{color:var(--brand);font-size:13px}
+
+/* ---------- 되묻기 선박 후보 칩 (ChatCandidateChips) ---------- */
+.chat-cand-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chat-cand-item{display:inline-flex;align-items:center;gap:4px}
+.chat-cand-chip{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--small-radius);background:var(--surface);color:var(--text);text-align:left;cursor:pointer}
+.chat-cand-chip span{color:var(--muted);font-size:12px}
+.chat-cand-chip:hover:not(:disabled){border-color:var(--brand);background:var(--brand-soft)}
+.chat-cand-chip:disabled{opacity:.6;cursor:default}
+
+/* ---------- 배 지켜보기 버튼 (WatchVesselButton) ---------- */
+.watch-vessel-btn{display:inline-flex;align-items:center;vertical-align:middle}
+.watch-vessel-btn .icon-button{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:var(--small-radius);background:var(--surface);color:var(--text-2);cursor:pointer}
+.watch-vessel-btn .icon-button:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
+.watch-vessel-btn .icon-button.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+.watch-vessel-btn .request-error:empty{display:none}
+.watch-vessel-btn .request-error{margin-left:6px;color:var(--danger);font-size:12px}
+.vl-name{display:flex;align-items:center;gap:6px}
+.cmp-watch{display:inline-flex;margin-left:6px}
+
+/* ---------- 지켜보는 배 목록 (/watch, WatchedVessels) ---------- */
+.watched-vessels{margin-top:24px;padding:16px;border:1px solid var(--border);border-radius:var(--card-radius);background:var(--surface)}
+.watched-vessels h3{margin:0 0 8px;font-size:var(--text-lg)}
+.watched-vessels .request-error:empty{display:none}
+.watched-vessels ul{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.watched-vessels li{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--small-radius)}
+.wv-main{display:grid;gap:4px}
+.wv-line{color:var(--text-2);font-size:var(--text-sm)}
+.watched-vessels .subtle-badge{justify-self:start;padding:2px 8px;border-radius:999px;background:var(--neutral-bg);color:var(--text-2);font-size:12px}
+
+/* ---------- 답 아래 "N단계 · M초" 요약 (StepsSummary) ---------- */
+.steps-summary{margin-top:6px}
+.steps-toggle{display:inline-flex;align-items:center;gap:6px;padding:2px 0;border:0;background:none;color:var(--muted);font-size:12px;cursor:pointer}
+.steps-toggle:hover{color:var(--text-2)}
+
+/* ---------- 서류 읽는 중 경과 초 (DocumentPanel) ---------- */
+.doc-wait{color:var(--muted);font-size:var(--text-sm)}

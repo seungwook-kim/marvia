@@ -5,7 +5,7 @@
  * 서류 사진은 입력을 돕는 보조 동작이라 드로어에서 확인한 뒤 문장에 넣는다. 읽은 값으로 바로 조회하지 않는다.
  * 화면을 내려 입력창이 안 보이면 "AI에게 이어서 물어보기" 버튼이 나타나 입력창으로 돌려보낸다.
  */
-import {useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode} from 'react';
+import {useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
 import {ArrowUp, Camera, Check, FileText, LoaderCircle, MessageCircle, PackageSearch, Ship, Sparkles} from 'lucide-react';
 import {VerdictBadge} from './Shared';
@@ -15,6 +15,9 @@ import {Drawer} from './Drawer';
 import {ChatMiniMap} from './ChatMiniMap';
 import {ChatCargoTable} from './ChatCargoTable';
 import {WatchOfferAction} from './WatchOfferAction';
+import {ChatCandidateChips} from './ChatCandidateChips';
+import {EvidencePopover} from './EvidencePopover';
+import {ConversationEvidence} from './ConversationEvidence';
 import {isLive, QUOTA_MESSAGE} from '@/lib/api';
 import {onComposerRequest} from '@/lib/composer';
 import {stageLabels, type ProgressStage} from '@/lib/progress';
@@ -61,6 +64,9 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   // 판정 배지·할 일 한 줄은 "가장 최근 화물 답" 말풍선에만 붙인다. ChatTurn에는 판정이 없어 지금 보는 result(가장 최근 화물 답)에서 읽는다. 지어내지 않는다.
   // B/L 여러 개를 비교한 답은 표가 줄마다 배지를 가지고 있어 붙이지 않는다
   const verdictTurn = view === 'cargo' && result?.verdict ? thread.map((t, i) => t.role === 'assistant' && t.kind === 'cargo' && !(t.cargos && t.cargos.length > 1) ? i : -1).reduce((a, b) => Math.max(a, b), -1) : -1;
+  // 선박 후보 칩은 "가장 최근 되묻기 답"에만 붙이고, 그 되묻기가 아직 풀리지 않았을 때만 보인다 (결과 칸이 같은 되묻기 그대로일 때).
+  // 후보를 골라 판정이 나오면 결과가 바뀌어 칩이 사라진다
+  const chipTurn = result?.status === 'insufficient' ? thread.map((t, i) => t.role === 'assistant' && t.agent?.vessel_candidates.length ? i : -1).reduce((a, b) => Math.max(a, b), -1) : -1;
   // 화물 카드가 실제로 보일 때만 "이 화물"로 안내한다. AppProvider.ask도 같은 조건으로 화물을 함께 보낸다 (10-02 UI 점검 F5)
   const cargoShown = view === 'cargo' && !!result && !!request.bl_no;
   // 하루 토큰 한도를 다 쓰면 입력·서류 사진을 막는다. 서버도 429로 막는다 (docs/specs/token-quota.md)
@@ -155,10 +161,13 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   // 대화가 없고 답할 글만 있는 첫 화면(.chat-seed는 .chat-turn이 아니다: 실제 주고받은 말만 .chat-turn으로 센다): 결과 칸의 answer를 그대로 답 말풍선으로 보인다 (지어내지 않는다, 서버 값)
   const seedAnswer = thread.length === 0 && view === 'cargo' && result && result.status !== 'insufficient' && result.answer ? result : null;
   const empty = idle && !loading && thread.length === 0;
+  // 이 대화의 근거 모음: 답 턴마다 붙은 근거를 순번(turn)과 함께 모은다. 0개면 버튼이 숨는다
+  const convEvidence = thread.flatMap((t, i) => t.role === 'assistant' && t.evidence ? t.evidence.map(e => ({...e, turn: i})) : []);
 
   return <section className="ask" aria-label="AI에게 묻기">
     {/* 대화는 이 칸 안에서만 스크롤하고, 입력창은 아래에 고정한다 (시안 2-1·2-2). 페이지 전체는 움직이지 않는다 */}
     <div className="chat-scroll" ref={threadRef} onScroll={onScroll} role="log" aria-label="대화" tabIndex={0}>
+      {convEvidence.length > 0 && <div className="chat-evidence-bar"><ConversationEvidence evidence={convEvidence}/></div>}
       {empty ? <div className="chat-empty">
         <span className="chat-empty-icon" aria-hidden="true"><MessageCircle size={22}/></span>
         <h2>어떤 화물을 확인할까요?</h2>
@@ -170,7 +179,7 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
         </div>
       </div> : <ol className="chat-thread" aria-live="polite">
         {thread.map((t, i) => <li key={i} className={`chat-turn ${t.role}`}>
-          <div className="chat-body"><div className="chat-bubble"><p>{t.role === 'assistant' ? linkify(t.text) : t.text}</p>{i === verdictTurn && verdictBlock}</div>{t.role === 'assistant' && t.cargos && t.cargos.length > 1 ? <ChatCargoTable cargos={t.cargos}/> : t.role === 'assistant' && t.map && <ChatMiniMap map={t.map}/>}{t.role === 'assistant' && t.watchOffer && <WatchOfferAction offer={t.watchOffer}/>}</div></li>)}
+          <div className="chat-body"><div className="chat-bubble"><p>{t.role === 'assistant' ? <EvidencePopover text={t.text} citations={t.citations ?? []} evidence={t.evidence ?? []} renderText={linkify}/> : t.text}</p>{i === verdictTurn && verdictBlock}</div>{t.role === 'assistant' && t.cargos && t.cargos.length > 1 ? <ChatCargoTable cargos={t.cargos}/> : t.role === 'assistant' && t.map && <ChatMiniMap map={t.map}/>}{t.role === 'assistant' && t.steps && t.steps.length > 0 && <StepsSummary steps={t.steps} tookMs={t.tookMs ?? 0}/>}{t.role === 'assistant' && t.watchOffer && <WatchOfferAction offer={t.watchOffer}/>}{i === chipTurn && t.agent && t.request && t.agent.trace_id === result?.trace_id && <ChatCandidateChips agent={t.agent} request={t.request} disabled={loading || blocked}/>}</div></li>)}
         {seedAnswer && <li className="chat-seed"><div className="chat-body"><div className="chat-bubble"><p>{seedAnswer.answer}</p>{verdictBlock}</div></div></li>}
       </ol>}
       {loading && pendingSince !== null && <Pending stages={stages} since={pendingSince}/>}
@@ -212,6 +221,19 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
     {/* body로 뺀다. 입력창이 화면 밖으로 밀렸을 때(휴대폰 상세 시트가 올라온 경우 등) 돌아가는 길 */}
     {away && !docOpen && !typing && createPortal(<button type="button" className="back-to-composer" onClick={goToComposer}><Sparkles size={15}/>AI에게 이어서 물어보기<span aria-hidden="true">↑</span></button>, document.body)}
   </section>;
+}
+
+/** 답이 온 뒤 접힌 한 줄 요약 "N단계 · M초". 누르면 거친 단계가 모두 완료로 펼쳐진다.
+ * 단계 시간은 브라우저가 처음 본 시각 차이다. 스타일은 기존 pending-steps를 그대로 쓴다 */
+function StepsSummary({steps, tookMs}: {steps: {stage: ProgressStage; at: number}[]; tookMs: number}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return <div className="steps-summary">
+    <button type="button" className="steps-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(o => !o)}>
+      {steps.length}단계 · {Math.max(1, Math.round(tookMs / 1000))}초<span aria-hidden="true">{open ? '▾' : '▸'}</span></button>
+    {open && <ol id={id} className="pending-steps" aria-label="답변 준비 단계">{steps.map(s =>
+      <li key={s.stage} className="done"><span className="step-icon"><Check size={16}/></span><span className="step-name">{stageLabels[s.stage]}</span><span className="step-state">완료</span></li>)}</ol>}
+  </div>;
 }
 
 /** 답을 기다리는 동안의 표시. 단계는 서버가 알린 것만, 시간은 브라우저가 실제로 잰 값이다 (chat-progress.md AC-04).
