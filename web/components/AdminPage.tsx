@@ -14,7 +14,12 @@ import {useApp} from './AppProvider';
 import {OperatorDenied, previewOk} from './OperatorOnly';
 import {getAdminActions, getCustomers, getOperators, grantOperator, isLive, revokeOperator} from '@/lib/api';
 import {dateTime} from '@/lib/format';
-import type {ActionItem, CustomersResponse, OperatorsResponse} from '@/lib/types';
+import type {ActionItem, CustomerItem, CustomersResponse, OperatorsResponse} from '@/lib/types';
+
+/** Supabase 로그인 차단과 정지 기록이 어긋났을 때의 안내 (10-08 QA, services/customers.py).
+ * 정지·해제 중 한쪽만 바뀐 경우다. 같은 버튼을 다시 누르면 서버가 둘을 맞춘다. 칸이 없는 옛 응답은 비교하지 않는다 */
+const BAN_MISMATCH = '로그인 차단 상태가 기록과 달라요. 정지/해제를 다시 눌러 맞춰 주세요.';
+const banMismatch = (c: CustomerItem) => c.supabase_banned !== undefined && c.supabase_banned !== c.is_suspended;
 
 type Tab = 'customers' | 'operators';
 const DAY_MS = 86_400_000;
@@ -106,7 +111,9 @@ function CustomersPanel() {
           <td className="adm-sub adm-wrap" data-label="주소">{c.address_masked ?? (c.profile_complete ? '확인 불가' : '미입력')}</td>
           <td className="adm-sub" data-label="가입일 · 로그인"><span className="adm-dates">{dateTime(c.created_at)}<small>{c.last_sign_in_at ? dateTime(c.last_sign_in_at) : '로그인한 적 없음'}</small></span></td>
           {/* 정지는 신호등 색이 아니라 굵은 테두리 칩으로 (순항·주의·긴급 전용 색 규칙) */}
-          <td data-label="구분 · 상태"><div className="adm-chips">{c.is_operator ? <span className="adm-chip strong">운영자</span> : !c.is_suspended && <span className="adm-role">고객</span>}{c.is_suspended && <span className="adm-chip suspended">정지</span>}</div></td>
+          <td data-label="구분 · 상태"><div className="adm-chips">{c.is_operator ? <span className="adm-chip strong">운영자</span> : !c.is_suspended && <span className="adm-role">고객</span>}{c.is_suspended && <span className="adm-chip suspended">정지</span>}
+            {banMismatch(c) && <span className="adm-chip strong" title={BAN_MISMATCH}>차단 상태 다름</span>}</div>
+            {banMismatch(c) && <small className="muted">{BAN_MISMATCH}</small>}</td>
           <td data-label="작업"><div className="adm-actions">
             <div className="adm-act-group">{([['unmask', '마스킹 해제', Eye], ['edit', '수정', Pencil], ['suspend', c.is_suspended ? '정지 해제' : '일시 정지', c.is_suspended ? Play : Pause]] as const).map(([mode, label, Icon]) => {
               const blocked = mode === 'suspend' && !c.is_suspended && c.is_operator;

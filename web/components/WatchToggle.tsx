@@ -70,7 +70,8 @@ export function WatchToggle({blNo}: {blNo: string}) {
     try {
       const r = await setWatch(blNo, next);
       setWatching(r.watch); share(blNo, r.watch);
-      setMessage(r.watch ? '이제 이 화물을 지켜봐요.' : '지켜보기를 껐어요.');
+      // 켜기 응답의 notice: 배가 정해지지 않아 자동 확인이 안 돈다는 서버 안내 (10-08 QA E1-9). 있으면 그 문장을 덧붙인다
+      setMessage(r.watch ? ['이제 이 화물을 지켜봐요.', r.notice].filter(Boolean).join(' ') : '지켜보기를 껐어요.');
     } catch (e) { setError(e instanceof Error ? e.message : '지켜보기를 바꾸지 못했어요.'); }
     finally { setBusy(false); }
   }

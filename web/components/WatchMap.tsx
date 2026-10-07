@@ -50,6 +50,16 @@ const pinColor = (item: MapItem, i: number) => item.vesselOnly ? VESSEL_COLOR : 
 /** 보인 글 그대로의 도착 예정. 날짜로 읽히면 화면 형식으로, 아니면 글 그대로 */
 const etaText = (v: string | null | undefined) => !v ? '확인 안 됨' : Number.isNaN(new Date(v).valueOf()) ? v : dateTime(v, true);
 
+/** 자동 확인 안내 한 줄 (10-08 QA E1-1·E1-9, services/watch.watch_list의 auto_paused·known_vessel).
+ * 멈춤이 먼저다: 잇달아 실패해 멈췄으면 다시 조회해야 풀린다. 배를 모르면 워커가 아예 다시 판정하지 않는다.
+ * 옛 서버 응답·체험 예시에는 칸이 없다(undefined). 그때는 아무것도 보이지 않는다 */
+function autoNotice(item: MapItem): string | null {
+  if (item.vesselOnly || item.status !== 'active') return null;
+  if (item.auto_paused) return '자동 확인이 멈췄어요. 다시 조회하면 다시 시작해요.';
+  if (item.known_vessel === false) return '배가 정해지지 않아 자동 확인을 하지 않아요. 조회에서 배를 고르면 시작해요.';
+  return null;
+}
+
 /** 말풍선과 클러스터 상세 창이 같이 쓰는 항목 */
 function rowsOf(item: MapItem): [string, string][] {
   if (item.vesselOnly) return [
@@ -59,6 +69,7 @@ function rowsOf(item: MapItem): [string, string][] {
     ['도착 예정', etaText(item.eta_text)],
     ['위치 받은 시각', dateTime(item.position_at, true)],
   ];
+  const notice = autoNotice(item);
   return [
     ['화물 이름', item.label ?? item.goods_name ?? '이름 없음'],  // 이름표가 없으면 UNI-PASS 품명
     ['B/L', item.bl_masked],
@@ -66,6 +77,7 @@ function rowsOf(item: MapItem): [string, string][] {
     ['통관 단계', item.stage ?? '확인 안 됨'],
     ['도착 예정', item.eta ? dateTime(item.eta, true) : '확인 안 됨'],
     ['위치 받은 시각', dateTime(item.position_at, true)],
+    ...(notice ? [['자동 확인', notice] as [string, string]] : []),
   ];
 }
 function motion(item: MapItem) {
@@ -357,6 +369,7 @@ export function WatchMap() {
                   <strong className="watch-goods">{item.label ?? item.goods_name ?? '이름 없음'}</strong>
                   <span className="watch-ship">{item.ship_name}{item.ship_flag ? ` · ${item.ship_flag}` : ''}</span>
                   <span className="watch-stage">통관 {item.stage ?? '확인 안 됨'}</span>
+                  {autoNotice(item) && <span className="watch-stage">{autoNotice(item)}</span>}
                   {selected === i && <span className="sr-only">지도에서 선택됨</span>}
                 </span>}
                 {/* 배만 지켜보는 줄은 판정·B/L이 없어 배지 자리를 비운다. 그 자리에 해제 버튼이 겹쳐 온다(wm-unwatch) */}
@@ -367,7 +380,7 @@ export function WatchMap() {
           </ol>
           <p role="alert" className="request-error wm-unwatch-error">{unwatchError}</p>
           {waiting.length > 0 && <div className="wm-waiting"><strong>아직 위치를 받지 못했어요</strong>
-            <ul>{waiting.map((i, n) => <li key={keyOf(i, n)}className={i.vesselOnly ? 'wm-waiting-vessel' : undefined}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small>{unwatchButton(i)}</li>)}</ul>
+            <ul>{waiting.map((i, n) => <li key={keyOf(i, n)}className={i.vesselOnly ? 'wm-waiting-vessel' : undefined}><span>{i.label ?? i.goods_name ?? i.ship_name}</span><small>{i.vesselOnly ? `${i.ship_name} · 배만 지켜보는 중` : `${i.ship_name} · ${i.bl_masked}`}</small>{autoNotice(i) && <small>{autoNotice(i)}</small>}{unwatchButton(i)}</li>)}</ul>
             <p>다음 조회나 위치 확인 뒤 지도에 나와요.</p></div>}
           {done > 0 && <p className="watch-done">반출이 끝난 화물 {done}건은 지도에서 뺐어요.</p>}
         </aside>

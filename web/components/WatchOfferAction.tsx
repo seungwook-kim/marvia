@@ -16,6 +16,8 @@ export function WatchOfferAction({offer}: {offer: WatchOffer}) {
   const {user, authEnabled, watching, setWatching} = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // 켜기 응답의 notice (배가 정해지지 않아 자동 확인이 안 돈다는 서버 안내, 10-08 QA E1-9). 켠 뒤 "지켜보는 중" 옆에 보인다
+  const [notice, setNotice] = useState('');
   const on = watching[watchKey(offer.bl_no)] === true;
   // 서버가 본 로그인 여부보다 지금 화면의 로그인 상태를 우선한다 (그 사이 로그인했거나 세션이 풀렸을 수 있다)
   const loggedIn = !!user;
@@ -25,12 +27,13 @@ export function WatchOfferAction({offer}: {offer: WatchOffer}) {
     try {
       if (!loggedIn) { await signInWithGoogle(); return; }  // 성공하면 구글로 페이지가 넘어간다
       const r = await setWatch(offer.bl_no, true);
+      setNotice(r.watch && r.notice ? r.notice : '');
       setWatching(offer.bl_no, r.watch);
     } catch (e) { setError(e instanceof Error ? e.message : '지켜보기를 켜지 못했어요. 잠시 뒤 다시 눌러 주세요.'); }
     finally { setBusy(false); }
   }
 
-  if (on) return <div className="watch-offer"><span className="subtle-badge" role="status">지켜보는 중</span></div>;
+  if (on) return <div className="watch-offer"><span className="subtle-badge" role="status">지켜보는 중</span>{notice && <p className="muted">{notice}</p>}</div>;
   // 로그인 기능이 꺼진 서버에서는 로그인할 곳이 없다. 눌러도 되지 않는 버튼을 보이지 않는다
   if (!loggedIn && !authEnabled) return null;
   return <div className="watch-offer">

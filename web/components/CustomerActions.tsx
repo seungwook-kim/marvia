@@ -101,7 +101,11 @@ export function CustomerActions({customer, mode, onDone, onClose}: {
           <input id={`del-${customer.user_id}`} value={confirmText} onChange={e => setConfirmText(e.target.value)} autoComplete="off" disabled={busy}/></div>
         <div className="row-actions"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>취소</button>
           <button type="button" className="button danger" disabled={busy || !deleteReady}
-            onClick={() => void run(async () => { const r = await deleteCustomer(customer.user_id); onDone(`강제 탈퇴했어요. 조회 이력 ${r.deleted_records}건도 함께 지웠어요.`); })}>
+            onClick={() => void run(async () => {
+              const r = await deleteCustomer(customer.user_id);
+              // resumed: 앞선 시도가 기록을 이미 지웠고 이번에 계정 삭제만 마쳤다. 0건이라고 쓰지 않는다 (10-08 QA, services/customers.py)
+              onDone(r.resumed ? '강제 탈퇴했어요. 앞선 시도에서 기록은 이미 지웠고, 이번에 계정 삭제를 마쳤어요.'
+                : `강제 탈퇴했어요. 조회 이력 ${r.deleted_records}건도 함께 지웠어요.`); })}>
             {busy ? <LoaderCircle size={16} className="spin"/> : <UserRoundX size={16}/>}강제 탈퇴</button></div>
       </div>
       <p className="adm-note">조회 이력, 회원 정보, 계정을 차례로 지워요. 되돌릴 수 없어요.</p>

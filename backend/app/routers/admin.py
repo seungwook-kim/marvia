@@ -318,6 +318,7 @@ def resume_customer(user_id: str, user: Annotated[CurrentUser, Depends(require_o
 
 @router.get("/metrics")
 def metrics(_: Annotated[CurrentUser, Depends(require_operator)]) -> dict:
-    """평가지표 화면용. evals/results의 구성별 최신 결과를 읽기만 한다 (services/metrics.py). 운영자 전용."""
-    from backend.app.services import metrics as metrics_svc  # 이 화면에서만 쓴다
-    return metrics_svc.build()
+    """평가지표 화면용. evals/results의 구성별 최신 결과를 읽기만 한다 (services/metrics.py). 운영자 전용.
+    채팅 에이전트 실패 집계(services/chat.agent_health)도 chat_agent 칸으로 같이 준다 (10-08 QA)."""
+    from backend.app.services import chat as chat_svc, metrics as metrics_svc  # 이 화면에서만 쓴다
+    return metrics_svc.build(chat_agent=chat_svc.agent_health())
