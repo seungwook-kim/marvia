@@ -108,12 +108,12 @@ try {
 
     // 설정은 화면 안 탭 5개, 관리는 탭 2개: 탭마다 접근성 검사 (탭을 바꿔도 가로 넘침이 없어야 한다)
     await page.goto(`${base}/settings`); await ready(page);
-    const settingsTabs = page.locator('.st-tabs .st-tab'); assert.equal(await settingsTabs.count(), 5, 'settings has 5 in-page tabs');
-    for (let t = 0; t < 5; t++) { await settingsTabs.nth(t).click(); await ready(page); await overflow(page, width); if (!interactionsOnly) await audit(page, `settings-tab${t}-${width}`); }
+    const settingsTabs = page.locator('.st-tabs .st-tab'); assert.equal(await settingsTabs.count(), 4, 'settings has 4 in-page tabs (조회 이력은 왼쪽 메뉴로 합침, 10-07)');
+    for (let t = 0; t < 4; t++) { await settingsTabs.nth(t).click(); await ready(page); await overflow(page, width); if (!interactionsOnly) await audit(page, `settings-tab${t}-${width}`); }
     await page.goto(`${base}/admin`); await ready(page);
     const adminTabs = page.getByRole('tab'); assert.equal(await adminTabs.count(), 2, 'admin has 2 in-page tabs');
     for (let t = 0; t < 2; t++) { await adminTabs.nth(t).click(); await ready(page); await overflow(page, width); if (!interactionsOnly) await audit(page, `admin-tab${t}-${width}`); }
-    check(`settings 5 tabs + admin 2 tabs ${width}`);
+    check(`settings 4 tabs + admin 2 tabs ${width}`);
 
     // AI 입력이 첫 화면의 중심이다: 입력창과 보내기 버튼이 스크롤 없이 보인다 (구현작업서 10절)
     await home(page);

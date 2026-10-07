@@ -80,13 +80,13 @@ export function customVars(t: CustomTheme): Record<string, string> {
 export function contrastWarnings(t: CustomTheme): string[] {
   const v = customVars(t);
   const out: string[] = [];
-  if (contrast(v['--text'], v['--surface']) < 4.5) out.push(`본문 글자 대비 ${contrast(v['--text'], v['--surface']).toFixed(1)}:1 (4.5 이상 권장). 글자 진하기를 올려 주세요`);
-  if (contrast(v['--muted'], v['--surface']) < 3) out.push(`보조 글자가 흐려요 (${contrast(v['--muted'], v['--surface']).toFixed(1)}:1)`);
-  if (contrast(v['--on-brand'], v['--brand-fill']) < 4.5) out.push(`버튼 글자 대비 ${contrast(v['--on-brand'], v['--brand-fill']).toFixed(1)}:1. 강조색을 더 진하거나 더 밝게 골라 주세요`);
-  if (contrast(v['--nav-text'], v['--nav']) < 4.5) out.push(`사이드바 글자 대비 ${contrast(v['--nav-text'], v['--nav']).toFixed(1)}:1`);
+  const check = (label: string, a: string, b: string, need: number) => { const r = contrast(a, b); if (r < need) out.push(`${label} ${r.toFixed(1)}:1 · 기준 ${need}`); };
+  check('본문 글자', v['--text'], v['--surface'], 4.5);
+  check('보조 글자', v['--muted'], v['--surface'], 3);
+  check('버튼 글자', v['--on-brand'], v['--brand-fill'], 4.5);
+  check('사이드바 글자', v['--nav-text'], v['--nav'], 4.5);
   return out;
 }
-
 export function readCustom(): CustomTheme {
   try {
     const raw = JSON.parse(window.localStorage.getItem(CUSTOM_KEY) ?? 'null');
