@@ -370,9 +370,9 @@ def test_research_positions_drop_future_too():
     assert result["positions_new"] == 1 and result["positions_failed"] == [{"mmsi": 2, "code": "future_time"}]
 
 
-def test_migration_027_fixes_vessel_detail_usage_window_and_adds_watch_columns():
-    """025는 day < 오늘-7 을 지워 8일치를 남겼다 (E1-11). 027이 함수를 바꿔 오늘 포함 7일만 남긴다.
-    지켜보기 실패 기록·알림 보류·도착 예정 변화 칸도 027이 더한다 (E1-1, E1-2, E1-7)."""
+def test_migration_028_fixes_vessel_detail_usage_window_and_adds_watch_columns():
+    """025는 day < 오늘-7 을 지워 8일치를 남겼다 (E1-11). 028이 함수를 바꿔 오늘 포함 7일만 남긴다.
+    지켜보기 실패 기록·알림 보류·도착 예정 변화 칸도 028이 더한다 (E1-1, E1-2, E1-7)."""
     from backend.app.db import MIGRATIONS_DIR
     [path] = [p for p in MIGRATIONS_DIR.glob("*.sql") if p.name.endswith("_watch_retry_eta_change.sql")]
     sql = path.read_text(encoding="utf-8")
