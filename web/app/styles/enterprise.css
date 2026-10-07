@@ -20,6 +20,8 @@
  --text-xs:12px;--text-sm:13px;--text-base:14px;--text-lg:16px;--text-xl:20px;
  --radius:4px;--small-radius:4px;--card-radius:4px;--rail-width:220px;
  --shadow:none;--shadow-pop:0 4px 16px rgba(17,24,39,.12);
+ /* 지도 전용 색: 화면 색(밝게·어둡게·직접 만들기)을 바꿔도 지도는 늘 같은 밝은 색으로 그린다. 테마는 --map-*를 덮지 않는다 */
+ --map-sea:#dbe9f7;--map-land:#f9fafb;--map-coast:#c9d1d9;--map-line:#4b5563;--map-muted:#6b7280;--map-accent:#1d4ed8;
 }
 
 body{background:var(--bg);color:var(--text);font-size:var(--text-base);line-height:1.55}
@@ -172,7 +174,6 @@ tbody tr:hover{background:var(--hover)}
  --nav:#080d15;--nav-2:#121b2a;--nav-line:#1c2738;--nav-text:#c9d2df;--nav-mute:#7c8aa0;--nav-on:#60a5fa;
  --shadow-pop:0 6px 20px rgba(0,0,0,.5);
  --canvas:var(--bg);--ink:var(--text);--body:var(--text-2);--quiet:var(--muted);
- --sea:#0e1a2b;--land:#141d2b;--coast:#334155;
 }
 /* 눈 편하게: 순백 대신 따뜻한 미색 바탕, 글자는 진회색으로 대비를 한 단계 낮춘다. 판정 색은 그대로 알아볼 수 있게 둔다 */
 :root[data-theme="comfort"]{

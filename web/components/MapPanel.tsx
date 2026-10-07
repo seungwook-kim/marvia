@@ -38,15 +38,15 @@ export function MapPanel({response:r,watch}:{response:AgentResponse;watch?:React
 home();reset.current=home;
    // 바탕: 세계 지도. 못 쓰면(WebGL 없음, 4초 안에 안 옴, 오류) 예전 해안선과 격자, 손으로 쓴 이름표로 되돌린다. 모두 마커·경로 밑에 깔린다
    baseRef.current=addBasemap(L,map,()=>{
-    for(let lat=25;lat<42;lat+=1)L.polyline([[lat,118],[lat,144]],{color:color('--muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
-    for(let lng=119;lng<144;lng+=1)L.polyline([[25,lng],[42,lng]],{color:color('--muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
+    for(let lat=25;lat<42;lat+=1)L.polyline([[lat,118],[lat,144]],{color:color('--map-muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
+    for(let lng=119;lng<144;lng+=1)L.polyline([[25,lng],[42,lng]],{color:color('--map-muted'),weight:.6,opacity:.18,interactive:false}).addTo(map).bringToBack();
     drawLocalGeography(L,map);
     demo.map_labels.forEach(label=>{const m=L.marker([label.lat,label.lng],{icon:L.divIcon({className:'map-place',html:label.name,iconSize:[80,20]}),interactive:false}).addTo(map);labels.push({el:()=>m.getElement(),ll:[label.lat,label.lng]});});hideNearLabels();
    });
    const portMarker=L.marker(port,{icon:L.divIcon({className:'port-marker',html:'<span>⚑</span>',iconSize:[28,28],iconAnchor:[14,14]}),title:demo.port.name}).addTo(map);
    portMarker.bindTooltip(demo.port.name,{permanent:true,direction:'right',className:'port-tooltip'});
-   if(position){L.polyline([position,port],{color:color(stale?'--muted':'--blue'),weight:2,dashArray:'5 7',opacity:stale?.4:.8,interactive:false}).addTo(map);
-    L.circle(position,{radius:stale?14000:11000,color:color(stale?'--muted':'--blue'),weight:1,dashArray:stale?'4 5':undefined,fillOpacity:.08}).addTo(map);
+   if(position){L.polyline([position,port],{color:color(stale?'--map-muted':'--map-accent'),weight:2,dashArray:'5 7',opacity:stale?.4:.8,interactive:false}).addTo(map);
+    L.circle(position,{radius:stale?14000:11000,color:color(stale?'--map-muted':'--map-accent'),weight:1,dashArray:stale?'4 5':undefined,fillOpacity:.08}).addTo(map);
     const ship=L.marker(position,{icon:L.divIcon({className:`ship-marker ${stale?'stale':''}`,html:'<span>▲</span>',iconSize:[30,30],iconAnchor:[15,15]}),title:stale?'마지막 수신 위치':'수신 위치',opacity:stale?.45:1}).addTo(map);
     const tip=document.createElement('span');tip.textContent=r.vessel?.name??'선박 수신 위치';ship.bindTooltip(tip,{permanent:true,direction:'bottom',className:'ship-tooltip',offset:[0,16]});
    }

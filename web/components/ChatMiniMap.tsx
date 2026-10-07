@@ -43,7 +43,7 @@ export function ChatMiniMap({map: m}: {map: ChatMap}) {
       const map = L.map(host.current, {zoomControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false, boxZoom: false, keyboard: false, minZoom: 4, maxZoom: 10, attributionControl: true});
       map.fitBounds(L.latLngBounds([ship, port]).pad(.5), {maxZoom: 8, animate: false});
       const base = addBasemap(L, map, () => { drawLocalGeography(L, map); });
-      L.polyline([ship, port], {color: color('--blue'), weight: 2, dashArray: '5 7', opacity: .8, interactive: false}).addTo(map);
+      L.polyline([ship, port], {color: color('--map-accent'), weight: 2, dashArray: '5 7', opacity: .8, interactive: false}).addTo(map);
       L.marker(port, {icon: L.divIcon({className: 'port-marker', html: '<span>⚑</span>', iconSize: [28, 28], iconAnchor: [14, 14]}), interactive: false, keyboard: false}).addTo(map);
       L.marker(ship, {icon: L.divIcon({className: 'ship-marker', html: '<span>▲</span>', iconSize: [30, 30], iconAnchor: [15, 15]}), interactive: false, keyboard: false}).addTo(map);
       map.attributionControl.setPrefix(false);

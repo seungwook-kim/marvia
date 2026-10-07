@@ -131,7 +131,7 @@ export function VesselMap(p: VesselMapProps) {
       markers.current.set(s.key, m);
     });
     if (p.selectedKey && p.route.length > 1) {
-      line.current = L.polyline(p.route, {color: css.getPropertyValue('--text-2').trim(), weight: 2.5, dashArray: '6 7', opacity: .9, interactive: false}).addTo(a.map);
+      line.current = L.polyline(p.route, {color: css.getPropertyValue('--map-line').trim(), weight: 2.5, dashArray: '6 7', opacity: .9, interactive: false}).addTo(a.map);
     }
   }, [ready, p.ships, p.selectedKey, p.route]);
 

@@ -31,7 +31,7 @@
 .map-frame .leaflet-container{isolation:isolate}
 .map-place{transition:opacity var(--t-fast) var(--ease)}.map-place.map-place-hide{opacity:0}
 .map-frame .leaflet-control-attribution{pointer-events:none}
-.map-frame{position:absolute;inset:0;height:auto;border-radius:var(--radius);background:var(--sea);overflow:hidden;transform-origin:0 0}
+.map-frame{position:absolute;inset:0;height:auto;border-radius:var(--radius);background:var(--map-sea);overflow:hidden;transform-origin:0 0}
 .map-frame.is-overlay{position:fixed;inset:auto;z-index:900;border-radius:4px;box-shadow:0 24px 64px #191f2840}
 .map-backdrop{position:fixed;z-index:890;background:#191f2873;animation:m-fade var(--t-panel) var(--ease) both}
 .map-backdrop.out{animation:m-fade-out 260ms var(--ease) both}

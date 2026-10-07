@@ -57,7 +57,7 @@ function hasWebGL() {
 export function drawLocalGeography(L: typeof import('leaflet'), map: LeafletMap) {
   const css = getComputedStyle(document.documentElement);
   const c = (n: string) => css.getPropertyValue(n).trim();
-  return L.geoJSON(getGeography() as GeoJsonObject, {style: {color: c('--coast'), weight: 1, fillColor: c('--land'), fillOpacity: 1}, interactive: false}).addTo(map).bringToBack();
+  return L.geoJSON(getGeography() as GeoJsonObject, {style: {color: c('--map-coast'), weight: 1, fillColor: c('--map-land'), fillOpacity: 1}, interactive: false}).addTo(map).bringToBack();
 }
 
 /** 불러온 스타일을 우리 팔레트와 한국어 이름표로 맞춘다. 레이어가 없으면(스타일이 바뀌면) 그 항목만 건너뛴다 */
@@ -65,8 +65,8 @@ function tune(gl: GLMap) {
   const css = getComputedStyle(document.documentElement);
   const c = (n: string) => css.getPropertyValue(n).trim();
   const paint = (id: string, prop: 'background-color' | 'fill-color', v: string) => { try { if (v && gl.getLayer(id)) gl.setPaintProperty(id, prop, v); } catch { /* 레이어가 없으면 건너뜀 */ } };
-  paint('background', 'background-color', c('--land'));
-  paint('water', 'fill-color', c('--sea'));
+  paint('background', 'background-color', c('--map-land'));
+  paint('water', 'fill-color', c('--map-sea'));
   // 조용한 배경: 도로, 철도, 건물, 공항, 시군구 경계, 마을 이름은 배 위치를 읽는 데 방해라서 숨긴다. 바다·나라·도시 이름과 나라 경계만 남긴다 (10-06)
   const QUIET = /^(highway|railway|aeroway|building|bridge|tunnel|landuse|boundary_3|airport|label_village|label_other|waterway)/;
   for (const l of gl.getStyle().layers) {

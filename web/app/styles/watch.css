@@ -20,8 +20,8 @@
 .watch-track-toggle input{width:18px;height:18px;accent-color:var(--brand)}
 
 /* 지도: 바다는 연한 파랑 */
-.watch-map{height:620px;border:0;border-radius:var(--small-radius);background:var(--sea)}
-.watch-map .leaflet-host,.watch-map .leaflet-container{background:var(--sea)}
+.watch-map{height:620px;border:0;border-radius:var(--small-radius);background:var(--map-sea)}
+.watch-map .leaflet-host,.watch-map .leaflet-container{background:var(--map-sea)}
 .port-marker span{background:var(--text);color:#fff;border-color:#fff}
 .leaflet-tooltip.port-tooltip{font-weight:700;color:var(--text);background:var(--surface);border:0;border-radius:var(--small-radius);padding:3px 8px;box-shadow:0 1px 4px #191f2826;font-size:var(--text-sm)}
 .leaflet-tooltip.port-tooltip:before{display:none}
