@@ -238,7 +238,8 @@ def test_encrypt_script_rereads_on_version_change(monkeypatch):
 
 def test_memory_context_has_no_plain_phone_copy():
     assert not hasattr(memory, "user_facts")
-    assert set(memory.MemoryContext.__dataclass_fields__) == {"blocks"}
+    # 남는 칸은 LLM 블록 둘뿐이다: blocks(후속 질문용)와 judge_blocks(판정용, 품명 없음, 10-08 QA B3)
+    assert set(memory.MemoryContext.__dataclass_fields__) == {"blocks", "judge_blocks"}
 
 
 # ── F8. 읽을 때 상한 ──
