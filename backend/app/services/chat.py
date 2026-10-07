@@ -116,11 +116,25 @@ _DEST_FILLER = {"port", "harbor", "harbour", "south", "republic", "of", "the", "
                 "new", "north", "신항", "북항"}  # "Busan New Port"·"부산 신항"도 도착지다
 
 
+# 한글 낱말 끝에 붙는 조사 ("부산에서", "부산항으로", "한국으로"). 떼고 나서 목적지 낱말이면 목적지로 본다 (10-08 QA C11).
+# 긴 것부터 뗀다 ("으로"를 "로"보다 먼저)
+_KO_PARTICLES = ("에서부터", "에서", "으로", "까지", "부터", "에는", "로", "에", "을", "를", "은", "는", "이", "가", "의", "도")
+
+
+def _strip_particle(word: str) -> str:
+    """한글 낱말 끝의 조사 하나를 뗀다. 뗀 뒤 목적지 낱말이 될 때만 뗀 값을 돌려준다 (다른 낱말을 함부로 자르지 않게)."""
+    for p in _KO_PARTICLES:
+        if word.endswith(p) and len(word) > len(p) and (word[:-len(p)] in _DEST_WORDS or word[:-len(p)] in _DEST_FILLER):
+            return word[:-len(p)]
+    return word
+
+
 def _is_destination(text: object) -> bool:
-    """place·label이 도착지 자체(Busan, 부산, Korea, 한국, KRPUS 등)인가. 낱말을 모두 목적지 낱말(+port 같은 군더더기)로만 이루면 참."""
+    """place·label이 도착지 자체(Busan, 부산, Korea, 한국, KRPUS 등)인가. 낱말을 모두 목적지 낱말(+port 같은 군더더기)로만 이루면 참.
+    한글 낱말은 조사를 떼고 본다 ("부산에서", "부산항으로", "한국으로", 10-08 QA C11)."""
     if not isinstance(text, str):
         return False
-    words = [w for w in re.split(r"[^A-Za-z0-9가-힣]+", text.lower()) if w]
+    words = [_strip_particle(w) for w in re.split(r"[^A-Za-z0-9가-힣]+", text.lower()) if w]
     core = [w for w in words if w not in _DEST_FILLER]
     return bool(core) and all(w in _DEST_WORDS for w in core)
 
@@ -205,10 +219,17 @@ def _vessel_rows(chosen: list) -> list[dict]:
     } for p in chosen]
 
 
+SHIP_NAME_MIN = 2  # 배 이름 검색 글자 수 하한 (끝의 "호"를 뺀 길이)
+SHIP_NAME_TOO_SHORT = "배 이름을 두 글자 이상으로 알려 주세요. 영문 배 이름이나 B/L 번호가 있으면 더 정확해요."
+
+
 def search_ship_name(name: str, last: str | None = None) -> ChatResult | None:
     """부산 입항 예정 목록(앞으로 DAYS_MAX일)에서 배 이름으로 찾는다. 이름 글자가 선박 이름에 들어 있으면 맞는 것 (대소문자 무시, 끝의 "호" 뺌).
     찾으면 선박 표, 없으면 무엇을 찾았는지 말하는 문장. 입항 목록을 못 받으면 None (호출한 쪽이 되묻는다)."""
     needle = re.sub(r"호$", "", name).strip().upper() or name.upper()
+    if len(needle) < SHIP_NAME_MIN:
+        # 한 글자로는 거의 모든 배 이름에 들어 있어 아무 배나 맞는다 (10-08 QA C11). 찾지 않고 이름을 더 달라고 한다
+        return ChatResult(kind="message", reply=SHIP_NAME_TOO_SHORT)
     try:
         plans = _arrivals(DAYS_MAX)
     except MofError as e:
@@ -505,12 +526,35 @@ _plans_cache: dict[tuple[str, int], tuple[float, list]] = {}
 def _safe_place(place: object, label: object, masked: str) -> tuple[str | None, str | None]:
     """입항 선박 검색의 place·place_label을 검사해 쓸 수 있는 값만 돌려준다. 둘 다 LLM 출력인데 답 문장에 그대로 들어간다 (주입 방어).
     - place: 영문 지명 모양(_PLACE)이고 네 낱말까지("New South Wales"), 주입 모양이 아닐 때만. 아니면 None
-    - place_label: 사용자가 실제로 쓴 글자(공백 무시)일 때만. 아니면 None
+    - place_label: 사용자가 실제로 쓴 글자(공백 무시)이고 장소 이름 모양일 때만 (_place_label, 10-08 QA C11). 아니면 None
     대비 경로(_classic vessel_search)와 에이전트(search_arrivals)가 같은 기준을 쓰도록 한 곳에 둔다."""
     text = place.strip() if isinstance(place, str) else ""
     safe = text if text and _PLACE.match(text) and len(text.split()) <= 4 and not guard.looks_like_injection(text) else None
-    shown = label if isinstance(label, str) and label and re.sub(r"\s+", "", label) in re.sub(r"\s+", "", masked) else None
-    return safe, shown
+    shown = label.strip() if isinstance(label, str) else ""
+    in_message = bool(shown) and re.sub(r"\s+", "", shown) in re.sub(r"\s+", "", masked)
+    return safe, (_place_label(shown) if in_message else None)
+
+
+# 장소 이름표 검사 (10-08 QA C11). 사용자 문장 속 글자이기만 하면 "오는 배 보여" 같은 아무 조각이나 답 문장에 들어갔다.
+# 장소 이름은 한글·영문 낱말 세 개까지이고, 배·검색 동작 낱말이나 조사로 끝나는 조각이 아니어야 한다
+_LABEL_SHAPE = re.compile(r"^[가-힣A-Za-z][가-힣A-Za-z .'\-]{0,29}$")
+_LABEL_NOT_PLACE = re.compile(r"배|선박|화물|오는|들어|입항|예정|보여|알려|찾아|목록|줘|주세요|어디|언제|몇|척|지금|이번|다음|\[")
+# 조사로 끝나는 조각. "이·가·로·에"는 두바이·말라가 같은 지명 끝 글자와 겹쳐 넣지 않는다
+_LABEL_TAIL = ("에서", "으로", "부터", "까지", "을", "를", "은", "는")
+
+
+def _place_label(label: str) -> str | None:
+    """답 문장에 넣을 장소 이름표 (중국, 상하이, 동남아, New South Wales). 주입 모양·문장 조각이면 None.
+    "중국에서"처럼 조사가 붙었으면 떼고 돌려준다 (답 문장이 "중국에서(SHANGHAI)를"이 되지 않게)."""
+    if not _LABEL_SHAPE.match(label) or len(label.split()) > 3 or guard.looks_like_injection(label):
+        return None
+    if _LABEL_NOT_PLACE.search(label):
+        return None
+    if re.search(r"[가-힣]$", label):
+        for tail in _LABEL_TAIL:
+            if label.endswith(tail) and len(label) > len(tail) + 1:
+                return label[:-len(tail)].strip() or None
+    return label
 
 
 def _arrivals(days: int) -> list:
@@ -554,8 +598,10 @@ def _match_ports_cached(place: str, available: list[str]) -> list[str]:
 def _ship_list_line(vessels: list[dict]) -> str:
     """검색 결과 앞쪽 배 이름과 입항 예정일을 한 줄로. 건수만 말하면 "어떤 배냐"를 또 물어야 한다.
     수입 화물선이 있으면 그 배들을, 없으면 전체에서 SHIP_LIST_SHOWN척까지. 값은 해수부 입항 신고 그대로이고 코드가 쓴다 (LLM 문장 아님).
-    vessels는 _vessel_rows가 이미 입항 예정 시각순으로 정렬한 목록이다. 비면 빈 글자."""
-    picked = [v for v in vessels if v["is_cargo"]] or vessels
+    vessels는 _vessel_rows가 이미 입항 예정 시각순으로 정렬한 목록이다. 비면 빈 글자.
+    화물선이 0척이면 나열하는 배가 화물선이 아니라고 밝힌다 (10-08 QA C11: "화물선은 0척이에요" 뒤에 배 이름이 나와 모순이었다)."""
+    cargo_only = [v for v in vessels if v["is_cargo"]]
+    picked = cargo_only or vessels
     if not picked:
         return ""
     parts = []
@@ -563,7 +609,13 @@ def _ship_list_line(vessels: list[dict]) -> str:
         eta = (v.get("expected_arrival") or "")[:10]
         parts.append(f"{v['ship_name']}({eta[5:].replace('-', '/')} 도착 예정)" if eta else str(v["ship_name"]))
     more = len(picked) - SHIP_LIST_SHOWN
-    return f" 가까운 순으로 {', '.join(parts)}" + (f" 외 {more}척" if more > 0 else "") + "이에요."
+    head = " 가까운 순으로" if cargo_only else " 화물선이 아닌 배를 포함하면 가까운 순으로"
+    return f"{head} {', '.join(parts)}" + (f" 외 {more}척" if more > 0 else "") + "이에요."
+
+
+# 항구 고르기 LLM이 실패했고 지명 글자로도 항구를 못 찾았을 때 (10-08 QA C11)
+PORT_MATCH_FAILED = ("지금은 '{name}'에 해당하는 항구를 고르지 못해 입항 예정 선박을 거르지 못했어요. "
+                     "잠시 뒤 다시 물어보시거나 항구 이름(예: Shanghai)으로 물어봐 주세요.")
 
 
 def search_vessels(place: str | None, days: int | None, label: str | None = None) -> ChatResult:
@@ -592,6 +644,10 @@ def search_vessels(place: str | None, days: int | None, label: str | None = None
             log_failure("chat_port_match", e.kind)
             # 항구 고르기가 안 되면 글자가 그대로 들어 있는 항구만 (예: "Shanghai" → SHANGHAI)
             ports = [p for p in available if place.upper() in p.upper()]
+            if not ports:
+                # 나라·지역 이름("China")은 항구 이름에 글자로 안 들어 있어 0척이 된다. "배가 없다"고 하면 틀린 답이라
+                # 거르지 못했다고 사실대로 말한다 (10-08 QA C11)
+                return ChatResult(kind="message", reply=PORT_MATCH_FAILED.format(name=name))
         chosen = [p for p in plans if p.previous_port in set(ports)]
     else:
         chosen = list(plans)
@@ -676,29 +732,106 @@ def _route(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, 
         return ChatResult(kind="message", reply=hit[1])
 
     progress.step("understand")  # 화면에 실제 단계를 알린다 (docs/specs/chat-progress.md)
-    if agent_enabled():
+    # 회로가 열려 있으면(연속 실패, 10-08 QA C1) 에이전트를 부르지 않고 바로 대비 경로로 간다. 실패할 호출을 매 문장 보내지 않는다
+    if agent_enabled() and _agent_breaker.allow():
         try:
-            return _agent(masked, refs, mrn, session_id, context, run_agent, user_id, history or [], run_tool, today, watch, kakao, on_screen)
+            result = _agent(masked, refs, mrn, session_id, context, run_agent, user_id, history or [], run_tool, today, watch, kakao, on_screen)
+            _agent_breaker.success()
+            return result
         except llm.LLMError as e:
             # 에이전트가 첫 도구를 쓰기도 전에 실패했다 (키 없음, 도구를 붙이면 거절하는 모델·제공사 등).
             # 대비 경로는 도구 없이 한 번 묻는 호출이라 이런 경우에도 된다 (도구를 붙이면 404를 내는 제공사가 있다)
             log_failure("chat_agent", e.kind)
+            if _agent_breaker.failure(e.kind):
+                # 회로가 열렸다. 종류만 남긴다 (사용자 글 없음). 집계는 agent_health()
+                log_failure("chat_agent_circuit", f"open kind={e.kind} cooldown={AGENT_COOLDOWN_SEC}s")
     if not refs and context is None and BROKER_TOPIC.search(masked):
         # 세액·관세율·통관 가부는 화물이 없어도 관세사 고정 안내다. 에이전트 경로와 같게,
         # 에이전트를 못 쓸 때의 대비 경로(_classic)도 사용 안내로 빠지지 않게 여기서 먼저 답한다
         return ChatResult(kind="message", reply=BROKER_ONLY)
-    return _classic(masked, refs, mrn, session_id, context, run_agent, user_id, today)
+    return _classic(masked, refs, mrn, session_id, context, run_agent, user_id, today, history or [])
+
+
+# ── 대비 경로(_classic)에서 코드가 먼저 잡는 말 (10-08 QA C3·C4) ──
+# 인사: 문장 전체가 인사일 때만 (뒤에 질문이 붙으면 인사가 아니다)
+GREETING = re.compile(r"(?:안녕(?:하세요|하십니까|하신가요)?|반가워요?|반갑습니다|하이|헬로|hi|hello|hey)[\s!.~?ㅎㅋ^]*(?:요)?[\s!.~?]*",
+                      re.IGNORECASE)
+# 사용법 질문: 앞머리가 이 서비스(또는 생략)이고 바로 사용법 낱말이 올 때만. "B/L 번호는 어디에 있어?" 같은 실무 질문은 걸리지 않는다
+USAGE_ASK = re.compile(r"^(?:(?:이거|이건|이것|이\s*앱|앱|마르비아|marvia|이\s*서비스|서비스|여기)\s*(?:는|은|을|를)?\s*)?"
+                       r"(?:어떻게\s*(?:써|쓰|사용)|사용\s*(?:법|방법)|쓰는\s*(?:법|방법)|(?:뭘|뭐|무엇을)\s*할\s*수|뭐\s*하는|도움말|기능\s*(?:이|은|좀)?\s*(?:뭐|알려|소개))",
+                       re.IGNORECASE)
+USAGE_ASK_MAX = 30  # 이보다 긴 문장은 사용법 낱말이 있어도 다른 질문이 섞인 것으로 본다
+# 구분 바꾸기: "마스터로 다시 조회해 줘", "하우스 B/L로 찾아 봐". 구분 낱말 뒤에 다시·조회 같은 동작 낱말이 와야 한다
+_BL_TYPE_SWITCH = re.compile(r"(마스터|master|mbl|하우스|house|hbl)\s*(?:b\s*/?\s*l|비엘)?\s*(?:로|으로)\s*(?:는\s*)?"
+                             r"(?:다시|재\s*조회|조회|찾아|찾아\s*봐|바꿔|봐)", re.IGNORECASE)
+FOLLOW_UP_SAME = "방금 드린 답과 같은 내용이에요. 다른 점이 궁금하면 조금 더 자세히 물어봐 주세요."
+FOLLOW_UP_SAME_AGAIN = "조회 결과는 바뀌지 않았어요. 궁금한 점을 다른 말로 물어봐 주세요."
+# 서류 정보 질문인데 저장값이 아니라 낱말 뜻을 묻는 모양 ("인코텀즈 뭐야?", "FOB란?", "서렌더 뜻"). 이때는 서류 정보 답으로 가로채지 않는다
+_DEFINITION_ASK = re.compile(r"(?:이|가|은|는|란|이란)?\s*(?:뭐야|뭐예요|뭐에요|뭔가요|뭔데|뭐지|무엇|무슨\s*뜻|뜻|의미|차이)|(?:이란|란)\s*[?？]?\s*$")
+# 저장된 화물을 가리키는 말. 낱말 뜻 모양이어도 이 말이 있으면 그 화물의 저장값을 묻는 것이다
+_CARGO_REF = re.compile(r"\[BL\d+\]|(?:이|그|내|우리|제)\s*(?:화물|짐|물건|B\s*/?\s*L|비엘|서류|건)")
+
+
+def wanted_bl_type(masked: str) -> str | None:
+    """가린 문장이 구분을 바꿔 다시 조회해 달라는 말이면 MASTER·HOUSE, 아니면 None (10-08 QA C3)."""
+    m = _BL_TYPE_SWITCH.search(masked)
+    if not m:
+        return None
+    return "MASTER" if m.group(1).lower() in ("마스터", "master", "mbl") else "HOUSE"
+
+
+def docs_question(masked: str, refs: dict[str, str], context: AgentRequest | None) -> bool:
+    """서류 정보(저장값) 질문인가 (10-08 QA C10). 서류 낱말(DOCS_TOPIC)이 있고, 화물을 가리키는 말(이 화물·B/L 토큰 등)이 있거나
+    낱말 뜻 질문 모양이 아닐 때만 참이다. "운임 누가 내?", "원본 B/L 필요해?"는 참, "인코텀즈 뭐야?"는 거짓."""
+    if not DOCS_TOPIC.search(masked):
+        return False
+    return bool(refs) or bool(_CARGO_REF.search(masked)) or not _DEFINITION_ASK.search(masked)
+
+
+def _last_assistant(history: list[dict]) -> str | None:
+    """화면이 보낸 대화에서 바로 앞 assistant 답 (마지막 줄이 assistant일 때만). 없으면 None."""
+    if history and history[-1].get("role") == "assistant":
+        return (history[-1].get("text") or "").strip() or None
+    return None
+
+
+def _with_broker_line(result: ChatResult, masked: str) -> ChatResult:
+    """세액·관세율·통관 가능 여부를 물었는데 답이 화물 답이면 끝에 관세사 안내 줄을 붙인다 (10-08 QA C2).
+    화물 답은 그 화물의 통관 단계를 말할 뿐 세액·가부를 답하지 않는다. 안내가 빠지면 질문의 절반을 무시한 셈이다 (PRD 4절)."""
+    if result.kind != "cargo" or not BROKER_TOPIC.search(masked) or BROKER_ONLY in result.reply:
+        return result
+    return replace(result, reply=f"{result.reply}\n\n{BROKER_ONLY}")
 
 
 def _classic(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
-             run_agent, user_id: str | None, today: str) -> ChatResult:
+             run_agent, user_id: str | None, today: str, history: list[dict] | None = None) -> ChatResult:
     """의도 분류 방식. LLM이 의도 하나와 칸을 고르고 코드가 실행한다.
-    에이전트를 못 쓸 때의 대비 경로이고, CHAT_AGENT=off면 이 길만 탄다."""
-    if DOCS_TOPIC.search(masked) and len(set(refs.values())) <= 1:
+    에이전트를 못 쓸 때의 대비 경로이고, CHAT_AGENT=off면 이 길만 탄다.
+    history: 화면이 보낸 최근 대화. 후속 답이 바로 앞 답을 되풀이하는지 보는 데만 쓴다 (10-08 QA C3)."""
+    result = _classic_route(masked, refs, mrn, session_id, context, run_agent, user_id, today, history or [])
+    return _with_broker_line(result, masked)
+
+
+def _classic_route(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
+                   run_agent, user_id: str | None, today: str, history: list[dict]) -> ChatResult:
+    """_classic의 본 처리. 관세사 안내 줄은 _classic이 끝에 한 번 붙인다."""
+    if not refs and GREETING.fullmatch(masked.strip()):
+        # 인사·사용법은 에이전트와 같은 고정 문구다 (10-08 QA C4). LLM 의도 분류가 other로 고르면 LLM 문장이 나가고
+        # 그 문장은 없는 기능을 말할 수 있다. 낱말로 먼저 잡아 LLM을 부르지 않는다
+        return ChatResult(kind="message", reply=GREETING_REPLY)
+    if not refs and USAGE_ASK.search(masked.strip()) and len(masked.strip()) <= USAGE_ASK_MAX:
+        return ChatResult(kind="message", reply=USAGE_GUIDE)
+    switch = wanted_bl_type(masked)
+    if switch and context is not None and all(bl == context.bl_no for bl in refs.values()):
+        # "마스터로 다시 조회해 줘": 지금 화물을 말한 구분으로 다시 조회한다 (10-08 QA C3). LLM 의도 분류는 이 말을
+        # follow_up으로 골라 후속 답이 앞 답을 그대로 되풀이했다. 구분 바꾸기는 코드가 잡는다
+        return _cargo(context.bl_no, switch, None, session_id, context, run_agent, note=None, mrn=mrn, user_id=user_id)
+    if docs_question(masked, refs, context) and len(set(refs.values())) <= 1:
         # 서류 정보 질문(운임·인코텀즈·원본 B/L·은행 지시식·화물 인도 연락처)은 의도 분류에 없어 낱말로 고른다.
-        # 답은 코드가 저장된 값으로 쓴다. 대상은 문장의 B/L, 없으면 화면 화물이다 (에이전트 cargo_documents와 같다)
+        # 답은 코드가 저장된 값으로 쓴다. 대상은 문장의 B/L, 없으면 화면 화물이다 (에이전트 cargo_documents와 같다).
+        # "인코텀즈 뭐야?" 같은 낱말 뜻 질문은 저장값 요청이 아니라 가로채지 않는다 (docs_question, 10-08 QA C10)
         bl = next(iter(refs.values()), None) or (context.bl_no if context else None)
-        return ChatResult(kind="message", reply=documents_answer(bl, user_id)[0])
+        return ChatResult(kind="message", reply=documents_answer(bl, user_id, masked)[0])
     try:
         route = llm.route_chat(masked, list(refs), context is not None, today).output
     except llm.LLMError as e:  # EC-01: 규칙으로 대신
@@ -737,7 +870,14 @@ def _classic(masked: str, refs: dict[str, str], mrn: str | None, session_id: str
         if _copies_user_marker(resp, masked):
             log_failure("chat", "follow-up answer copied words from original message")
             resp = resp.model_copy(update={"answer": FOLLOW_UP_REFUSED})
-        return ChatResult(kind="cargo", reply=resp.answer, agent=resp, request=context)
+        reply = resp.answer
+        last = _last_assistant(history)
+        if last and reply and validate.copies_earlier(reply, [last]):
+            # 바로 앞 답을 거의 그대로 되풀이했다 (V13과 같은 검사, 10-08 QA C3). 같은 글을 또 보이지 않고 고정 문장으로 알린다.
+            # 화면의 결과 칸(agent)은 그대로 둔다: 값은 판정 흐름이 낸 것이다
+            log_failure("chat", "classic follow-up repeated previous answer")
+            reply = not_same_twice(FOLLOW_UP_SAME, [FOLLOW_UP_SAME_AGAIN], last)
+        return ChatResult(kind="cargo", reply=reply, agent=resp, request=context)
 
     if route.intent == "vessel_search":
         # place·place_label은 LLM 출력인데 답 문장에 그대로 들어간다. 검사는 에이전트 search_arrivals와 같은 _safe_place다
@@ -903,10 +1043,11 @@ DOCS_TOPIC = re.compile(r"운임|선불|착불|인코텀즈|incoterms?|(?<![A-Za
                         r"surrender|은행\s*지시|to\s*order|인도\s*연락처|화물\s*인도|누구(?:한테|에게)\s*연락", re.IGNORECASE)
 
 
-def documents_answer(bl: str | None, user_id: str | None) -> tuple[str, dict]:
+def documents_answer(bl: str | None, user_id: str | None, question: str | None = None) -> tuple[str, dict]:
     """서류 정보 질문에 코드가 쓰는 답과 LLM에 돌려줄 결과. (화면 문장, LLM용 결과).
     값과 연락처는 화면 문장에만 들어간다. LLM용 결과는 칸 이름과 있음/없음뿐이다 (services/doc_facts.llm_view).
-    로그인 안 함 → 로그인 안내, 화물 모름 → B/L을 묻는다, 저장된 것 없음 → 사진을 올려 달라는 고정 문장."""
+    로그인 안 함 → 로그인 안내, 화물 모름 → B/L을 묻는다, 저장된 것 없음 → 사진을 올려 달라는 고정 문장.
+    question: 가린 사용자 문장. 물은 칸만 답한다 (doc_facts.asked_fields, 10-08 QA C10). 없으면 저장값 전부."""
     if user_id is None:
         return doc_facts.NEED_LOGIN, _tool_error("login_required", "Not logged in. Nothing is stored for this user.")
     if not bl:
@@ -918,7 +1059,7 @@ def documents_answer(bl: str | None, user_id: str | None) -> tuple[str, dict]:
         return doc_facts.READ_FAILED, _tool_error("unavailable", "The stored document facts could not be read.")
     if not facts:
         return doc_facts.NOTHING_STORED, doc_facts.llm_view(None)
-    return "\n".join(doc_facts.reply_lines(facts)), doc_facts.llm_view(facts)
+    return "\n".join(doc_facts.reply_lines(facts, question)), doc_facts.llm_view(facts)
 
 
 # 웹 검색 도구 (좁은 범위). Skill 문서가 못 받치는 실무 질문에만 쓴다: B/L 번호를 찾는 곳, 포워더 확인법, A/N 같은 낱말 뜻,
@@ -941,6 +1082,8 @@ BROKER_TOPIC = re.compile(r"관세(?!사)|세율|세금|세액|부가세|부가�
                           r"통관\s*(?:이|은|도)?\s*(?:될|되|가능|불가|안\s*되|문제|막|걸리|거부)", re.IGNORECASE)
 # 뒤에 공식 창구 줄을 붙인다. 주소·전화는 skills/referrals/rules.md broker_referral에만 있다 (docs/specs/referral-guide.md)
 BROKER_ONLY = "관세·세금·통관 가능 여부는 마르비아가 답하지 않아요. 관세사에게 문의해 주세요.\n" + referrals.broker_tail()
+# B/L과 일반 질문이 한 문장에 섞였을 때 화물 답 뒤에 붙이는 줄 (10-08 QA C8). 웹 검색은 하지 않았다
+WEB_SEPARATE_NOTE = "(같이 물어보신 일반 질문은 B/L 번호 없이 따로 물어봐 주시면 답해 드려요.)"
 WEB_NOTE = "웹 참고: "  # 웹 근거 답 뒤에 코드가 붙이는 줄의 머리. 출처 제목과 주소는 가져온 결과에서만 온다
 WEB_TITLE_MAX = 30  # 링크 글자(출처 제목) 길이 상한. 긴 주소 대신 짧은 제목 링크로 보인다
 
@@ -971,6 +1114,75 @@ def agent_enabled() -> bool:
     return os.environ.get("CHAT_AGENT", "on").strip().lower() not in ("0", "off", "false", "no")
 
 
+# ── 에이전트 회로 차단 (10-08 QA C1) ──
+# 도구를 붙인 호출을 제공사가 거절하면(OpenRouter 404 ZDR 같은 bad_request) 에이전트는 첫 도구 전에 매번 실패하고
+# 대비 경로로 간다. 그대로 두면 문장마다 실패할 호출을 한 번씩 더 보내 돈과 시간을 버리고, 실패가 경고 줄에만 묻힌다.
+# 그래서 같은 프로세스에서 연속 실패가 AGENT_TRIP_AFTER번 쌓이면 AGENT_COOLDOWN_SEC 동안 에이전트를 건너뛰고 바로 대비 경로로 간다.
+# 시간이 지나면 한 번 다시 시도하고(반열림), 성공하면 닫히고 실패하면 다시 연다.
+# 두 값은 판정 재료가 아니라 비용·운영 상한이라 rules.md가 아니라 여기 둔다 (CANDIDATES_CALLS_PER_MESSAGE와 같은 이유).
+# 서버를 한 개로 돌리므로 프로세스 메모리로 충분하다 (_kakao_sent_at과 같다). 실패 종류별 누적은 agent_health()로 읽는다
+AGENT_TRIP_AFTER = 3
+AGENT_COOLDOWN_SEC = 600
+
+
+class _AgentBreaker:
+    """채팅 에이전트 연속 실패 기록과 회로 상태. 스레드 여럿(스트림 일꾼)이 같이 쓰므로 잠금 안에서만 바꾼다."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        """처음 상태로. 테스트가 부른다 (backend/tests/conftest.py)."""
+        with self._lock:
+            self.consecutive = 0          # 지금까지 이어진 실패 수
+            self.open_until = 0.0         # 이 시각(monotonic)까지 에이전트를 건너뛴다. 0이면 닫힘
+            self.failures: dict[str, int] = {}  # 실패 종류(LLMError.kind)별 누적
+            self.skipped = 0              # 회로가 열려 건너뛴 문장 수
+            self.trips = 0                # 회로가 열린 횟수
+
+    def allow(self) -> bool:
+        """이번 문장에서 에이전트를 시도해도 되나. 열려 있으면 건너뛴 수를 세고 False."""
+        with self._lock:
+            if self.open_until and time.monotonic() < self.open_until:
+                self.skipped += 1
+                return False
+            return True
+
+    def success(self) -> None:
+        """에이전트가 첫 도구 전 실패 없이 끝났다. 연속 실패를 지우고 회로를 닫는다."""
+        with self._lock:
+            self.consecutive, self.open_until = 0, 0.0
+
+    def failure(self, kind: str) -> bool:
+        """실패 하나를 센다. 이번 실패로 회로가 열렸으면 True (부르는 쪽이 한 번만 경고 줄을 남긴다).
+        open_until이 남아 있는데 여기 왔으면 쉬는 시간이 끝난 뒤의 시험 한 번(반열림)이 실패한 것이라 바로 다시 연다."""
+        with self._lock:
+            self.failures[kind] = self.failures.get(kind, 0) + 1
+            self.consecutive += 1
+            if self.open_until or self.consecutive >= AGENT_TRIP_AFTER:
+                self.open_until = time.monotonic() + AGENT_COOLDOWN_SEC
+                self.consecutive = 0
+                self.trips += 1
+                return True
+            return False
+
+    def snapshot(self) -> dict:
+        """운영 확인용 집계. 사용자 글·B/L은 없다."""
+        with self._lock:
+            left = max(0.0, self.open_until - time.monotonic()) if self.open_until else 0.0
+            return {"open": left > 0, "open_seconds_left": round(left), "consecutive_failures": self.consecutive,
+                    "failures_by_kind": dict(self.failures), "skipped": self.skipped, "trips": self.trips}
+
+
+_agent_breaker = _AgentBreaker()
+
+
+def agent_health() -> dict:
+    """채팅 에이전트 실패 집계와 회로 상태 (10-08 QA C1). 운영 확인·테스트용. 사용자 글은 들어 있지 않다."""
+    return _agent_breaker.snapshot()
+
+
 def _masked_history(history: list[dict], refs: dict[str, str]) -> list[dict]:
     """화면이 보낸 최근 대화를 LLM에 넘길 모양으로 만든다. B/L·MRN·컨테이너 번호를 가리고 주입 모양 줄은 뺀다.
     화면이 보낸 값이라 assistant 줄도 우리가 쓴 글이라고 믿지 않는다 (SDD 7절 신뢰 경계). LLM에는 자료로만 간다."""
@@ -996,36 +1208,48 @@ def _masked_history(history: list[dict], refs: dict[str, str]) -> list[dict]:
 SCREEN_ARRIVALS_MAX = 10  # 화면 선박 목록에서 LLM에 주는 최대 줄 수. 입력 길이를 작게 두려는 상한이다
 
 
-def _screen_text(value, limit: int) -> str | None:
+def _screen_text(value, limit: int, refs: dict[str, str] | None = None) -> str | None:
     """화면이 보낸 글자 하나를 LLM에 줄 수 있게 다듬는다. 번호(B/L·MRN·컨테이너)를 가리고 줄바꿈·제어 글자를 공백으로 바꾼다.
-    주입 모양이면 None으로 돌려 호출한 쪽이 그 줄 전체를 뺀다. 비었으면 빈 글자 대신 None."""
+    주입 모양이면 None으로 돌려 호출한 쪽이 그 줄 전체를 뺀다. 비었으면 빈 글자 대신 None.
+    refs: 번호표 공간. 문장·대화 기록과 같은 공간에서 이어 매긴다 (10-08 QA C9: 따로 매기면 화면의 [BL1]과 문장의 [BL1]이
+    서로 다른 번호인데 같은 표가 된다). 넘긴 dict에 새 번호가 더해진다"""
     if value is None:
         return None
     text = re.sub(r"[\x00-\x1f\x7f]+", " ", str(value)).strip()
-    text, _ = mask_bls(_MRN.sub("[MRN]", mask_containers(text)[0]), {})  # 가리기 순서는 _masked_history와 같다
+    text, _ = mask_bls(_MRN.sub("[MRN]", mask_containers(text)[0]), {} if refs is None else refs)  # 가리기 순서는 _masked_history와 같다
     text = text[:limit]
     if guard.looks_like_injection(text):
         raise _ScreenInjection
     return text or None
 
 
+def _screen_tokens(screen: dict | None) -> list[str]:
+    """가린 화면 자료에 든 [BLn] 번호표 목록."""
+    return re.findall(r"\[BL\d+\]", json.dumps(screen, ensure_ascii=False)) if screen else []
+
+
 class _ScreenInjection(Exception):
     """화면 자료의 글자가 주입 모양이다. 그 배 줄 전체를 LLM에 주지 않는다."""
 
 
-def _masked_screen(on_screen: dict | None) -> dict | None:
+def _masked_screen(on_screen: dict | None, refs: dict[str, str] | None = None) -> dict | None:
     """화면이 보낸 "지금 떠 있는 배들"을 LLM에 넘길 모양으로. 화면이 보낸 값이라 믿지 않는다 (SDD 7절):
     글자는 _screen_text로 가리고 주입 모양 배는 줄째 뺀다. 목록은 SCREEN_ARRIVALS_MAX줄까지. LLM에는 자료로만 간다
-    (프롬프트 Trust boundary). B/L·컨테이너 번호 칸은 요청 모양에 없다. 남은 것이 없으면 None."""
+    (프롬프트 Trust boundary). B/L·컨테이너 번호 칸은 요청 모양에 없다. 남은 것이 없으면 None.
+    refs: 문장·대화 기록의 번호표 {토큰: 번호}. 화면 글자 속 B/L 모양도 같은 공간에서 번호를 받는다 (같은 번호는 같은 표,
+    새 번호는 다음 번호, 10-08 QA C9). 넘긴 dict는 바꾸지 않는다: 화면 글자는 조회 대상이 아니라 bl_refs·도구 인자로 쓰이면 안 된다.
+    새로 매긴 표는 부르는 쪽이 _screen_tokens로 읽어 뒤에서 번호를 더 매길 때 피한다 (_agent_turn glued_parts)"""
     if not on_screen:
         return None
+    shared = dict(refs or {})
     out: dict = {}
     vessel = on_screen.get("vessel")
     if vessel:
         try:
-            item = {"ship_name": _screen_text(vessel.get("ship_name"), 80), "flag": _screen_text(vessel.get("flag"), 80),
-                    "destination": _screen_text(vessel.get("destination"), 80),
-                    "position_time": _screen_text(vessel.get("position_time"), 40)}
+            item = {"ship_name": _screen_text(vessel.get("ship_name"), 80, shared),
+                    "flag": _screen_text(vessel.get("flag"), 80, shared),
+                    "destination": _screen_text(vessel.get("destination"), 80, shared),
+                    "position_time": _screen_text(vessel.get("position_time"), 40, shared)}
             for key in ("mmsi", "lat", "lng"):
                 if isinstance(vessel.get(key), (int, float)):
                     item[key] = vessel[key]
@@ -1036,8 +1260,9 @@ def _masked_screen(on_screen: dict | None) -> dict | None:
     arrivals = []
     for row in (on_screen.get("arrivals") or [])[:SCREEN_ARRIVALS_MAX]:
         try:
-            item = {"ship_name": _screen_text(row.get("ship_name"), 80), "flag": _screen_text(row.get("flag"), 80),
-                    "eta": _screen_text(row.get("eta"), 40), "previous_port": _screen_text(row.get("previous_port"), 80)}
+            item = {"ship_name": _screen_text(row.get("ship_name"), 80, shared), "flag": _screen_text(row.get("flag"), 80, shared),
+                    "eta": _screen_text(row.get("eta"), 40, shared),
+                    "previous_port": _screen_text(row.get("previous_port"), 80, shared)}
         except _ScreenInjection:
             log_failure("chat", "blocked prompt injection pattern in on_screen arrival")
             continue
@@ -1209,8 +1434,16 @@ def found_type_note(asked: str | None, remembered: str | None, used: str | None)
 
 
 def _type_notes(found: list[ChatResult]) -> list[str]:
-    """여러 B/L 표 답에 붙일 구분 안내. 줄마다 "{B/L}: (…로 찾았어요.)" 모양이고, 알릴 것이 없는 줄은 뺀다."""
-    return [f"{r.request.bl_no}: {r.type_note}" for r in found if r.type_note and r.request]
+    """여러 B/L 표 답에 붙일 구분 안내. 같은 안내는 한 줄로 묶는다 (10-08 QA C5: B/L마다 같은 줄이 되풀이됐다).
+    모든 B/L이 같은 안내면 B/L 없이 "(하우스 B/L로 찾았어요.)" 한 줄, 안내가 갈리면 "{B/L}, {B/L}: (…)"처럼 안내마다 한 줄.
+    알릴 것이 없는 B/L은 뺀다."""
+    groups: dict[str, list[str]] = {}
+    for r in found:
+        if r.type_note and r.request:
+            groups.setdefault(r.type_note, []).append(r.request.bl_no)
+    if len(groups) == 1 and sum(len(v) for v in groups.values()) == len(found):
+        return list(groups)
+    return [f"{', '.join(bls)}: {note}" for note, bls in groups.items()]
 
 
 def _repeats_reply(text: str, replies: list[str]) -> bool:
@@ -1504,7 +1737,9 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     # 이번 문장의 B/L로 착각해 엉뚱한 화물을 조회한다
     refs = dict(refs)
     turns = _masked_history(history, refs)
-    screen = _masked_screen(on_screen)  # 화면에 떠 있는 배들. 비었으면 None이고 LLM 입력에 칸이 안 생긴다
+    # 화면에 떠 있는 배들. 비었으면 None이고 LLM 입력에 칸이 안 생긴다. 번호표는 문장·대화 기록과 같은 공간이다 (10-08 QA C9)
+    screen = _masked_screen(on_screen, refs)
+    screen_tokens = set(_screen_tokens(screen)) - set(refs)  # 화면에만 있는 번호표. 조회 대상이 아니라 refs에 넣지 않는다
     offered_prev = bool(turns) and turns[-1]["role"] == "assistant" and _offered(turns[-1]["text"])  # 바로 앞 답이 우리 제안이었나
     # 답 검사에서 "사용자가 쓴 글"로 칠 것: 이번 문장과 앞에서 사용자가 쓴 줄. 사용자가 앞 턴에 말한 날짜를 되짚는 답이
     # V7에 걸리지 않게 한다. assistant 줄은 넣지 않는다 (V10이 우리 답의 낱말을 사용자 글로 오해하지 않게)
@@ -1565,7 +1800,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         for part in parts:
             if part not in message_refs.values():
                 n = len(refs) + 1
-                while f"[BL{n}]" in refs:  # 대화 기록의 토큰과 겹치지 않는 다음 번호
+                while f"[BL{n}]" in refs or f"[BL{n}]" in screen_tokens:  # 대화 기록·화면의 토큰과 겹치지 않는 다음 번호
                     n += 1
                 message_refs[f"[BL{n}]"] = refs[f"[BL{n}]"] = part
         if parts:
@@ -1581,7 +1816,14 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         if "reply" in web_state:
             return web_state["reply"]
         if any(r["name"] != "web_search" for r in ran):
+            web_state["blocked_by_cargo"] = bool(message_bls)
             return _tool_error("web_not_allowed", "A cargo or ship tool already ran. Answers about a specific cargo or ship never use the web.")
+        if message_bls:
+            # 문장에 B/L이 있으면 그 화물 조회가 이 문장의 답이다 (도구가 안 불러도 아래에서 코드가 조회한다). 웹 글은 화물 답에
+            # 섞지 못해 가져와도 버려지므로 검색 자체를 하지 않는다 (10-08 QA C8, 비용). 대신 따로 물어 달라는 줄을 코드가 붙인다
+            web_state["blocked_by_cargo"] = True
+            return _tool_error("web_with_cargo", "This message has a B/L. Answer about that cargo only; the general question "
+                               "is answered when the user asks it separately.")
         query = args.get("query")
         query = " ".join(query.split()) if isinstance(query, str) else ""
         if not 2 <= len(query) <= llm.WEB_QUERY_CHARS or re.search(r"\[(?:BL|MRN)", query, re.IGNORECASE) or guard.looks_like_injection(query):
@@ -1682,7 +1924,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             bl = None
         else:
             bl = refs.get(token) if token else (message_bls[0] if message_bls else (context.bl_no if context else None))
-        msg, view = documents_answer(bl, user_id)
+        msg, view = documents_answer(bl, user_id, masked)  # 물은 칸만 답한다 (10-08 QA C10)
         docs_out.update(msg=msg, bl=bl)
         return view
 
@@ -2160,7 +2402,8 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     if done:
         found = multi_state.get("results", [])
         notices = ([MULTI_BL_NOTICE] if multi_state.get("over") else []) + ([MULTI_FAILED_NOTICE] if multi_state.get("failed") else []) \
-            + ([bl_parse.NOTE_GLUED] if multi_state.get("glued") else [])
+            + ([bl_parse.NOTE_GLUED] if multi_state.get("glued") else []) \
+            + ([WEB_SEPARATE_NOTE] if web_state.get("blocked_by_cargo") else [])
         if len(found) >= 2:
             # 한 문장에 B/L 2~3개. 답은 표(cargos)와 짧은 문장 하나다. 문장은 LLM이 비교 질문에 답한 것이고,
             # 단일 조회와 같은 검사(숫자·날짜는 조회 결과에 있는 것만 등)를 통과해야 한다. 안 되면 코드 문장만 쓰고 표가 답이다.
@@ -2181,13 +2424,14 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             unread = unread_ids(masked, message_bls)
             if unread:
                 lines.append(UNREAD_NOTICE.format(names=", ".join(f"'{u}'" for u in unread)))
-            return replace(chosen, reply="\n".join(lines), map=None, cargos=rows)
+            return _with_broker_line(replace(chosen, reply="\n".join(lines), map=None, cargos=rows), masked)
         replies = list(dict.fromkeys(_no_result_text(r, earlier[-1] if earlier else None) for r in done))  # 같은 답이 두 번 붙지 않게
         if looked_up and text and not _reply_violations(text, reference + lookups + " ".join(replies), user_text, earlier) \
                 and not _repeats_reply(text, replies):
             replies.append(text)
         replies.extend(notices)  # B/L이 상한을 넘었거나 일부만 조회됐을 때 코드가 쓴 안내
-        return replace(done[-1], reply="\n\n".join(replies), map=_map_payload(calls, done, started))
+        # 세액·통관 가능 여부도 같이 물었으면 화물 답 뒤에 관세사 안내 줄 (10-08 QA C2)
+        return _with_broker_line(replace(done[-1], reply="\n\n".join(replies), map=_map_payload(calls, done, started)), masked)
     if looked_up and all(c["name"] == "get_vessel_candidates" and isinstance(c["result"], dict) and c["result"].get("candidates") == []
                          for c in looked_up):
         # 사용자가 쓴 이름으로 후보를 찾았지만 한 척도 없다. "찾지 못했다"만 말하지 않고 B/L 번호인지 배 이름인지 되묻는다

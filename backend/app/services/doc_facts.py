@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 
 from backend.app.db import connect
@@ -37,6 +38,8 @@ NOTHING_STORED = "저장된 서류 정보가 없어요. B/L이나 A/N(도착 통
 NEED_LOGIN = "서류 정보는 로그인한 뒤 올린 B/L·A/N 사진에서만 읽어 둬요. 로그인하고 사진을 올려 주세요."
 NEED_CARGO = "어느 화물의 서류 정보인지 B/L 번호를 함께 알려 주세요."
 READ_FAILED = "저장된 서류 정보를 지금 읽지 못했어요. 잠시 뒤 다시 물어봐 주세요."
+ASKED_NOT_STORED = "저장된 서류 정보에 {names} 항목이 없어요. B/L이나 A/N 사진을 올려 주시면 읽어 둘게요."
+ASKED_MISSING_LINE = "{names}: 저장된 값 없음"  # 물은 칸 중 일부만 저장돼 있을 때 빠진 칸을 밝힌다
 
 LABELS = {"freight_term": "운임", "incoterm": "인코텀즈", "original_bl": "원본 B/L", "to_order_bank": "은행 지시식"}
 VALUE_TEXT = {
@@ -118,18 +121,49 @@ def read(user_id: str, bl_no: str) -> dict | None:
     return {"conditions": conditions, "unconfirmed": bool(row and row.get("doc_facts_at")), "contacts": contacts}
 
 
-def reply_lines(facts: dict) -> list[str]:
+# 질문 낱말 → 답할 칸 (10-08 QA C10). 질문과 상관없이 저장값을 전부 쏟아내지 않게 물은 칸만 답한다.
+# 어느 낱말도 없으면(예: "서류 정보 알려 줘") 전부 답한다. 낱말은 services/chat.DOCS_TOPIC과 같은 뜻 범위다
+ASK_WORDS = {
+    "freight_term": re.compile(r"운임|선불|착불|프리페이드|콜렉트|prepaid|collect|freight|누가\s*(?:내(?!\s*(?:화물|짐|물건))|부담|지불|계산)", re.I),
+    "incoterm": re.compile(r"인코텀즈|incoterms?|(?<![A-Za-z])(?:FOB|CIF|CFR|EXW|FCA|DAP|DDP|CPT|CIP)(?![A-Za-z])|거래\s*조건", re.I),
+    "original_bl": re.compile(r"원본|오리지널|original|서렌더|surrender", re.I),
+    "to_order_bank": re.compile(r"은행|지시식|to\s*order", re.I),
+    CONTACT: re.compile(r"연락처|연락|전화|인도|누구(?:한테|에게)|담당", re.I),
+}
+
+
+def asked_fields(question: str | None) -> set[str] | None:
+    """질문이 묻는 칸 이름 집합 (CONDITIONS 중 + CONTACT). 어느 칸도 특정하지 않으면 None (전부 답한다)."""
+    if not question:
+        return None
+    found = {key for key, pattern in ASK_WORDS.items() if pattern.search(question)}
+    return found or None
+
+
+def reply_lines(facts: dict, question: str | None = None) -> list[str]:
     """저장된 서류 정보를 답 줄로. 예:
     "서류 사진에서 읽은 값(확인 전)이에요. 운임: 착불(도착지 지급), 인코텀즈: FOB, 원본 B/L: 필요, 은행 지시식: 아니요."
     "화물 인도 연락처: 가나다물류(포워더) 051-000-0000"
-    모르는 칸은 말하지 않는다. 거래처는 서류에서 읽은 것이라 조건이 없어도 확인 전이라고 밝힌다."""
+    모르는 칸은 말하지 않는다. 거래처는 서류에서 읽은 것이라 조건이 없어도 확인 전이라고 밝힌다.
+    question(가린 사용자 문장)이 칸을 특정하면 그 칸만 답한다 (asked_fields). 물은 칸이 저장돼 있지 않으면 그렇다고 말한다."""
+    asked = asked_fields(question)
     cond = facts.get("conditions") or {}
+    contacts = facts.get("contacts") or []
+    if asked is not None:
+        missing = [LABELS.get(k, "화물 인도 연락처") for k in (*ORDER, CONTACT) if k in asked
+                   and (k not in cond if k != CONTACT else not contacts)]
+        cond = {k: v for k, v in cond.items() if k in asked}
+        contacts = contacts if CONTACT in asked else []
+        if not cond and not contacts:
+            return [ASKED_NOT_STORED.format(names=", ".join(missing))]
     parts = [f"{LABELS[k]}: {VALUE_TEXT.get(k, {}).get(cond[k], cond[k])}" for k in ORDER if k in cond]
     head = UNCONFIRMED_HEAD if facts.get("unconfirmed") or not cond else CONFIRMED_HEAD
     lines = [f"{head} {', '.join(parts)}." if parts else head]
-    for c in facts.get("contacts") or []:
+    for c in contacts:
         who = f"{c['company']}({c['role']})" if c.get("role") else str(c.get("company") or "")
         lines.append(f"화물 인도 연락처: {who}{' ' + c['phone'] if c.get('phone') else ''}")
+    if asked is not None and missing:
+        lines.append(ASKED_MISSING_LINE.format(names=", ".join(missing)))
     return lines
 
 

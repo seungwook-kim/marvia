@@ -235,7 +235,7 @@ def test_chat_other_reply_normal_is_kept(monkeypatch):
     from backend.app.services import chat as svc
 
     _chat_route(monkeypatch, intent="other", reply="B/L 번호로 화물을 조회할 수 있어요.")
-    assert svc.handle("안녕", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
+    assert svc.handle("고마워", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
 
 
 @needs_chat

@@ -450,7 +450,7 @@ def test_chat_agent_off_never_calls_agent(monkeypatch, value):
     monkeypatch.setenv("CHAT_AGENT", value)
     monkeypatch.setattr(llm, "chat_agent", lambda *a, **k: pytest.fail("CHAT_AGENT=off면 에이전트를 부르지 않는다"))
     route = _route(monkeypatch, intent="other", reply="B/L 번호로 화물을 조회할 수 있어요.")
-    assert svc.handle("안녕", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
+    assert svc.handle("고마워", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
     assert len(route) == 1 and not svc.agent_enabled()
 
 
@@ -597,7 +597,7 @@ def test_history_bl_does_not_leak_into_classic_fallback(monkeypatch):
     """에이전트가 실패해 전 방식으로 갈 때 대화 기록의 B/L을 이번 문장의 B/L로 착각해 조회하면 안 된다."""
     _agent(monkeypatch, error=llm.LLMError("no key", kind="not_configured"))
     monkeypatch.setattr(llm, "route_chat", lambda *a, **k: (_ for _ in ()).throw(llm.LLMError("no key", kind="not_configured")))
-    r = svc.handle("안녕", "s1", None, lambda req: pytest.fail("기록의 B/L을 조회하면 안 된다"),
+    r = svc.handle("고마워", "s1", None, lambda req: pytest.fail("기록의 B/L을 조회하면 안 된다"),
                    history=[{"role": "user", "text": "TESTBL07 조회해줘"}])
     assert r.reply == svc.LLM_DOWN
 

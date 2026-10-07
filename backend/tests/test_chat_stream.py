@@ -77,7 +77,8 @@ def test_stream_reports_bad_message_and_crash_as_error_event(monkeypatch):
     with TestClient(app) as client:
         assert _events(client.post("/api/chat/stream", json={"message": "  ", "session_id": "s1"}).text) == [
             ("error", {"status": 400, "detail": chat_router.BAD_MESSAGE})]
-        assert client.post("/api/chat/stream", json={"message": "가" * 501, "session_id": "s1"}).status_code == 422
+        # 501자는 스트림을 열기 전 요청 검증에서 막힌다. 10-08 QA C6부터 400 한국어 안내 (입력 원문 없음)
+        assert client.post("/api/chat/stream", json={"message": "가" * 501, "session_id": "s1"}).status_code == 400
 
         def crash(*args, **kwargs):  # 라우터가 history·run_tool을 이름으로 넘긴다
             raise RuntimeError("TESTBL01 비밀")  # 예외 메시지는 화면에도 로그에도 가지 않는다
