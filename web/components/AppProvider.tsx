@@ -86,6 +86,9 @@ interface AppState {
   /** 지금 요청을 보낸 시각(Date.now()). 화면이 실제 경과 시간을 센다. 기다리지 않으면 null */
   pendingSince: number | null;
   lookup: (req: AgentRequest) => Promise<boolean>; replay: (id: string) => boolean;
+  /** 이번 접속에서 받은 판정 변동(GET /api/watch/changes). 서버는 받자마자 확인 처리하므로 다시 읽으면 비어 있다.
+   * 그래서 처음 받은 목록을 여기 두고 "오늘의 화물"(/today)도 같은 목록을 보인다. 로그인한 사람이 바뀌면 비운다 */
+  recentChanges: WatchChange[];
   /** 문장 하나 보내기 (POST /api/chat). 화물 답이면 result를, 선박 검색이면 vessels를 바꾼다 */
   ask: (message: string) => Promise<boolean>;
   /** 채팅 표에서 고른 화물로 아래 결과 칸을 바꾼다. 단일 화물 답을 받았을 때와 같은 상태 바꿈이다 (다음 질문의 문맥도 이 화물) */
@@ -182,13 +185,16 @@ export function AppProvider({children}:{children:ReactNode}) {
 
   // 다음 접속 때 먼저 말 걸기 (10-06 결정): 지난 접속 뒤 판정이 바뀐 지켜보는 화물이 있으면 대화의 첫 말풍선으로 알린다.
   // 말풍선을 thread에 넣은 뒤에 확인 처리한다(안 보여 준 알림을 지우지 않으려고). 알림은 덤이라 실패하면 조용히 넘어간다 (예전 배너와 같다)
+  const [recentChanges, setRecentChanges] = useState<WatchChange[]>([]);
   useEffect(() => {
+    setRecentChanges([]);  // 다른 사람으로 로그인했으면 앞 사람의 변동을 보이지 않는다
     if (!isLive || !authEnabled || !authReady || !user) return;
     // 저장된 대화를 다시 연 주소(?c=)에는 말 걸지 않는다. 새 대화로 들어왔을 때만 보여 주고, 확인 처리도 그때 한다 (10-06 결정)
     if (new URLSearchParams(window.location.search).get('c')) return;
     let alive = true; const mine = epoch.current;
     void getWatchChanges().then(changes => {
       if (!alive || mine !== epoch.current || changes.length === 0) return;
+      setRecentChanges(changes);
       setThread(t => [{role: 'assistant', text: changesText(changes), kind: 'message'}, ...t]);
       void markWatchChangesSeen().catch(() => { /* 실패하면 다음 접속에 한 번 더 보인다 */ });
     }).catch(() => { /* 조용히 실패 */ });
@@ -368,7 +374,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     try { window.sessionStorage.removeItem(CHAT_STATE_KEY); } catch { /* 괜찮다 */ }
   }
 
-  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,ask,showCargo,backToCargo,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation}}>{children}</Context.Provider>;
+  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,recentChanges,ask,showCargo,backToCargo,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation}}>{children}</Context.Provider>;
 }
 /** 화물 답이 후속 질문의 답인지 고른다. 응답 계약(C1, ChatResponse)에 표시 칸이 없어 화면이 확인할 수 있는 사실로만 본다.
  * - 같은 B/L이 아니면 새 조회다

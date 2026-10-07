@@ -6,7 +6,7 @@
 .intro-page{max-width:1240px;margin:0 auto;padding-top:40px;padding-bottom:96px}
 .intro-hero{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:56px;align-items:center;padding:24px 0 24px}
 .intro-logo{display:block;height:40px;width:auto}
-.intro-hero h1{margin-top:48px;font-size:clamp(34px,4.2vw,52px);font-weight:800;line-height:1.28;letter-spacing:-.03em;color:var(--text)}
+.intro-hero h1{margin-top:48px;font-size:clamp(34px,4.2vw,52px);font-weight:700;line-height:1.28;letter-spacing:-.03em;color:var(--text)}
 .intro-sub{margin-top:20px;font-size:var(--text-lg);line-height:1.6;color:var(--text-2);max-width:30em}
 .intro-cta{margin-top:36px;min-height:56px;padding:0 28px;border-radius:var(--radius);font-size:var(--text-base);font-weight:700;width:auto;transition:background-color 150ms var(--ease),transform 150ms var(--ease)}
 .intro-cta:active{transform:scale(.98)}
@@ -14,7 +14,7 @@
 .intro-hero-visual img{display:block;width:100%;height:auto;border-radius:var(--radius);box-shadow:0 0 0 1px var(--border),0 12px 32px #191f2814}
 
 .intro-section{padding:112px 0 0}
-.intro-section h2,.intro-final h2{font-size:var(--text-xl);font-weight:800;line-height:1.4;letter-spacing:-.02em;color:var(--text)}
+.intro-section h2,.intro-final h2{font-size:var(--text-xl);font-weight:700;line-height:1.4;letter-spacing:-.02em;color:var(--text)}
 .intro-lead{margin-top:12px;font-size:var(--text-base);line-height:1.7;color:var(--text-2);max-width:40em}
 
 /* 3단계: 상자 없이 아이콘, 번호, 글. 아이콘 사이를 가는 선이 이어 준다 */
@@ -27,7 +27,7 @@
 
 /* 판정 눈금: 세 색 막대 아래 같은 순서로 세 줄 설명 */
 .intro-scale{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:36px;height:12px}
-.intro-scale span{border-radius:999px}
+.intro-scale span{border-radius:4px}
 .intro-scale .fine{background:var(--grade-fine-solid)}
 .intro-scale .watch{background:var(--grade-watch-solid)}
 .intro-scale .act{background:var(--grade-act-solid)}
@@ -48,10 +48,10 @@
 .f-line{fill:none;stroke:var(--border-strong);stroke-width:2;stroke-dasharray:1;stroke-dashoffset:0}
 .f-arrow{fill:none;stroke:var(--border-strong);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .f-core{fill:var(--brand)}
-.f-core-t{font-size:26px;font-weight:800;fill:#fff}
+.f-core-t{font-size:26px;font-weight:700;fill:#fff}
 .f-core-s{font-size:14px;fill:#dbe5ff}
 .f-v.fine{fill:var(--grade-fine-bg)}.f-v.watch{fill:var(--grade-watch-bg)}.f-v.act{fill:var(--grade-act-bg)}
-.f-vt{font-size:20px;font-weight:800}
+.f-vt{font-size:20px;font-weight:700}
 .f-vt.fine{fill:var(--grade-fine)}.f-vt.watch{fill:var(--grade-watch)}.f-vt.act{fill:var(--grade-act)}
 /* 선이 그려지는 효과: 스크롤로 보이면 한 번만 */
 .intro-ready .intro-diagram .f-line{stroke-dashoffset:1;transition:stroke-dashoffset 800ms var(--ease) 200ms}
@@ -84,7 +84,7 @@
 .entry-login-card{width:min(440px,100%);background:var(--surface);border-radius:var(--radius);padding:40px 32px 32px}
 .entry-login-brand{display:flex;margin-bottom:32px}
 .entry-login-brand img{height:44px;width:auto}
-.entry-login-card h1{font-size:var(--text-xl);font-weight:800;line-height:1.4;letter-spacing:-.02em;color:var(--text)}
+.entry-login-card h1{font-size:var(--text-xl);font-weight:700;line-height:1.4;letter-spacing:-.02em;color:var(--text)}
 .entry-login-lead{margin-top:12px;font-size:var(--text-base);line-height:1.7;color:var(--text-2)}
 .entry-login-google{width:100%;margin:28px 0 0;min-height:56px;border-radius:var(--radius);font-size:var(--text-base);font-weight:700}
 .entry-login-google svg{background:#fff;border-radius:50%;padding:1px}

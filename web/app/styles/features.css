@@ -4,7 +4,7 @@
 /* ---------- 답 속 근거 칩과 상자 (EvidencePopover) ---------- */
 .ev-text{white-space:pre-wrap}
 .ev-wrap{position:relative;display:inline-block;margin-left:4px;vertical-align:baseline}
-.ev-chip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-2);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
+.ev-chip{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text-2);font-size:12px;font-weight:600;line-height:1;cursor:pointer}
 .ev-chip:hover,.ev-chip.open{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
 .ev-pop{position:absolute;left:0;top:calc(100% + 6px);z-index:30;display:block;width:min(320px,80vw);max-height:320px;overflow:auto;padding:12px;border:1px solid var(--border);border-radius:var(--small-radius);background:var(--surface);box-shadow:var(--shadow);white-space:normal;font-size:var(--text-sm);color:var(--text)}
 .ev-pop-item{display:block}
@@ -19,7 +19,7 @@
 
 /* ---------- 대화 위 "근거 N개" 버튼과 모음 (ConversationEvidence) ---------- */
 .chat-evidence-bar{display:flex;justify-content:flex-end;margin-bottom:8px}
-.ev-collect-btn{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text-2);font-size:13px;cursor:pointer}
+.ev-collect-btn{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text-2);font-size:13px;cursor:pointer}
 .ev-collect-btn:hover{border-color:var(--brand);color:var(--brand)}
 .ev-collect-group+.ev-collect-group{margin-top:16px}
 .ev-collect-group h3{display:flex;justify-content:space-between;margin:0 0 8px;font-size:var(--text-base)}

@@ -32,7 +32,7 @@
 .map-place{transition:opacity var(--t-fast) var(--ease)}.map-place.map-place-hide{opacity:0}
 .map-frame .leaflet-control-attribution{pointer-events:none}
 .map-frame{position:absolute;inset:0;height:auto;border-radius:var(--radius);background:var(--sea);overflow:hidden;transform-origin:0 0}
-.map-frame.is-overlay{position:fixed;inset:auto;z-index:900;border-radius:16px;box-shadow:0 24px 64px #191f2840}
+.map-frame.is-overlay{position:fixed;inset:auto;z-index:900;border-radius:4px;box-shadow:0 24px 64px #191f2840}
 .map-backdrop{position:fixed;z-index:890;background:#191f2873;animation:m-fade var(--t-panel) var(--ease) both}
 .map-backdrop.out{animation:m-fade-out 260ms var(--ease) both}
 /* 펼친 동안 뒤의 상세 칸이 휠로 같이 움직이지 않게 한다 */
@@ -84,9 +84,9 @@ body[data-map-big] .detail-scroll{overflow:hidden}
 .verdict-todo{min-width:0;flex:1}
 .verdict-label{display:block;font-size:var(--text-sm);font-weight:600;color:var(--muted);margin-bottom:4px}
 .verdict-todo p{font-size:var(--text-lg);font-weight:700;color:var(--text);line-height:1.5;word-break:keep-all;overflow-wrap:anywhere}
-.verdict-hero.act .verdict-todo p{font-weight:800}
+.verdict-hero.act .verdict-todo p{font-weight:700}
 .verdict-slack{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;padding:0;border:0;text-align:right}
-.slack-value{font-size:32px;font-weight:800;line-height:1.2;white-space:nowrap;letter-spacing:-.03em}
+.slack-value{font-size:32px;font-weight:700;line-height:1.2;white-space:nowrap;letter-spacing:-.03em}
 .verdict-slack.fine .slack-value{color:var(--grade-fine)}
 .verdict-slack.watch .slack-value{color:var(--grade-watch)}
 .verdict-slack.act .slack-value{color:var(--grade-act)}

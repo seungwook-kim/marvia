@@ -1,0 +1,48 @@
+/* 오늘의 화물 (/today, TodayBoard.tsx). docs/mockups/v2/A-enterprise-navy.html 홈 화면을 따른다. 토큰은 enterprise.css :root */
+.today{display:flex;flex-direction:column;gap:16px;min-width:0}
+.td-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.td-head>div:first-child{display:flex;align-items:baseline;gap:12px;min-width:0;flex-wrap:wrap}
+.td-ts{color:var(--muted);font-size:var(--text-xs);font-variant-numeric:tabular-nums}
+.td-actions{display:flex;gap:6px;flex:none}
+.td-error{margin:0;color:var(--grade-act);font-size:var(--text-sm)}
+
+.td-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.td-kpi>div{display:flex;flex-direction:column;gap:2px;padding:12px 16px;border-left:1px solid var(--border);min-width:0}
+.td-kpi>div:first-child{border-left:0}
+.td-l{color:var(--muted);font-size:var(--text-xs)}
+.td-l .verdict-badge{font-size:var(--text-xs)}
+.td-kpi strong{font-size:24px;font-weight:700;line-height:1.25;color:var(--text);font-variant-numeric:tabular-nums}
+.td-kpi strong small{margin-left:4px;font-size:var(--text-xs);font-weight:400;color:var(--muted)}
+.td-d{color:var(--muted);font-size:var(--text-xs)}
+
+.td-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.td-main,.td-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.td-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);min-width:0}
+.td-ptitle{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 14px;border-bottom:1px solid var(--border)}
+.td-ptitle h2{font-size:var(--text-sm);font-weight:700}
+.td-c{color:var(--muted);font-size:var(--text-xs)}
+.td-link{margin-left:auto;color:var(--brand);font-size:var(--text-xs);font-weight:600}
+.td-link:hover{text-decoration:underline}
+.td-empty{margin:0;padding:16px 14px;color:var(--muted);font-size:var(--text-sm)}
+.td-panel table{table-layout:auto}
+.td-panel td{white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+.td-sub{display:block;color:var(--muted);font-size:var(--text-xs);font-variant-numeric:tabular-nums}
+.td-num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.td-r{text-align:right}
+.td-muted{color:var(--muted)}
+.td-late{color:var(--grade-act);font-weight:700}
+.td-change{display:inline-flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap}
+
+.td-form{display:grid;grid-template-columns:84px minmax(0,1fr);gap:8px 10px;align-items:center;padding:12px 14px}
+.td-form label{color:var(--text-2);font-size:var(--text-xs)}
+.td-form input{height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);font-size:var(--text-sm);font-variant-numeric:tabular-nums}
+.td-form .td-error{grid-column:2}
+.td-form-btns{grid-column:2;display:flex;justify-content:flex-end}
+.td-kv{margin:0;padding:2px 14px 8px}
+.td-kv>div{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;border-bottom:1px solid var(--border);font-size:var(--text-xs)}
+.td-kv>div:last-child{border-bottom:0}
+.td-kv dt{color:var(--text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-kv dd{margin:0;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+@media(max-width:1100px){.td-grid{grid-template-columns:minmax(0,1fr)}.td-side{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}
+@media(max-width:700px){.td-kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.td-kpi>div:nth-child(3){border-left:0}.td-kpi>div:nth-child(n+3){border-top:1px solid var(--border)}.td-head{flex-direction:column;align-items:flex-start}}

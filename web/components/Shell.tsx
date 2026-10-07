@@ -6,7 +6,7 @@
 import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {useEffect, useRef, useState} from 'react';
-import {Boxes, ChartNoAxesCombined, ChevronDown, History, Info, LogOut, MessagesSquare, PanelLeftClose, PanelLeftOpen, Radar, Search, Settings2, ShieldUser, Table2} from 'lucide-react';
+import {Boxes, ChartNoAxesCombined, LayoutDashboard, ChevronDown, History, Info, LogOut, MessagesSquare, PanelLeftClose, PanelLeftOpen, Radar, Search, Settings2, ShieldUser, Table2} from 'lucide-react';
 import {LoginScreen} from './LoginScreen';
 import {ProfileForm} from './ProfileForm';
 import {ConversationList} from './ConversationList';
@@ -18,7 +18,8 @@ import {isLive} from '@/lib/api';
 // 내 화물은 드롭다운이다: 화물 조회(/)와 감시·지도(/watch) (docs/specs/cargo-watch.md, 10-02)
 const cargoMenu=[{href:'/',label:'화물 조회',icon:Search},{href:'/watch',label:'지켜보는 화물',icon:Radar}];
 // 화물 현황(/cargo, 10-06)은 내 화물 바로 아래 따로 둔다: 하위 메뉴가 아니라 B/L 표를 보는 독립 화면이라 접은 메뉴에서도 아이콘으로 바로 열린다
-const links=[{href:'/',label:'내 화물',icon:Boxes,sub:cargoMenu},{href:'/cargo',label:'화물 현황',icon:Table2},{href:'/history',label:'조회 이력',icon:History},{href:'/metrics',label:'평가 지표',icon:ChartNoAxesCombined,operatorOnly:true},{href:'/settings',label:'설정',icon:Settings2}];
+// 오늘의 화물(/today, 10-07)은 로그인한 사람 자신의 화물 요약이라 맨 위에 둔다
+const links=[{href:'/today',label:'오늘의 화물',icon:LayoutDashboard},{href:'/',label:'내 화물',icon:Boxes,sub:cargoMenu},{href:'/cargo',label:'화물 현황',icon:Table2},{href:'/history',label:'조회 이력',icon:History},{href:'/metrics',label:'평가 지표',icon:ChartNoAxesCombined,operatorOnly:true},{href:'/settings',label:'설정',icon:Settings2}];
 // 운영자에게만 보이는 탭 (docs/specs/operator-admin.md). 숨김은 편의이고 권한은 서버가 막는다
 const adminLink={href:'/admin',label:'관리',icon:ShieldUser};
 /** 상단 경로 표시. 메뉴에 안 보이는 화면(운영자가 아닌 사람이 주소로 연 /metrics·/admin)도 제 이름을 보인다.
