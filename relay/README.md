@@ -20,7 +20,7 @@ Railway(싱가포르 지역)에서 해수부 API(`apis.data.go.kr`)를 부르면
 | `MOF_BASE_URL` | 백엔드 | 릴레이 주소(끝에 `/` 없이). 비우면 `https://apis.data.go.kr` 직접 호출 |
 | `MOF_RELAY_TOKEN` | 백엔드 | 있으면 모든 해수부 요청에 `X-Relay-Token`으로 보낸다 |
 
-`MOF_BASE_URL`·`MOF_RELAY_TOKEN`은 백엔드 코드가 읽지만 `.env.example`에는 아직 없다. 릴레이를 쓸 때 `.env`에 직접 넣는다.
+백엔드 `.env`에 `MOF_BASE_URL`(릴레이 주소)·`MOF_RELAY_TOKEN`(릴레이의 `RELAY_TOKEN`과 같은 값)을 넣으면 릴레이를 거친다.
 
 ## 배포 (템플릿)
 ```

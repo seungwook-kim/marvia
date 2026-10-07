@@ -271,7 +271,7 @@ cd web && npm install && npm run dev     # :3000. Node 20.9 이상
 | `UNIPASS_KEY` | 관세청 UNI-PASS 오픈API | B/L 조회 불가 |
 | `SHIPFINDER_KEY` | ShipFinder 스타터 키 | 선박 검색·위치 조회 불가 |
 | `DATA_GO_KR_KEY` | 공공데이터포털. 해수부 관제정보·선박운항정보 | 입항 예정·실적 조회 불가 |
-| `MOF_BASE_URL` / `MOF_RELAY_TOKEN` | 해수부 릴레이 주소와 공유 비밀. `.env.example`에는 없으니 필요할 때 추가한다 | `apis.data.go.kr`를 직접 부른다 |
+| `MOF_BASE_URL` / `MOF_RELAY_TOKEN` | 해수부 릴레이 주소와 공유 비밀 | `apis.data.go.kr`를 직접 부른다 |
 | `OPENROUTER_API_KEY` | openrouter.ai | LLM 호출 불가 |
 | `LLM_MODEL` | 서비스 모델 (배포값은 `release_manifest.json`의 `google/gemini-3.5-flash-lite`). `vertex/`로 시작하면 Vertex AI | `partial`: 판정 표 등급만, 설명 문장 없음 (재생 모드는 녹화 답) |
 | `GOOGLE_CLOUD_PROJECT` / `VERTEX_THINKING_BUDGET` | Vertex 경로일 때만 | |
@@ -294,7 +294,7 @@ cd web && npm install && npm run dev     # :3000. Node 20.9 이상
 | `NEXT_PUBLIC_API_BASE` (web) | 백엔드 주소 | 체험 모드(fixture) |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (web) | 화면 로그인 | 로그인 꺼짐 |
 
-`.env.example`의 `DAILY_COST_CAP_KRW`, `MAX_TOKENS_PER_REQUEST`는 계획만 있고 지금 코드는 읽지 않습니다.
+비용 방어는 1명당 하루 토큰 한도(`DAILY_TOKENS_PER_USER`)가 맡습니다.
 
 **`SUPABASE_URL`을 채우면 로그인이 필수가 됩니다.** 요청에 `Authorization: Bearer <Supabase 로그인 토큰>`이 없으면 401, 정지된 계정은 403 `account_suspended`입니다. 키 없이 돌려 볼 때는 비워 둡니다.
 

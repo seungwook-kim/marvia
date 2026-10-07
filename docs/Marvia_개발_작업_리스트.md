@@ -145,7 +145,7 @@ marvia/
 | F1 | 데모 영상: 정상 · 실패 · 되묻기 | ⬜ | 레포에 없다. 대신 로그인 없는 "데모 둘러보기"가 있다 |
 | F2 | Langfuse 스크린샷 3장 이상 (트레이스 상세 1장 포함) | 🔶 | 레포에는 집계 파일(`docs/evidence/langfuse_summary.md`)만 있다. 찍을 화면 목록은 EVAL_REPORT 1절 |
 | F3 | README 최종: 한 줄 정의, 지표 표, compose up, 아키텍처 | ✅ | |
-| F4 | .env.example 점검, 민감값 커밋 검사 | ⬜ | `secret-scan.yml`(gitleaks)이 push마다 검사한다. `.env.example`에 `MOF_BASE_URL`·`MOF_RELAY_TOKEN`이 빠져 있고, 코드가 읽지 않는 `DAILY_COST_CAP_KRW`·`MAX_TOKENS_PER_REQUEST`가 남아 있다 |
+| F4 | .env.example 점검, 민감값 커밋 검사 | ✅ | `secret-scan.yml`(gitleaks)이 push마다 검사한다. `.env.example`은 코드가 읽는 키 이름과 맞췄다 |
 | F5 | 다른 컴퓨터에서 10분 재현 테스트 | ⬜ | |
 | F6 | 제출 시점 태그 | 🚫 | 개인 포트폴리오 레포로 옮기며 해당 없음 |
 
@@ -185,7 +185,7 @@ marvia/
 | 운영자 · 고객 관리 · 지표 | `routers/admin.py`, 마이그레이션 009 ~ 013 | 운영자 이메일 암호화 |
 | 하루 토큰 한도 | `services/quota.py`, 마이그레이션 016_token_usage | 1명당 `DAILY_TOKENS_PER_USER` |
 | 안내처(referrals) | `skills/referrals/`, `services/referrals.py` | |
-| 해수부 릴레이 | `relay/` | 배포 확인 전 (`docs/release_manifest.json`) |
+| 해수부 릴레이 | `relay/` | 코드 있음, 실서버 연결은 레포로 확인 불가 |
 | 서버 마이그레이션 자동 적용 | `backend/app/main.py` → `db.apply_migrations` | 001 ~ 026 |
 
 ## I. 실사용 점검 (항목 32~58)

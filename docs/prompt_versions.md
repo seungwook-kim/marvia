@@ -69,6 +69,6 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 
 10-07: 릴리스 r2. v1 이후 바뀐 4개(chat-agent 11, follow-up 7, judge 10, doc-extract 6)에 Langfuse 라벨 `v2`를 붙였다 (`docs/release_manifest.json`). 안 바뀐 5개는 v1 그대로. 다음 변경은 바꾼 것에만 `v3`.
 
-10-07: 릴리스 r3. r2 이후 바뀐 3개(chat-agent 12, follow-up 8, chat-route 2)에 Langfuse 라벨 `v3`를 붙였다 (`docs/release_manifest.json`). 나머지 6개는 r2/r1 라벨 그대로. 다음 변경은 바꾼 것에만 `v4`.
+10-07: 릴리스 r3. r2 이후 바뀐 3개(chat-agent 12, follow-up 8, chat-route 2)에 Langfuse 라벨 `v3`를 붙였다. 나머지 6개는 r2/r1 라벨 그대로. 다음 변경은 바꾼 것에만 `v4`.
 
-10-08: 릴리스 r4. r3 이후 바뀐 2개(chat-agent 13, follow-up 9)에 Langfuse 라벨 `v4`를 붙였다 (`docs/release_manifest.json`). 나머지는 이전 라벨 그대로. r4 코드의 배포는 확인 전이다. 다음 변경은 바꾼 것에만 `v5`.
+10-08: 릴리스 r4. r3 이후 바뀐 2개(chat-agent 13, follow-up 9)에 Langfuse 라벨 `v4`를 붙였다 (`docs/release_manifest.json`). 나머지는 이전 라벨 그대로. 다음 변경은 바꾼 것에만 `v5`.

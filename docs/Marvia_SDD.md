@@ -235,7 +235,7 @@ worker의 재판정(`services/watch.run_watch`)은 worker 프로세스 안에서
 | 외부 SaaS | OpenRouter, Langfuse Cloud, 카카오 | HTTPS | api |
 | 외부 API | ShipFinder, 해수부 공공데이터, UNI-PASS, IMF PortWatch | HTTPS | api(ShipFinder·해수부는 주로 MCP 도구 경유), worker |
 
-`docs/release_manifest.json`에는 `marvia-api`와 `marvia-web` 배포, `mof-relay`(상태 "배포 중, 확인 전")가 적혀 있고 worker 배포는 없다. 배포된 api는 실제 모드(`REPLAY_MODE=false`)로 돈다. 재생 모드는 키 없는 로컬 데모·평가용이다. Railway(리전 기록 Singapore)에서는 해수부 API가 연결 시간 초과로 실패해서(한국에서는 바로 응답, 해외 접속 차단으로 추정하지만 공식 확인은 아님) 서울 릴레이를 둔다(6.7). UNI-PASS는 싱가포르에서도 된다.
+`docs/release_manifest.json`에는 배포 플랫폼(Railway api·web)과 해수부 릴레이(Cloud Run)가 적혀 있고 worker 배포는 없다. 배포된 api는 실제 모드(`REPLAY_MODE=false`)로 돈다. 재생 모드는 키 없는 로컬 데모·평가용이다. Railway(리전 기록 Singapore)에서는 해수부 API가 연결 시간 초과로 실패해서(한국에서는 바로 응답, 해외 접속 차단으로 추정하지만 공식 확인은 아님) 서울 릴레이를 둔다(6.7). UNI-PASS는 싱가포르에서도 된다.
 
 ```mermaid
 flowchart TB
@@ -503,22 +503,22 @@ class EvalRecord(BaseModel):
 
 ### 3.8 환경변수 (C8)
 
-원본은 `.env.example`이다. 아래 표는 코드가 실제로 읽는 이름이다. `.env.example`에 없는 것은 "(예시 파일에 없음)"으로 표시했다.
+원본은 `.env.example`이다. 아래 표는 코드가 실제로 읽는 이름이다. 웹 `NEXT_PUBLIC_*`와 릴레이 `RELAY_TOKEN`은 각 서비스 설정에 둔다.
 
 | 묶음 | 변수 |
 | --- | --- |
-| LLM | `OPENROUTER_API_KEY`, `LLM_MODEL`, `VERTEX_THINKING_BUDGET`, `EVAL_COMPARE_MODEL`, `EVAL_GRADER_MODEL`, `MEMORY_MODEL`, `DAILY_TOKENS_PER_USER`, `CHAT_AGENT`, `WEB_SEARCH`. Vertex AI는 키 대신 ADC를 쓰고 프로젝트는 `GOOGLE_CLOUD_PROJECT`(예시 파일에 없음, google-auth가 읽음) |
+| LLM | `OPENROUTER_API_KEY`, `LLM_MODEL`, `VERTEX_THINKING_BUDGET`, `EVAL_COMPARE_MODEL`, `EVAL_GRADER_MODEL`, `MEMORY_MODEL`, `DAILY_TOKENS_PER_USER`, `CHAT_AGENT`, `WEB_SEARCH`. Vertex AI는 키 대신 ADC를 쓰고 프로젝트는 `GOOGLE_CLOUD_PROJECT`(google-auth가 읽음) |
 | 관측 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`(Langfuse SDK가 읽음) |
 | DB·로그인·암호화 | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PII_ENCRYPTION_KEY`, `BL_ENCRYPTION_KEY` |
-| 외부 API | `SHIPFINDER_KEY`, `UNIPASS_KEY`, `DATA_GO_KR_KEY`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`, `AISSTREAM_KEY`, `AISSTREAM_ENABLED`, `AISSTREAM_BBOX`(busan / wide, 예시 파일에 없음) |
+| 외부 API | `SHIPFINDER_KEY`, `UNIPASS_KEY`, `DATA_GO_KR_KEY`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`, `AISSTREAM_KEY`, `AISSTREAM_ENABLED`, `AISSTREAM_BBOX`(busan / wide) |
 | 서비스 | `ALLOWED_ORIGINS`, `MCP_TOKEN`, `REPLAY_MODE`, `DEMO_REFRESH` |
-| 호출 조정 | `SHIPFINDER_TIMEOUT_SEC`, `MOF_TIMEOUT_SEC`, `PORTWATCH_TIMEOUT_SEC`(예시 파일에 없음), `HTTP_MAX_ATTEMPTS`, `HTTP_BACKOFF_SEC`, `MOF_BASE_URL`·`MOF_RELAY_TOKEN`(릴레이 연결, 예시 파일에 없음) |
+| 호출 조정 | `SHIPFINDER_TIMEOUT_SEC`, `MOF_TIMEOUT_SEC`, `PORTWATCH_TIMEOUT_SEC`, `HTTP_MAX_ATTEMPTS`, `HTTP_BACKOFF_SEC`, `MOF_BASE_URL`·`MOF_RELAY_TOKEN`(릴레이 연결) |
 | 워커 | `WORKER_SCHEDULE`, `WORKER_INTERVAL_HOURS`, `WORKER_SHIPFINDER_CALLS_PER_RUN`, `WATCH_ENABLED` |
 | 컨테이너가 정함 | `MCP_URL`, `PORT` (6.2). `MCP_HOST`·`MCP_PORT`는 `python -m mcp_server.server` 단독 실행용 |
 | web (빌드 때 번들) | `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
 | relay | `RELAY_TOKEN` (relay 서비스 쪽) |
 
-`DAILY_COST_CAP_KRW`와 `MAX_TOKENS_PER_REQUEST`는 `.env.example`에 자리만 있고 읽는 코드가 없다. 비용 방어는 `DAILY_TOKENS_PER_USER`(5.20)가 맡는다.
+비용 방어는 `DAILY_TOKENS_PER_USER`(5.20)가 맡는다.
 
 ### 3.9 DB 스키마
 
@@ -1009,7 +1009,7 @@ FROM base AS worker
 
 ### 6.4 Railway (api)
 
-- `marvia-api`는 `Dockerfile.railway`로 배포한다. 환경변수는 Railway 서비스 설정에 두고 레포에는 `.env.example`만 둔다. 배포 주소·배포 번호·프롬프트 버전은 `docs/release_manifest.json`(되돌리기: Railway에서 이전 deployment를 Redeploy, 프롬프트는 Langfuse에서 이전 version에 production label).
+- `marvia-api`는 `Dockerfile.railway`로 배포한다. 환경변수는 Railway 서비스 설정에 두고 레포에는 `.env.example`만 둔다. 모델·프롬프트 버전·평가 기록은 `docs/release_manifest.json`(되돌리기: Railway에서 이전 deployment를 Redeploy, 프롬프트는 Langfuse에서 이전 version에 production label).
 - DB는 Supabase(`DATABASE_URL`). 서버가 켜질 때 마이그레이션이 자동 적용된다.
 - CORS: `ALLOWED_ORIGINS`에 화면 도메인(쉼표로 여러 개). 허용 메서드 GET·POST·PUT·DELETE, `Content-Disposition` 노출(엑셀 파일 이름). 카카오 리다이렉트 주소는 화면의 `/settings/kakao`(`KAKAO_REDIRECT_URI`).
 - 배포 서버는 `REPLAY_MODE=false`(실제 모드, release_manifest `replay_mode: false`)다. 해수부 호출은 `MOF_BASE_URL`·`MOF_RELAY_TOKEN`으로 릴레이(6.7)를 거친다. `REPLAY_MODE=true`로 켜면(로컬 데모 등) 데모 위치가 약 5시간 반 뒤 오래된 위치가 되므로 서버의 4시간 자동 갱신이나 `python -m scripts.make_demo`로 다시 만든다.
@@ -1032,7 +1032,7 @@ open http://localhost:8000/docs
 - 배포 서버(Railway 싱가포르)에서 `apis.data.go.kr`가 연결 시간 초과라 `relay/`의 작은 FastAPI를 Google Cloud Run 서울(asia-northeast3)에 `mof-relay`로 둔다.
 - 하는 일은 `GET /1192000/VsslEtrynd5/*`, `/1192000/CntlVssl2/*`를 `apis.data.go.kr`로 넘기는 것뿐이다. `X-Relay-Token`이 환경변수 `RELAY_TOKEN`과 같아야 하고(없으면 503), 쿼리스트링(serviceKey)은 로그에 남기지 않으며 httpx INFO 로그도 끈다. 이미지는 python:3.12-slim, 비루트 사용자, Cloud Run `PORT`(기본 8080). 자세한 것은 `relay/README.md`, 테스트 `relay/test_relay.py`.
 - 백엔드는 `MOF_BASE_URL`(릴레이 주소)과 `MOF_RELAY_TOKEN`(릴레이의 `RELAY_TOKEN`과 같은 값)으로 연결한다. 5.3의 연결 실패 처리(1회 즉시 재시도, 15초 차단기)가 같이 동작한다.
-- 상태: `docs/release_manifest.json`의 `mof_relay.status`가 기준이다(현재 "배포 중, 확인 전"). 레포만으로는 실서버 연결을 확인할 수 없다.
+- 상태: 레포만으로는 실서버 연결을 확인할 수 없다. api에 `MOF_BASE_URL`·`MOF_RELAY_TOKEN`이 설정돼 있으면 릴레이를 거친다.
 
 ## 7. 비기능 요구사항과 보안
 
