@@ -8,7 +8,7 @@
  /* 새 이름 (화면 작업은 이 이름을 쓴다) */
  --bg:#f2f4f6;--surface:#ffffff;--text:#191f28;--text-2:#4e5968;--muted:#5f6b7a;
  --brand:#2962f5;--brand-hover:#1d4fd7;--brand-soft:#ebf1ff;--hover:#f2f4f6;
- --border:#eceef1;--border-strong:#d1d6db;--neutral-bg:#f2f4f6;
+ --border:var(--border);--border-strong:#d1d6db;--neutral-bg:#f2f4f6;
  /* 판정 등급 신호등: 순항·주의·긴급 표시에만 쓴다. -solid는 점·지도 핀·테두리용, 글자는 기본 색 */
  --grade-fine:#187a4e;--grade-fine-bg:#e6f4ec;--grade-fine-solid:#34b27b;
  --grade-watch:#8f5a00;--grade-watch-bg:#fff3d1;--grade-watch-solid:#f2b01e;
@@ -92,7 +92,7 @@
 .login-card h1{font-size:26px;line-height:1.35;margin:4px 0 12px}
 .login-card>p{font-size:14px;color:var(--muted);line-height:1.9}
 .login-google{width:100%;margin:24px 0 8px;min-height:48px;font-size:14px}
-.login-google svg{background:#fff;border-radius:50%;padding:1px}
+.login-google svg{background:var(--surface);border-radius:50%;padding:1px}
 .login-points{list-style:none;padding:18px 0 0;margin:14px 0 18px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:10px}
 .login-points li{display:flex;gap:9px;align-items:flex-start;font-size:14px;color:var(--muted);line-height:1.7}
 .login-points svg{flex:none;margin-top:3px;color:var(--accent-dark)}
@@ -407,7 +407,7 @@ button.avatar:hover{background:var(--brand-soft)}
 .chat-avatar{background:var(--brand-soft);color:var(--blue)}
 
 /* Waiting: only real server stages and real elapsed time (docs/specs/chat-progress.md) */
-.pending-card{margin-top:16px;padding:17px 20px 0;border:1px solid var(--border);border-radius:4px;background:#fff;box-shadow:var(--shadow);overflow:hidden;animation:ocean-rise .35s var(--ease) both}
+.pending-card{margin-top:16px;padding:17px 20px 0;border:1px solid var(--border);border-radius:4px;background:var(--surface);box-shadow:var(--shadow);overflow:hidden;animation:ocean-rise .35s var(--ease) both}
 .pending-head{display:flex;align-items:center;gap:11px;font-size:16px}
 .pending-time{margin-left:auto;font-size:14px;color:var(--muted)}
 .pending-dots{display:inline-flex;gap:5px}
@@ -432,7 +432,7 @@ button.avatar:hover{background:var(--brand-soft)}
 
 /* Back to the composer after scrolling down (handoff 4절 5항) */
 .back-to-composer{position:fixed;z-index:60;bottom:20px;left:calc(50% + var(--rail-width) / 2);transform:translateX(-50%);display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border:1px solid var(--border);border-radius:4px;background:#fffffff0;color:var(--brand);font-size:14px;font-weight:600;box-shadow:0 8px 35px #191f2814;white-space:nowrap;animation:ocean-fade .2s ease both}
-.back-to-composer:hover{background:#fff;color:var(--blue-dark)}
+.back-to-composer:hover{background:var(--surface);color:var(--blue-dark)}
 
 /* ---------- Result ---------- */
 .result{margin-top:30px;animation:ocean-rise .42s var(--ease) both}
@@ -463,7 +463,7 @@ button.avatar:hover{background:var(--brand-soft)}
 .hero-kicker{font-size:14px;color:var(--blue-dark)}
 .verdict-hero.fine .hero-kicker,.verdict-hero.fine .verdict-icon{color:var(--success)}
 .decision-method{font-size:14px}
-.verdict-icon{background:#fff;border-color:var(--border)}
+.verdict-icon{background:var(--surface);border-color:var(--border)}
 .verdict-title h2{font-size:26px}
 .verdict-title h2 span{font-size:14px;color:var(--body)}
 .verdict-answer{font-size:16px;line-height:1.85}
@@ -542,12 +542,12 @@ th{background:var(--soft);color:var(--text-2)}
 
 /* ---------- Drawer (document photo, vessel detail) ---------- */
 .drawer-overlay{position:fixed;inset:0;z-index:1500;display:flex;justify-content:flex-end;background:#191f2866;animation:ocean-fade .22s ease both}
-.drawer{width:min(610px,100%);height:100%;overflow:auto;overscroll-behavior:contain;padding:28px 30px 36px;background:#fff;box-shadow:-12px 0 50px #191f2814;animation:ocean-slide .28s var(--ease) both}
+.drawer{width:min(610px,100%);height:100%;overflow:auto;overscroll-behavior:contain;padding:28px 30px 36px;background:var(--surface);box-shadow:-12px 0 50px #191f2814;animation:ocean-slide .28s var(--ease) both}
 .drawer.wide{width:min(760px,100%)}
 .drawer-head{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;margin-bottom:20px}
 .drawer-head h2{font-size:20px}
 .drawer-head p{font-size:14px;color:var(--muted);margin-top:5px}
-.drawer-close{flex:none;display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--border);border-radius:50%;background:#fff}
+.drawer-close{flex:none;display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--border);border-radius:50%;background:var(--surface)}
 .drawer-close:hover{background:var(--soft)}
 .document-panel.in-drawer{margin:0;padding:0;border:0;background:none}
 .document-panel.in-drawer .document-fields{grid-template-columns:1fr}
@@ -585,7 +585,7 @@ th{background:var(--soft);color:var(--text-2)}
 }
 @media(max-width:700px){
  :root{--rail-width:0px}
- .sidebar{position:static;width:100%;height:auto;padding:14px 16px 0;background:#fff;border-right:0;border-bottom:1px solid var(--border);display:block}
+ .sidebar{position:static;width:100%;height:auto;padding:14px 16px 0;background:var(--surface);border-right:0;border-bottom:1px solid var(--border);display:block}
  .brand{margin:0;font-size:26px}
  .brand>span:last-child{display:block}
  .brand-symbol{width:29px;height:29px}
@@ -789,13 +789,13 @@ section.watch{display:flex;flex-direction:column;gap:14px}
 .watch-head p{font-size:16px;color:var(--text-2);margin-top:4px}
 .watch-updated{font-size:14px;color:var(--text-2);white-space:nowrap}
 .watch-sample{background:var(--neutral-bg);border:1px solid var(--border);color:var(--text-2);border-radius:4px;padding:10px 14px;font-size:14px}
-.watch-empty{background:#fff;border:1px dashed var(--border);border-radius:4px;padding:40px;text-align:center;color:var(--text-2)}
+.watch-empty{background:var(--surface);border:1px dashed var(--border);border-radius:4px;padding:40px;text-align:center;color:var(--text-2)}
 .watch-body{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}
 .watch-map{position:relative;height:520px;border-radius:4px;overflow:hidden;border:1px solid var(--border);background:var(--hover)}
 .watch-map .leaflet-host{position:absolute;inset:0}
 .watch-fit{position:absolute;right:12px;top:12px;z-index:500}
 .watch-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto}
-.watch-list button{width:100%;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:10px;text-align:left;background:#fff;border:1px solid var(--border);border-radius:4px;padding:10px 12px;color:var(--ink)}
+.watch-list button{width:100%;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:10px;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:10px 12px;color:var(--ink)}
 .watch-list button:hover,.watch-list button:focus-visible{border-color:var(--brand);background:var(--hover)}
 .watch-chip{width:28px;height:28px;border-radius:50%;color:#fff;font-weight:700;display:grid;place-items:center;font-size:14px}
 .watch-main{display:flex;flex-direction:column;min-width:0}
@@ -837,7 +837,7 @@ section.watch{display:flex;flex-direction:column;gap:14px}
 .nav-sub-item:hover,.nav-sub-item:focus-visible{background:var(--hover);color:var(--brand-hover)}
 .nav-sub-item.active{background:var(--brand-soft);color:var(--brand);font-weight:700;border-left-color:var(--brand)}
 @media(min-width:701px){
- .rail-collapsed .nav-sub,.rail-collapsed .nav-group:not(.open) .nav-sub{display:none;position:absolute;left:calc(100% + 8px);top:0;z-index:90;min-width:170px;margin:0;padding:8px;background:#fff;border:1px solid var(--border);border-radius:4px;box-shadow:0 12px 30px #191f2814}
+ .rail-collapsed .nav-sub,.rail-collapsed .nav-group:not(.open) .nav-sub{display:none;position:absolute;left:calc(100% + 8px);top:0;z-index:90;min-width:170px;margin:0;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 12px 30px #191f2814}
  .rail-collapsed .nav-sub::before{content:"";position:absolute;left:-10px;top:0;width:10px;height:100%}
  .rail-collapsed .nav-group:hover .nav-sub,.rail-collapsed .nav-group:focus-within .nav-sub{display:flex}
  .rail-collapsed .nav-sub-title{display:block;font-size:14px;font-weight:700;color:var(--text-2);padding:4px 10px 6px}
@@ -855,8 +855,8 @@ section.watch{display:flex;flex-direction:column;gap:14px}
 }
 /* 감시·지도 경로 지점: 배 색 테두리의 작은 동그라미 (오래된 순, 마우스를 올리면 시각·속력) */
 .track-dot{background:none;border:0}
-.track-dot span{display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid var(--pin);box-shadow:0 1px 4px #191f2826}
-.watch-track-toggle{position:absolute;left:56px;top:12px;z-index:500;display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:14px;color:var(--ink);box-shadow:0 2px 8px #191f2814}
+.track-dot span{display:block;width:12px;height:12px;border-radius:50%;background:var(--surface);border:3px solid var(--pin);box-shadow:0 1px 4px #191f2826}
+.watch-track-toggle{position:absolute;left:56px;top:12px;z-index:500;display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:14px;color:var(--ink);box-shadow:0 2px 8px #191f2814}
 
 /* 감시·지도 클러스터: 가까운 배를 숫자 원으로 묶는다. 안의 배 색 점을 아래에, 가장 급한 판정을 테두리로 */
 .watch-cluster{background:none;border:0}
@@ -866,7 +866,7 @@ section.watch{display:flex;flex-direction:column;gap:14px}
 .cluster-body em{width:6px;height:6px;border-radius:50%;border:1px solid #fff}
 .cluster-body.watch{outline:3px solid var(--grade-watch-solid);outline-offset:1px}
 .cluster-body.act{outline:3px solid var(--grade-act-solid);outline-offset:1px}
-.cluster-panel{position:absolute;right:12px;top:56px;bottom:12px;width:330px;z-index:600;display:flex;flex-direction:column;background:#fff;border:1px solid var(--border);border-radius:4px;box-shadow:0 14px 34px #191f2814;overflow:hidden}
+.cluster-panel{position:absolute;right:12px;top:56px;bottom:12px;width:330px;z-index:600;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:4px;box-shadow:0 14px 34px #191f2814;overflow:hidden}
 .cluster-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);font-size:16px;color:var(--ink)}
 .cluster-panel ul{list-style:none;margin:0;padding:8px;overflow:auto;display:flex;flex-direction:column;gap:8px}
 .cluster-panel li{border:1px solid var(--border);border-radius:4px;padding:10px 12px}
@@ -880,7 +880,7 @@ section.watch{display:flex;flex-direction:column;gap:14px}
 /* 감시·지도 경로 점: 평소에는 흐리게, 고른 배만 또렷하게 (10-02) */
 .track-dot{transition:opacity .2s}
 .track-dot.faint{opacity:.3}
-.track-dot span:hover{background:#fff}
+.track-dot span:hover{background:var(--surface)}
 
 /* ==========================================================================
    10-02 UI 점검 반영. 위의 옛 규칙과 Ocean 블록이 다투던 곳을 여기서 한 번에 정리한다.

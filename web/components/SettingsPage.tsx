@@ -13,13 +13,14 @@ import {HistoryTable} from './HistoryTable';
 import {MemoryPanel} from './MemoryPanel';
 import {KakaoPanel} from './KakaoPanel';
 import {AccountPanel} from './AccountPanel';
+import {applyTheme, readThemePref, THEME_OPTIONS, type ThemePref} from '@/lib/theme';
 
 type Tab = 'profile' | 'history' | 'memory' | 'rules' | 'account';
 const TABS: {key: Tab; label: string; lead: string}[] = [
   {key: 'profile', label: '회원 정보', lead: '내 이름과 연락처를 확인하고 고칠 수 있어요.'},
   {key: 'history', label: '조회 이력', lead: '최근 조회한 내용을 요약으로 볼 수 있어요. 자세한 근거는 다시 조회하면 확인할 수 있어요.'},
   {key: 'memory', label: '기억한 화물', lead: '메모와 기억한 화물을 확인하고 정리할 수 있어요.'},
-  {key: 'rules', label: '설정', lead: '판단 기준은 볼 수만 있어요. 알림 연결은 언제든 바꿀 수 있어요.'},
+  {key: 'rules', label: '설정', lead: '화면 색과 알림 연결은 언제든 바꿀 수 있어요. 판단 기준은 볼 수만 있어요.'},
   {key: 'account', label: '계정과 이력', lead: '되돌릴 수 없는 작업은 한 번 더 확인한 뒤 진행해요.'},
 ];
 
@@ -78,6 +79,7 @@ function RulesTab(){
   const {data, isOperator} = useApp();
   const s = data.settings;
   return <div className="st-cols rules">
+    <ThemeCard/>
     <section className="st-card"><div className="st-card-head"><h2>이상 신호 기준</h2>
       <span className="st-icon-tip" role="img" aria-label="보기만 가능" title="보기만 가능해요"><LockKeyhole size={18}/></span>
       {isOperator && <span className="st-icon-tip" role="img" aria-label={`출처 ${s.source}, ${s.read_at} 확인`} title={`출처: ${s.source} (${s.read_at} 확인)`}><Info size={18}/></span>}</div>
@@ -89,6 +91,24 @@ function RulesTab(){
     <KakaoPanel/>
     {isOperator && <ModelCard rows={[['판정 모델', s.model], ['평가 모델', s.judge_model], ['프롬프트 버전', s.prompt_version], ['요청당 토큰 상한', s.token_limit], ['일일 비용 상한', s.daily_budget]]}/>}
   </div>;
+}
+
+/** 화면 색 (10-07). 고르면 바로 화면 전체에 반영되고 이 기기에 저장된다 (lib/theme.ts). 로그인 없이도 쓸 수 있다 */
+function ThemeCard(){
+  const [pref, setPref] = useState<ThemePref>('system');
+  useEffect(() => { setPref(readThemePref()); }, []);
+  function pick(v: ThemePref) { setPref(v); applyTheme(v); }
+  return <section className="st-card st-theme">
+    <h2>화면 색</h2>
+    <p className="st-sub">오래 보면 눈이 피로할 수 있어요. 고르면 바로 바뀌고, 이 기기에 저장돼요.</p>
+    <fieldset className="theme-picker"><legend className="sr-only">화면 색 고르기</legend>
+      {THEME_OPTIONS.map(o => <label key={o.value} className="theme-opt">
+        <input type="radio" name="marvia-theme" value={o.value} checked={pref === o.value} onChange={() => pick(o.value)}/>
+        <span className="theme-swatch" aria-hidden="true">{o.swatch.map(c => <i key={c} style={{background: c}}/>)}</span>
+        <strong>{o.label}</strong><small>{o.note}</small>
+      </label>)}
+    </fieldset>
+  </section>;
 }
 
 /** 운영자용 모델·프롬프트 설정. isOperator일 때만 그려진다(위 RulesTab). 값이 있는 줄만 보이고, 하나도 없으면 한 줄로 알린다.

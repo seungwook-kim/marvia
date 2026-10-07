@@ -87,7 +87,7 @@
 .entry-login-card h1{font-size:var(--text-xl);font-weight:700;line-height:1.4;letter-spacing:-.02em;color:var(--text)}
 .entry-login-lead{margin-top:12px;font-size:var(--text-base);line-height:1.7;color:var(--text-2)}
 .entry-login-google{width:100%;margin:28px 0 0;min-height:56px;border-radius:var(--radius);font-size:var(--text-base);font-weight:700}
-.entry-login-google svg{background:#fff;border-radius:50%;padding:1px}
+.entry-login-google svg{background:var(--surface);border-radius:50%;padding:1px}
 .entry-login-card .request-error{margin:12px 0 0;border-radius:var(--small-radius);font-size:var(--text-sm)}
 .entry-login-points{list-style:none;margin:28px 0 0;padding:0;display:flex;flex-direction:column;gap:12px}
 .entry-login-points li{display:flex;gap:10px;align-items:flex-start;font-size:var(--text-sm);line-height:1.7;color:var(--muted)}

@@ -18,8 +18,9 @@ import {isLive} from '@/lib/api';
 // 내 화물은 드롭다운이다: 화물 조회(/)와 감시·지도(/watch) (docs/specs/cargo-watch.md, 10-02)
 const cargoMenu=[{href:'/',label:'화물 조회',icon:Search},{href:'/watch',label:'지켜보는 화물',icon:Radar}];
 // 화물 현황(/cargo, 10-06)은 내 화물 바로 아래 따로 둔다: 하위 메뉴가 아니라 B/L 표를 보는 독립 화면이라 접은 메뉴에서도 아이콘으로 바로 열린다
-// 오늘의 화물(/today, 10-07)은 로그인한 사람 자신의 화물 요약이라 맨 위에 둔다
-const links=[{href:'/today',label:'오늘의 화물',icon:LayoutDashboard},{href:'/',label:'내 화물',icon:Boxes,sub:cargoMenu},{href:'/cargo',label:'화물 현황',icon:Table2},{href:'/history',label:'조회 이력',icon:History},{href:'/metrics',label:'평가 지표',icon:ChartNoAxesCombined,operatorOnly:true},{href:'/settings',label:'설정',icon:Settings2}];
+// 오늘의 화물(/today, 10-07)은 로그인한 사람 자신의 화물 요약이라 맨 위에 둔다.
+// 설정부터 아래(설정 · 평가 지표 · 관리)는 업무 메뉴와 점선으로 나눈다 (enterprise.css .nav-link[href="/settings"])
+const links=[{href:'/today',label:'오늘의 화물',icon:LayoutDashboard},{href:'/',label:'내 화물',icon:Boxes,sub:cargoMenu},{href:'/cargo',label:'화물 현황',icon:Table2},{href:'/history',label:'조회 이력',icon:History},{href:'/settings',label:'설정',icon:Settings2},{href:'/metrics',label:'평가 지표',icon:ChartNoAxesCombined,operatorOnly:true}];
 // 운영자에게만 보이는 탭 (docs/specs/operator-admin.md). 숨김은 편의이고 권한은 서버가 막는다
 /** 이 탭에서 로그인한 사람이 앱에 들어온 적이 있는지 (sessionStorage, 값은 user id) */
 const ENTRY_KEY='marvia-entered';

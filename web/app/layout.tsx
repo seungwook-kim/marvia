@@ -23,5 +23,8 @@ import './styles/enterprise.css';
 import './styles/today.css';
 import {AppProvider} from '@/components/AppProvider';
 import {Shell} from '@/components/Shell';
+import {ThemeSync} from '@/components/ThemeSync';
+import {THEME_BOOT_SCRIPT} from '@/lib/theme';
 export const metadata:Metadata={title:'Marvia',description:'B/L 하나로 내 화물이 제때 오는지 판정하고, 왜 그런지 근거까지 보여 드려요. 예시 데이터로 체험해 볼 수 있어요.'};
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="ko"><body><AppProvider><Shell>{children}</Shell></AppProvider></body></html>;}
+// 화면 색(data-theme)은 그리기 전에 작은 스크립트가 먼저 넣는다(깜빡임 방지). 서버가 그린 html에는 없는 속성이라 suppressHydrationWarning
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="ko" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{__html:THEME_BOOT_SCRIPT}}/></head><body><ThemeSync/><AppProvider><Shell>{children}</Shell></AppProvider></body></html>;}
