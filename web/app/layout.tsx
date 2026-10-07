@@ -11,7 +11,6 @@ import './globals.css';
 import './styles/chat.css';
 import './styles/detail.css';
 import './styles/compare-vessel.css';
-import './styles/document.css';
 import './styles/cargo-sheet.css';
 import './styles/watch.css';
 import './styles/settings.css';

@@ -2,23 +2,24 @@
 /** AI 입력창 (docs/specs/chat-search.md). 홈 화면의 주 기능이라 가운데 넓은 자리에 둔다 (강사 피드백 10-02, 구현작업서 4절).
  * 문장은 POST /api/chat/stream으로 가고, 서버가 B/L을 가린 뒤 LLM이 의도(화물 조회·후속 질문·입항 선박 검색)를 고른다.
  * 기다리는 동안은 서버가 알린 실제 처리 단계만 보인다 (docs/specs/chat-progress.md). 타이머로 단계를 만들지 않는다.
- * 서류 사진은 입력을 돕는 보조 동작이라 드로어에서 확인한 뒤 문장에 넣는다. 읽은 값으로 바로 조회하지 않는다.
+ * 서류 사진(10-08 사용자 결정, 예전 "확인 화면에서 확인한 뒤 넣는다. 읽은 값으로 바로 조회하지 않는다"를 바꿈):
+ *   Claude 앱처럼 입력창에 사진·PDF를 붙인다(클립 버튼, 붙여넣기, 끌어 놓기). 한 번에 하나, 새로 붙이면 바뀐다. 읽은 값을 다시 보여 주지 않는다.
+ *   보내면 사용자 말풍선에 미리보기와 쓴 글이 보이고, 사진을 읽어 B/L이 확실할 때만 바로 조회한다(AppProvider.askWithAttachment,
+ *   판단은 lib/docAttach.ts 코드). 사진은 /api/document에만 가고 저장하지 않는다. 글 없이 사진만 보내도 된다.
  * 화면을 내려 입력창이 안 보이면 "AI에게 이어서 물어보기" 버튼이 나타나 입력창으로 돌려보낸다.
  */
-import {useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode} from 'react';
+import {useEffect, useId, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode} from 'react';
 import {createPortal} from 'react-dom';
-import {ArrowUp, Camera, Check, FileText, LoaderCircle, MessageCircle, PackageSearch, Ship, Sparkles} from 'lucide-react';
+import {ArrowUp, Check, FileText, LoaderCircle, MessageCircle, PackageSearch, Paperclip, Ship, Sparkles, X} from 'lucide-react';
 import {VerdictBadge} from './Shared';
-import {useApp} from './AppProvider';
-import {DocumentPanel, type DocumentValues} from './DocumentPanel';
-import {Drawer} from './Drawer';
+import {useApp, type ChatImage} from './AppProvider';
 import {ChatMiniMap} from './ChatMiniMap';
 import {ChatCargoTable} from './ChatCargoTable';
 import {WatchOfferAction} from './WatchOfferAction';
 import {ChatCandidateChips} from './ChatCandidateChips';
 import {EvidencePopover} from './EvidencePopover';
 import {ConversationEvidence} from './ConversationEvidence';
-import {isLive, QUOTA_MESSAGE} from '@/lib/api';
+import {DOCUMENT_MAX_BYTES, isLive, QUOTA_MESSAGE} from '@/lib/api';
 import {onComposerRequest} from '@/lib/composer';
 import {stageLabels, type ProgressStage} from '@/lib/progress';
 
@@ -33,6 +34,18 @@ const EXAMPLES = isLive
 /** 사용자가 움직임 줄이기를 켰으면 부드러운 스크롤을 쓰지 않는다 (MDN prefers-reduced-motion) */
 function scrollBehavior(): ScrollBehavior {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
+/** 입력창에 붙인 파일 하나. 사진이면 미리보기용 object URL, PDF면 빈 url(아이콘으로 보인다) */
+interface Attachment { file: File; url: string; pdf: boolean }
+/** 받는 파일: 사진과 PDF만 (lib/api.ts readDocument와 같은 검사). 서버는 앞 바이트로 다시 가른다 */
+const isAcceptable = (f: File) => f.type.startsWith('image/') || f.type === 'application/pdf';
+
+/** 말풍선 안의 첨부 미리보기. 새로고침 뒤에는 url이 비어(탭 저장소에 사진을 남기지 않는다) 파일 이름만 보인다 */
+function ChatAttachmentPreview({image}: {image: ChatImage}) {
+  return image.url && !image.pdf
+    ? <img className="chat-attach-img" src={image.url} alt={`첨부한 사진 ${image.name}`}/>
+    : <span className="chat-attach-file"><FileText size={16} aria-hidden="true"/>{image.name}</span>;
 }
 
 /** 답 글 속 http(s) 주소를 누를 수 있는 링크로 바꾼다. 단 코드가 붙인 줄만이다 (10-06 점검: LLM 문장 속 주소까지 링크가 되어,
@@ -60,7 +73,7 @@ function linkify(text: string): ReactNode[] {
 }
 
 export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDetail?: () => void}) {
-  const {ask, loading, stages, pendingSince, thread, result, request, setDocHints, usage, view} = useApp();
+  const {ask, askWithAttachment, readingDoc, loading, stages, pendingSince, thread, result, request, usage, view} = useApp();
   // 판정 배지·할 일 한 줄은 "가장 최근 화물 답" 말풍선에만 붙인다. ChatTurn에는 판정이 없어 지금 보는 result(가장 최근 화물 답)에서 읽는다. 지어내지 않는다.
   // B/L 여러 개를 비교한 답은 표가 줄마다 배지를 가지고 있어 붙이지 않는다
   const verdictTurn = view === 'cargo' && result?.verdict ? thread.map((t, i) => t.role === 'assistant' && t.kind === 'cargo' && !(t.cargos && t.cargos.length > 1) ? i : -1).reduce((a, b) => Math.max(a, b), -1) : -1;
@@ -72,7 +85,13 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   // 하루 토큰 한도를 다 쓰면 입력·서류 사진을 막는다. 서버도 429로 막는다 (docs/specs/token-quota.md)
   const blocked = !!usage?.exhausted;
   const [text, setText] = useState('');
-  const [docOpen, setDocOpen] = useState(false);
+  // 입력창에 붙인 서류 사진·PDF 하나 (10-08 사용자 결정). 보내면 AppProvider로 넘어가고 여기서는 비운다
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [attachError, setAttachError] = useState('');
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const attachRef = useRef<Attachment | null>(null);
+  attachRef.current = attachment;
   const [away, setAway] = useState(false);  // 입력창이 화면 밖이면 true
   // 다른 입력칸에 글을 쓰는 중이면 true. 휴대폰에서 떠 있는 "이어서 물어보기" 버튼이 입력칸을 덮지 않게 그동안 숨긴다 (F18)
   const [typing, setTyping] = useState(false);
@@ -133,9 +152,58 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
     inputRef.current?.focus({preventScroll: true});
   }
 
+  // 화면을 떠날 때 보내지 않은 첨부의 미리보기 URL을 해제한다. 보낸 첨부의 URL은 AppProvider가 대화를 비울 때 해제한다
+  useEffect(() => () => { if (attachRef.current?.url) URL.revokeObjectURL(attachRef.current.url); }, []);
+
+  /** 파일 하나를 입력창에 붙인다. 이미 붙은 것이 있으면 바꾼다(한 번에 하나). 크기·종류는 보내기 전에 여기서 먼저 본다 */
+  function attach(file: File | undefined) {
+    if (!file || blocked) return;
+    if (!isAcceptable(file)) { setAttachError('사진(JPG·PNG)이나 PDF만 올릴 수 있어요.'); return; }
+    if (file.size > DOCUMENT_MAX_BYTES) { setAttachError('사진이 너무 커요. 10MB 이하로 올려 주세요.'); return; }
+    const pdf = file.type === 'application/pdf';
+    if (attachRef.current?.url) URL.revokeObjectURL(attachRef.current.url);  // 바꾸면 앞 미리보기는 해제
+    const next = {file, url: pdf ? '' : URL.createObjectURL(file), pdf};
+    attachRef.current = next;
+    setAttachment(next);
+    setAttachError('');
+    inputRef.current?.focus();
+  }
+  /** 붙인 파일을 뺀다 (칩의 X 버튼) */
+  function removeAttachment() {
+    if (attachRef.current?.url) URL.revokeObjectURL(attachRef.current.url);
+    attachRef.current = null;
+    setAttachment(null);
+    inputRef.current?.focus();
+  }
+  function onFile(e: ChangeEvent<HTMLInputElement>) {
+    attach(e.target.files?.[0]);
+    e.target.value = '';  // 같은 파일을 다시 골라도 change가 나게
+  }
+  /** 키보드 붙여넣기(Ctrl+V)로 사진을 붙인다. 글자와 함께 온 경우에는 글자 붙여넣기를 막지 않는다 */
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const file = Array.from(e.clipboardData.files).find(isAcceptable);
+    if (!file) return;
+    if (!e.clipboardData.getData('text')) e.preventDefault();
+    attach(file);
+  }
+  // 입력창 위로 파일을 끌어 놓기. 파일을 끌 때만 반응한다(글자 끌기는 그대로)
+  const draggingFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
+  function onDragOver(e: DragEvent) { if (!draggingFiles(e) || blocked) return; e.preventDefault(); setDragging(true); }
+  function onDrop(e: DragEvent) { if (!draggingFiles(e)) return; e.preventDefault(); setDragging(false); attach(e.dataTransfer.files[0]); }
+
   async function send(message: string) {
     const m = message.trim();
-    if (!m || loading || blocked || m.length > MAX) return;  // 보내는 중이거나 한도를 다 썼으면 보내지 않는다
+    if (loading || blocked || m.length > MAX) return;  // 보내는 중이거나 한도를 다 썼으면 보내지 않는다
+    if (attachment) {
+      // 사진이 붙어 있으면 글이 비어 있어도 보낸다. 미리보기 URL은 말풍선이 이어 쓴다(해제는 AppProvider)
+      const a = attachment;
+      attachRef.current = null;  // 이제 AppProvider 몫이라 화면을 떠날 때 해제하지 않는다
+      setAttachment(null); setText(''); setAttachError('');
+      stick.current = true;
+      await askWithAttachment(m, a.file, {url: a.url, name: a.file.name, pdf: a.pdf});
+      return;
+    }
+    if (!m) return;
     setText('');
     stick.current = true;  // 내가 보낸 것은 항상 보이게
     const ok = await ask(m);
@@ -148,13 +216,6 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(text); }
   }
   function fill(example: string) { if (blocked) return; offerText(example); inputRef.current?.focus(); }
-  function applyDocument(v: DocumentValues) {
-    setDocOpen(false);
-    // MRN이 있으면 문장에 같이 넣는다. 서버가 코드로 뽑아 세관 미등록 때 배를 찾는다 (LLM에는 안 감)
-    setText(t => `${v.bl_no}${v.mrn ? ` MRN ${v.mrn}` : ''} ${t}`.trim());
-    setDocHints(v.voyage_no || v.forwarder_eta || v.departed_on ? {voyage_no: v.voyage_no, forwarder_eta: v.forwarder_eta, bl_no: v.bl_no, departed_on: v.departed_on} : null);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }
 
   // 판정 답 말풍선 안의 배지·할 일 한 줄. 대화가 비어 있는데 결과만 있는 경우(데모 첫 화면, 저장된 판정 열기)도 같은 모양으로 그린다 (시안 2-2)
   const verdictBlock = result?.verdict ? <div className="chat-verdict"><VerdictBadge verdict={result.verdict} size="lg"/>{result.actions[0] && <p className="chat-todo"><span>지금 할 일</span>{result.actions[0]}</p>}<button type="button" className="chat-show-detail" onClick={onShowDetail}>결과 보기</button></div> : null;
@@ -175,14 +236,14 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
         <div className="feature-tiles">
           <button type="button" onClick={() => isLive ? goToComposer() : fill(EXAMPLES[0])} disabled={blocked}><PackageSearch size={20}/>B/L 번호로 조회하기</button>
           <button type="button" onClick={() => fill(isLive ? EXAMPLES[0] : EXAMPLES[2])} disabled={blocked}><Ship size={20}/>입항 예정 선박 찾기</button>
-          <button type="button" onClick={() => setDocOpen(true)} disabled={blocked}><FileText size={20}/>서류 사진 올리기</button>
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={blocked}><FileText size={20}/>서류 사진 올리기</button>
         </div>
       </div> : <ol className="chat-thread" aria-live="polite">
         {thread.map((t, i) => <li key={i} className={`chat-turn ${t.role}`}>
-          <div className="chat-body"><div className="chat-bubble"><p>{t.role === 'assistant' ? <EvidencePopover text={t.text} citations={t.citations ?? []} evidence={t.evidence ?? []} renderText={linkify}/> : t.text}</p>{i === verdictTurn && verdictBlock}</div>{t.role === 'assistant' && t.cargos && t.cargos.length > 1 ? <ChatCargoTable cargos={t.cargos}/> : t.role === 'assistant' && t.map && <ChatMiniMap map={t.map}/>}{t.role === 'assistant' && t.steps && t.steps.length > 0 && <StepsSummary steps={t.steps} tookMs={t.tookMs ?? 0}/>}{t.role === 'assistant' && t.watchOffer && <WatchOfferAction offer={t.watchOffer}/>}{i === chipTurn && t.agent && t.request && t.agent.trace_id === result?.trace_id && <ChatCandidateChips agent={t.agent} request={t.request} disabled={loading || blocked}/>}</div></li>)}
+          <div className="chat-body"><div className="chat-bubble">{t.image && <ChatAttachmentPreview image={t.image}/>}{(t.role === 'assistant' || t.text) && <p>{t.role === 'assistant' ? <EvidencePopover text={t.text} citations={t.citations ?? []} evidence={t.evidence ?? []} renderText={linkify}/> : t.text}</p>}{i === verdictTurn && verdictBlock}</div>{t.role === 'assistant' && t.cargos && t.cargos.length > 1 ? <ChatCargoTable cargos={t.cargos}/> : t.role === 'assistant' && t.map && <ChatMiniMap map={t.map}/>}{t.role === 'assistant' && t.steps && t.steps.length > 0 && <StepsSummary steps={t.steps} tookMs={t.tookMs ?? 0}/>}{t.role === 'assistant' && t.watchOffer && <WatchOfferAction offer={t.watchOffer}/>}{i === chipTurn && t.agent && t.request && t.agent.trace_id === result?.trace_id && <ChatCandidateChips agent={t.agent} request={t.request} disabled={loading || blocked}/>}</div></li>)}
         {seedAnswer && <li className="chat-seed"><div className="chat-body"><div className="chat-bubble"><p>{seedAnswer.answer}</p>{verdictBlock}</div></div></li>}
       </ol>}
-      {loading && pendingSince !== null && <Pending stages={stages} since={pendingSince}/>}
+      {loading && pendingSince !== null && <Pending stages={stages} since={pendingSince} readingDoc={readingDoc}/>}
     </div>
 
     <div className="chat-dock">
@@ -191,18 +252,32 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
       {offer !== null && <div className="fill-offer" role="status"><span>입력 중인 글이 있어요. 이 문장으로 바꿀까요? <strong>{offer}</strong></span>
         <button type="button" className="button secondary" onClick={() => { setText(offer); setOffer(null); inputRef.current?.focus(); }}>바꾸기</button>
         <button type="button" className="button text-button" onClick={() => { setOffer(null); inputRef.current?.focus(); }}>쓰던 글 유지하기</button></div>}
-      <div className="composer-wrap" ref={wrapRef}>
+      {attachError && <p className="quota-note blocked" role="alert">{attachError}</p>}
+      {/* 파일을 끌어 놓을 수 있는 자리는 입력창 전체다. 끄는 동안만 테두리를 강조한다 */}
+      <div className={`composer-wrap ${dragging ? 'dragging' : ''}`} ref={wrapRef}
+        onDragOver={onDragOver} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
         <form className="composer" onSubmit={submit}>
+          {/* 붙인 사진 칩 (Claude 앱처럼 입력칸 위). 읽은 값은 보여 주지 않는다 (10-08 사용자 결정) */}
+          {attachment && <div className="composer-attach">
+            <span className="attach-chip">
+              {attachment.pdf ? <span className="attach-thumb pdf" aria-hidden="true"><FileText size={18}/></span>
+                : <img className="attach-thumb" src={attachment.url} alt=""/>}
+              <span className="attach-name">{attachment.file.name}</span>
+              <button type="button" className="attach-remove" onClick={removeAttachment} aria-label={`첨부한 ${attachment.file.name} 빼기`}><X size={14}/></button>
+            </span>
+          </div>}
+          <p className="sr-only" role="status">{attachment ? `파일을 첨부했어요: ${attachment.file.name}. 보내면 사진에서 B/L 번호를 찾아 조회해요.` : ''}</p>
           <label htmlFor="chat-input" className="sr-only">Marvia에게 질문하기</label>
-          <textarea id="chat-input" ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={onKey} rows={1} maxLength={MAX} disabled={blocked}
-            placeholder={cargoShown ? '이 화물에 대해 더 물어보세요' : 'B/L 번호를 입력해 주세요'}
+          <textarea id="chat-input" ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste} rows={1} maxLength={MAX} disabled={blocked}
+            placeholder={attachment ? '사진에 대해 덧붙일 말을 쓰거나 그대로 보내 주세요' : cargoShown ? '이 화물에 대해 더 물어보세요' : 'B/L 번호를 입력해 주세요'}
             aria-describedby="chat-help" autoComplete="off" spellCheck={false}/>
           <div className="composer-foot">
-            <button type="button" className="doc-trigger" onClick={() => setDocOpen(true)} disabled={loading || blocked}><Camera size={16}/>서류 사진으로 채우기</button>
+            <button type="button" className="attach-trigger" onClick={() => fileRef.current?.click()} disabled={blocked} aria-label="서류 사진이나 PDF 첨부하기" title="서류 사진이나 PDF 첨부하기"><Paperclip size={18}/></button>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={onFile}/>
             <div className="composer-send">
               {/* 글자 수는 쓰기 시작한 뒤에만 보인다. 빈 입력창에 숫자를 늘 두면 어수선하다 */}
               {text.length > 0 && <span className="mono chat-count" aria-label={`${text.length}자 입력, 최대 ${MAX}자`}>{text.length} / {MAX}</span>}
-              <button type="submit" className="send" disabled={loading || blocked || !text.trim()} aria-label="AI에게 질문 보내기">
+              <button type="submit" className="send" disabled={loading || blocked || (!text.trim() && !attachment)} aria-label="AI에게 질문 보내기">
                 {loading ? <LoaderCircle size={20} className="spin"/> : <ArrowUp size={21}/>}</button>
             </div>
           </div>
@@ -211,15 +286,11 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
       {/* 시작 문장: 대화가 비어 있을 때만. 누르면 입력창에 채우기만 한다 */}
       {empty && <div className="chat-examples" aria-label="질문 예시">{EXAMPLES.map(e =>
         <button key={e} type="button" onClick={() => fill(e)} disabled={blocked}>{e}<span aria-hidden="true">↗</span></button>)}</div>}
-      <p id="chat-help" className="sr-only">Enter로 보내고 Shift + Enter로 줄을 바꿔요</p>
+      <p id="chat-help" className="sr-only">Enter로 보내고 Shift + Enter로 줄을 바꿔요. 사진은 붙여넣기나 끌어 놓기로도 첨부할 수 있어요</p>
     </div>
 
-    {docOpen && <Drawer title="서류 사진으로 질문하기" description="읽은 값을 확인한 뒤 입력창에 넣어요." onClose={() => setDocOpen(false)}>
-      <DocumentPanel heading={false} onApply={applyDocument} onClose={() => setDocOpen(false)} disabled={loading || blocked}/>
-    </Drawer>}
-
     {/* body로 뺀다. 입력창이 화면 밖으로 밀렸을 때(휴대폰 상세 시트가 올라온 경우 등) 돌아가는 길 */}
-    {away && !docOpen && !typing && createPortal(<button type="button" className="back-to-composer" onClick={goToComposer}><Sparkles size={15}/>AI에게 이어서 물어보기<span aria-hidden="true">↑</span></button>, document.body)}
+    {away && !typing && createPortal(<button type="button" className="back-to-composer" onClick={goToComposer}><Sparkles size={15}/>AI에게 이어서 물어보기<span aria-hidden="true">↑</span></button>, document.body)}
   </section>;
 }
 
@@ -238,7 +309,7 @@ function StepsSummary({steps, tookMs}: {steps: {stage: ProgressStage; at: number
 
 /** 답을 기다리는 동안의 표시. 단계는 서버가 알린 것만, 시간은 브라우저가 실제로 잰 값이다 (chat-progress.md AC-04).
  * 마지막으로 받은 단계가 진행 중이고, 그 앞은 다음 단계가 시작됐으니 끝난 것이다. 앞으로 올 단계는 미리 그리지 않는다. */
-function Pending({stages, since}: {stages: ProgressStage[]; since: number}) {
+function Pending({stages, since, readingDoc}: {stages: ProgressStage[]; since: number; readingDoc: boolean}) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
   const seconds = Math.max(0, Math.floor((now - since) / 1000));
@@ -247,7 +318,11 @@ function Pending({stages, since}: {stages: ProgressStage[]; since: number}) {
       <strong>답을 준비하고 있어요</strong><span className="pending-dots" aria-hidden="true"><i/><i/><i/></span>
       <span className="mono pending-time">{seconds}초</span>
     </div>
-    {stages.length > 0
+    {/* 첨부 사진을 읽는 중 (10-08). 브라우저가 실제로 보낸 POST /api/document를 기다리는 동안만 보인다. 읽는 데 20초쯤 걸린다(로컬 OCR + 소형 LLM) */}
+    {readingDoc
+      ? <ol className="pending-steps" aria-live="polite" aria-label="답변 준비 단계"><li className="current">
+          <span className="step-icon"><LoaderCircle size={16} className="spin"/></span><span className="step-name">서류 사진 읽기 · 보통 20초쯤 걸려요</span><span className="step-state">진행 중</span></li></ol>
+      : stages.length > 0
       ? <ol className="pending-steps" aria-live="polite" aria-label="답변 준비 단계">{stages.map((s, i) => {
           const done = i < stages.length - 1;
           return <li key={s} className={done ? 'done' : 'current'}>

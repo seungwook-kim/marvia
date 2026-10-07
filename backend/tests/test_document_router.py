@@ -127,3 +127,14 @@ def test_invented_etd_needs_review(monkeypatch):
     body = _post().json()
     assert body["fields"]["etd"]["checks"] == ["not_in_text"]
     assert body["needs_review"] is True
+
+
+def test_bl_status_and_important_names(monkeypatch):
+    """10-08: 깨끗하게 읽은 B/L은 ok, 지어낸 선명은 important에서 빠진다. important에는 값이 아니라 칸 이름만 있다."""
+    _fake_extract(monkeypatch)
+    body = _post().json()
+    assert body["bl_status"] == "ok"
+    assert set(body["important"]) <= {"vessel", "voyage", "eta", "etd"} and "vessel" in body["important"]
+    _fake_extract(monkeypatch, {**ANSWER, "vessel": "OCEAN KING"})
+    body = _post().json()
+    assert body["bl_status"] == "ok" and "vessel" not in body["important"]

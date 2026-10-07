@@ -124,6 +124,11 @@ export interface DocumentResponse {
   doc_kind?: 'B/L' | 'A/N' | null;
   /** AI가 서류 글자를 정리하지 못했을 때 실패 종류(bad_format, timeout 등). 성공이면 null. 옛 서버 응답에는 없다 (10-06) */
   llm_error?: string | null;
+  /** 10-08 사용자 결정: 첨부 사진의 B/L로 바로 조회해도 되나 (서버 코드가 정함, routers/document.bl_status_of).
+   * ok면 조회, uncertain이면 조회하지 않고 직접 입력을 부탁, none이면 못 읽음. 옛 서버 응답에는 없다 (lib/docAttach.ts가 fields로 다시 계산) */
+  bl_status?: 'ok' | 'uncertain' | 'none';
+  /** 검사를 통과한 중요한 칸의 이름만 (값 없음). 화면은 "선박 이름과 입항 예정일은 읽었어요"처럼 이름만 말한다 */
+  important?: ('vessel' | 'voyage' | 'eta' | 'etd')[];
 }
 
 /** 화물 비서 기억 (backend/app/schemas/memory.py, docs/specs/memory.md, 10-02). 원본 B/L은 오지 않는다 */
