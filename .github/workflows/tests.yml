@@ -1,11 +1,13 @@
 # 백엔드·MCP 단위·계약·통합 테스트 (pytest). 키 없이 가공 fixture로 돈다 (CLAUDE.md "테스트는 키 없이 돈다").
 #
-# PR 때만 돈다. secret-scan.yml과 같은 이유로 push 이벤트는 걸지 않는다(Actions 무료 한도).
+# main에 push할 때와 PR 때 돈다. 이 레포는 main에서 바로 작업해서 push에도 걸어 둔다.
 # 실제 API·LLM을 부르는 평가(run_eval --config b|c)와 레드팀은 돈이 들어 여기서 돌리지 않는다.
 # test_baseline.py는 import 오류(evals.baseline_rules.decide 없음)가 고쳐질 때까지 뺀다.
 name: Tests
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 jobs:
