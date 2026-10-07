@@ -6,6 +6,7 @@
  * - 서버가 없는 체험 모드이거나 자료를 한 번도 못 받았으면(status unavailable) 카드를 그리지 않는다
  * - 출처 "IMF PortWatch"는 IMF 이용 조건이라 늘 보인다 */
 import {useEffect, useState} from 'react';
+import {tour} from '@/lib/api';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '').trim().replace(/\/+$/, '');
 const TIMEOUT_MS = 20_000; // 서버가 12시간 캐시를 갖고 있어 보통 바로 온다. 캐시가 빈 첫 호출만 위(IMF)까지 다녀온다
@@ -37,7 +38,7 @@ export function PortTrafficCard() {
   const [data, setData] = useState<PortTraffic | null>(null);
 
   useEffect(() => {
-    if (!API_BASE) return; // 체험 모드: 가공 예시를 보여 주지 않는다. 실제 자료처럼 보일 수 있어서다
+    if (!API_BASE || tour) return; // 체험 모드·데모 둘러보기: 서버를 부르지 않고 가공 예시도 보여 주지 않는다. 실제 자료처럼 보일 수 있어서다
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     fetch(`${API_BASE}/api/port/busan/traffic`, {signal: ctrl.signal})
