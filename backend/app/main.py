@@ -1,16 +1,20 @@
-"""FastAPI 진입점.
+"""FastAPI 진입점: 앱 생성, 미들웨어, 라우터 등록, /mcp 마운트, /health, 기동·종료 처리.
 
-라우터 등록과 미들웨어만 둔다. LLM 호출은 services/llm.py 한 곳에서만 한다 (CLAUDE.md).
+판정·LLM 호출은 여기 두지 않는다. LLM 호출은 services/llm.py 한 곳에서만 한다 (CLAUDE.md).
 
 미들웨어:
 - RequestLogMiddleware: 요청마다 JSON 로그 한 줄 (SDD 5.11)
 - CORS: ALLOWED_ORIGINS에 적힌 출처만 (SDD 7절)
+- SecurityHeadersMiddleware: 모든 응답에 X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer (10-08 QA A10)
+
+API 문서(/docs, /redoc, /openapi.json)는 로컬에서만 연다. 배포(Railway)에서는 기본으로 닫는다 (docs_enabled, 10-08 QA A10).
 
 MCP 서버(/mcp)도 이 앱의 경로로 붙여 배포 서비스를 하나로 둔다 (SDD 5.9).
 외부 MCP 클라이언트(Claude Desktop 등)용 창구이고, 서비스 자신은 도구 함수를 직접 부른다.
 
-기동할 때 DB 마이그레이션을 적용한다. 워커는 기본이 꺼짐이라 워커만 믿으면 표가 안 생긴다.
-DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다 (DB 없이도 판정은 돌아야 한다).
+기동할 때 DB 마이그레이션을 적용한다. api와 worker 중 누가 먼저 떠도 표가 생기게 한다 (db.apply_migrations가 잠금으로 겹침을 막는다).
+DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다 (DB 없이도 판정은 돌아야 한다). 연결 대기는 db.connect 상한(기본 3초)까지다.
+재생 모드(REPLAY_MODE=true)면 데모 재생 파일을 주기적으로 새로 만든다 (_refresh_demo_forever).
 """
 import logging
 import os
@@ -24,7 +28,7 @@ from fastapi.responses import JSONResponse
 from backend.app.clients.replay import replay_enabled
 from backend.app.db import apply_migrations, connect
 from backend.app.observability.langfuse import flush as langfuse_flush
-from backend.app.observability.logging import RequestLogMiddleware, setup_logging, log_failure, setup_logging
+from backend.app.observability.logging import RequestLogMiddleware, log_failure, setup_logging
 from backend.app.routers import account, admin, agent, cargo_sheet, chat, conversations, document, history, kakao, memory, port, profile, watch
 from backend.app.services import memory as memory_service  # 뒤 작업 일꾼 닫기 (lifespan)
 from mcp_server.server import MountedMCP
@@ -39,7 +43,9 @@ def _migrate() -> None:
     if not os.environ.get("DATABASE_URL"):
         return
     try:
-        with connect() as conn:
+        # 문장 상한은 끈다(0). 다른 프로세스가 잡은 마이그레이션 잠금을 기다리거나 큰 표를 고칠 수 있다.
+        # 연결 대기 상한은 그대로라 DB가 응답하지 않으면 3초 안에 포기하고 서버는 뜬다 (10-08 QA A1)
+        with connect(statement_timeout_ms=0) as conn:
             applied = apply_migrations(conn)
         if applied:
             logger.info("migrations applied: %s", applied)
@@ -81,7 +87,57 @@ async def lifespan(app: FastAPI):
     langfuse_flush()
 
 
-app = FastAPI(title="Marvia API", lifespan=lifespan)
+def docs_enabled() -> bool:
+    """API 문서(/docs, /redoc, /openapi.json)를 열지 정한다 (10-08 QA A10).
+
+    EXPOSE_DOCS가 있으면 그 값(1·true·on·yes면 열기, 그 밖은 닫기)을 따른다.
+    없으면 Railway 배포(Railway가 넣는 RAILWAY_ENVIRONMENT·RAILWAY_ENVIRONMENT_NAME이 있음)에서는 닫고 그 밖(로컬 compose,
+    채점자 실행)은 연다. 배포에서 닫는 이유: 전체 경로·입력 모양이 공개되면 직접 호출을 시도할 표면이 넓어지고,
+    화면 사용자에게는 쓸모가 없다. 로컬은 채점자가 /docs로 API를 확인하므로 연다 (CLAUDE.md "실행").
+    """
+    raw = os.environ.get("EXPOSE_DOCS", "").strip().lower()
+    if raw:
+        return raw in ("1", "true", "on", "yes")
+    return not (os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_ENVIRONMENT_NAME"))
+
+
+def _docs_kwargs() -> dict:
+    """FastAPI 생성 인자. 문서를 닫으면 세 경로 모두 없앤다(404)."""
+    if docs_enabled():
+        return {}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+# 모든 응답에 붙이는 보안 헤더 (10-08 QA A10).
+# nosniff: 브라우저가 JSON·파일 응답을 HTML·스크립트로 추측해 실행하지 않게 한다.
+# no-referrer: API를 부른 화면 주소(쿼리에 든 값 포함)가 다른 곳으로 새지 않게 한다. API 응답이 다른 곳을 부르는 일은 없다
+SECURITY_HEADERS = ((b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"no-referrer"))
+
+
+class SecurityHeadersMiddleware:
+    """응답 시작 메시지에 SECURITY_HEADERS를 붙인다. 이미 같은 헤더가 있으면 그대로 둔다.
+    순수 ASGI로 둔다. 응답 본문을 건드리지 않아 스트리밍(/api/chat/stream)과 /mcp도 그대로 흐른다."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {k.lower() for k, _ in headers}
+                headers.extend((k, v) for k, v in SECURITY_HEADERS if k not in present)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app = FastAPI(title="Marvia API", lifespan=lifespan, **_docs_kwargs())
 app.add_middleware(RequestLogMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -93,6 +149,8 @@ app.add_middleware(
     # 엑셀 받기(GET /api/cargo/sheet.xlsx)의 파일 이름을 다른 출처의 화면이 읽으려면 열어 둬야 한다
     expose_headers=["Content-Disposition"],
 )
+# 마지막에 더해 가장 바깥에 둔다. CORS 사전 요청 응답과 오류 응답에도 보안 헤더가 붙는다
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 app.include_router(agent.router)

@@ -5,6 +5,8 @@ psycopg는 함수 안에서 import한다. DB가 필요 없는 단위 테스트�
 from __future__ import annotations
 
 import os
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -20,15 +22,95 @@ def plain_url(url: str) -> str:
     return f"{scheme.split('+', 1)[0]}{sep}{rest}" if sep else url
 
 
-def connect(url: str | None = None, timeout: int | None = None):
+def _env_number(name: str, default: float) -> float:
+    """환경변수 숫자 하나. 비었거나 숫자가 아니면 기본값 (잘못 적은 값 때문에 연결이 막히지 않게)."""
+    try:
+        return float(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+# 연결 대기 상한(초). 10-08 QA A1: 이 값이 없으면 DB가 응답하지 않을 때 psycopg가 OS 기본(수십 초 이상)만큼 기다려
+# 로그인 확인(auth)이 요청마다 25초 넘게, 선박 자세히 보기가 260초 멈췄다. DB_CONNECT_TIMEOUT_SEC로 바꾼다
+DEFAULT_CONNECT_TIMEOUT_SEC = 3
+# 문장 하나의 실행 상한(밀리초). 잠금 대기나 느린 쿼리가 요청 스레드를 붙잡지 않게 한다 (10-08 QA A1).
+# 화면 요청의 쿼리는 모두 한 사용자 몇 줄이라 1초도 안 걸린다. 넉넉히 15초. DB_STATEMENT_TIMEOUT_MS=0이면 끈다.
+# 마이그레이션은 0(제한 없음)으로 부른다 (main._migrate). 다른 프로세스의 마이그레이션 잠금을 기다려야 하기 때문이다
+DEFAULT_STATEMENT_TIMEOUT_MS = 15000
+# 연결이 한 번 실패하면 이 시간(초) 동안은 붙어 보지 않고 바로 실패한다 (10-08 QA A1, B7).
+# 한 요청이 기록 읽기·화물 읽기·저장으로 연결을 여러 번 열면 DB 장애 때 단계마다 대기 시간을 다시 냈다(판정 12초).
+# 프로세스 안에서 실패를 기억해 같은 요청의 다음 단계와 동시에 들어온 다른 요청이 기다리지 않게 한다.
+# 짧게 둬서 DB가 돌아오면 곧 다시 붙는다. DB_DOWN_COOLDOWN_SEC로 바꾸고 0이면 끈다
+DEFAULT_DOWN_COOLDOWN_SEC = 5
+
+_state_lock = threading.Lock()
+_down_until = 0.0          # time.monotonic() 기준. 이 시각 전에는 기본 DB에 붙어 보지 않는다
+_options_unsupported = False  # 연결 풀러가 options 시작 인자(statement_timeout)를 거절한 적이 있다
+
+
+def reset_connection_state() -> None:
+    """실패 기억과 options 거절 기억을 지운다. 테스트가 테스트마다 부른다 (backend/tests/conftest.py)."""
+    global _down_until, _options_unsupported
+    with _state_lock:
+        _down_until, _options_unsupported = 0.0, False
+
+
+def _rejects_options(err: Exception) -> bool:
+    """연결 풀러(PgBouncer 등)가 options 시작 인자를 모른다고 거절한 오류인가."""
+    text = str(err).lower()
+    return "options" in text and ("startup parameter" in text or "unsupported" in text)
+
+
+def connect(url: str | None = None, timeout: float | None = None, statement_timeout_ms: int | None = None):
     """DATABASE_URL로 연결한다. autocommit이라 넣는 즉시 저장된다 (워커는 한 줄씩 넣는다).
 
-    timeout(초)을 주면 그 안에 못 붙을 때 포기한다. /health처럼 빨리 답해야 하는 곳이 쓴다.
+    - timeout(초): 그 안에 못 붙으면 포기한다. 주지 않으면 DB_CONNECT_TIMEOUT_SEC(기본 3초).
+      주소에 connect_timeout을 이미 적었으면 그 값을 따른다 (/health는 더 짧게 따로 준다)
+    - statement_timeout_ms: 문장 하나의 실행 상한. 주지 않으면 DB_STATEMENT_TIMEOUT_MS(기본 15초), 0이면 제한 없음.
+      서버 쪽 설정(options -c statement_timeout)이라 연결마다 따로 걸린다. 트랜잭션 풀러가 options를 거절하면
+      한 번 더 options 없이 붙고, 그 뒤로는 options를 보내지 않는다 (연결 대기 상한은 그대로 걸린다)
+    - 기본 DB(url 없음) 연결이 실패하면 DB_DOWN_COOLDOWN_SEC 동안 바로 OperationalError를 낸다 (위 상수 주석)
     """
     import psycopg
 
-    extra = {"connect_timeout": timeout} if timeout else {}
-    return psycopg.connect(plain_url(url or os.environ["DATABASE_URL"]), autocommit=True, **extra)
+    global _down_until, _options_unsupported
+    default_db = url is None
+    raw = url or os.environ["DATABASE_URL"]
+    if default_db and time.monotonic() < _down_until:
+        # 대기 없이 같은 종류의 오류. 부르는 쪽은 원래 연결 실패와 똑같이 처리한다
+        raise psycopg.OperationalError("database recently unreachable; skipped connect (db cooldown)")
+
+    extra: dict = {}
+    if timeout:
+        extra["connect_timeout"] = timeout
+    elif "connect_timeout" not in raw:
+        extra["connect_timeout"] = _env_number("DB_CONNECT_TIMEOUT_SEC", DEFAULT_CONNECT_TIMEOUT_SEC)
+    if extra.get("connect_timeout"):
+        extra["connect_timeout"] = max(1, int(extra["connect_timeout"]))  # libpq는 정수 초, 2초 미만은 2초로 본다
+    limit = statement_timeout_ms if statement_timeout_ms is not None else int(
+        _env_number("DB_STATEMENT_TIMEOUT_MS", DEFAULT_STATEMENT_TIMEOUT_MS))
+    with_options = limit > 0 and not _options_unsupported
+    try:
+        try:
+            conn = psycopg.connect(plain_url(raw), autocommit=True, **extra,
+                                   **({"options": f"-c statement_timeout={limit}"} if with_options else {}))
+        except psycopg.OperationalError as e:
+            if not (with_options and _rejects_options(e)):
+                raise
+            with _state_lock:
+                _options_unsupported = True
+            conn = psycopg.connect(plain_url(raw), autocommit=True, **extra)
+    except psycopg.OperationalError:
+        if default_db:
+            cooldown = _env_number("DB_DOWN_COOLDOWN_SEC", DEFAULT_DOWN_COOLDOWN_SEC)
+            if cooldown > 0:
+                with _state_lock:
+                    _down_until = time.monotonic() + cooldown
+        raise
+    if default_db and _down_until:
+        with _state_lock:
+            _down_until = 0.0  # 다시 붙었다. 기다리던 다른 요청도 곧바로 붙어 본다
+    return conn
 
 
 def atomic(conn):

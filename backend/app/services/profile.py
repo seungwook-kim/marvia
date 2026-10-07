@@ -7,14 +7,25 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from backend.app import crypto
 
+# 이름 길이는 코드포인트(파이썬 len) 기준이다. 화면 글자(grapheme) 기준은 표준 라이브러리로 셀 수 없어 쓰지 않는다.
+# 그래서 가족 이모지(사람 + ZWJ + 사람 ...)나 국기처럼 여러 코드포인트로 된 글자는 한 글자가 여러 자로 세진다.
+# 한글·영문 이름에는 영향이 없고 30자면 결합 이모지가 몇 개 섞여도 넉넉하다 (10-08 QA A5 메모)
 NAME_MAX = 30
 ADDRESS_MIN, ADDRESS_MAX = 5, 200
-# 휴대전화: 010, 011, 016~019 + 7~8자리. 하이픈·공백은 빼고 본다
-_PHONE = re.compile(r"^01[016789]\d{7,8}$")
+# 휴대전화: 010은 뒤 8자리만, 011·016~019(옛 번호)는 7~8자리. 하이픈·공백·괄호·점은 빼고 본다 (10-08 QA A5)
+_PHONE = re.compile(r"^(?:010\d{8}|01[16789]\d{7,8})$")
+# 전화 칸에 허용하는 글자: 숫자와 구분 기호만. 전에는 숫자 아닌 글자를 모두 지우고 봐서
+# "010-abcd-1234-5678"이 01012345678로 통과했다 (10-08 QA A5)
+_PHONE_CHARS = re.compile(r"^[0-9\s\-().]*$")
+# 폭 없는 공백류. 보이지 않는데 글자 수와 비교·검색을 어긋나게 해서 지운다 (U+200B ZWSP, U+2060 WJ, U+FEFF BOM, U+180E)
+_ZERO_WIDTH = dict.fromkeys((0x200B, 0x2060, 0xFEFF, 0x180E))
+# 서식 문자(Cf) 중 남겨도 되는 것: ZWJ(이모지 결합)와 ZWNJ(일부 문자 표기). 나머지(방향 바꾸기 U+202E 등)는 거절한다
+_ALLOWED_FORMAT = {chr(0x200C), chr(0x200D)}
 
 
 class ProfileError(Exception):
@@ -32,17 +43,34 @@ class Profile:
     address: str
 
 
+def _text(value: str | None, kind: str) -> str:
+    """글자 칸 하나를 다듬는다 (10-08 QA A5).
+    NFC로 맞추고, 폭 없는 공백은 지우고, 제어 문자(NUL 등 Cc)와 허용하지 않는 서식 문자(Cf)가 있으면 kind로 거절한다.
+    줄바꿈·탭·U+2028 같은 공백류는 split이 공백 하나로 접는다(앞뒤 공백 제거 포함)."""
+    text = unicodedata.normalize("NFC", value or "").translate(_ZERO_WIDTH)
+    text = " ".join(text.split())  # 줄바꿈·탭을 먼저 공백으로 접고, 그 뒤에 남은 제어 문자(NUL 등)만 거절한다
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if cat == "Cc" or (cat == "Cf" and ch not in _ALLOWED_FORMAT):
+            raise ProfileError(kind)
+    return text
+
+
 def clean(name: str, phone: str, address: str, consent: bool) -> Profile:
-    """입력을 다듬고 검사한다. 동의가 없으면 다른 칸보다 먼저 거절한다."""
-    if not consent:
+    """입력을 다듬고 검사한다. 동의가 없으면 다른 칸보다 먼저 거절한다.
+    consent는 진짜 참(True)만 동의로 본다. 라우터가 StrictBool로 받아 "yes"·1 같은 값은 422로 먼저 막는다 (10-08 QA A5)."""
+    if consent is not True:
         raise ProfileError("consent")
-    name = " ".join((name or "").split())
+    name = _text(name, "name")
     if not 1 <= len(name) <= NAME_MAX:
         raise ProfileError("name")
-    digits = re.sub(r"\D", "", phone or "")
+    raw_phone = (phone or "").translate(_ZERO_WIDTH)
+    if not _PHONE_CHARS.match(raw_phone):  # 숫자·구분 기호 밖의 글자가 섞이면 지우지 않고 거절한다
+        raise ProfileError("phone")
+    digits = re.sub(r"\D", "", raw_phone)
     if not _PHONE.match(digits):
         raise ProfileError("phone")
-    address = " ".join((address or "").split())
+    address = _text(address, "address")
     if not ADDRESS_MIN <= len(address) <= ADDRESS_MAX:
         raise ProfileError("address")
     return Profile(name=name, phone=digits, address=address)

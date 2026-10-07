@@ -9,7 +9,7 @@ import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from backend.app.auth import CurrentUser, current_user
 from backend.app.observability.logging import log_failure
@@ -22,7 +22,7 @@ DB_DOWN = "회원 정보 저장소에 연결하지 못했습니다. 잠시 뒤 �
 _ERRORS = {
     "consent": "개인정보 수집·이용에 동의해야 저장할 수 있습니다",
     "name": "이름을 1~30자로 입력해 주세요",
-    "phone": "휴대전화 번호를 확인해 주세요 (예: 010-1234-5678)",
+    "phone": "휴대전화 번호를 숫자로 확인해 주세요 (예: 010-1234-5678)",
     "address": "주소를 5~200자로 입력해 주세요",
 }
 
@@ -31,7 +31,8 @@ class ProfileBody(BaseModel):
     name: str
     phone: str
     address: str
-    consent: bool
+    # 동의는 체크 상자 값(true/false)만 받는다. bool이면 "yes"·"1"·1도 참으로 바뀌어 동의 없이 저장될 수 있었다 (10-08 QA A5)
+    consent: StrictBool
 
 
 class ProfileResponse(BaseModel):

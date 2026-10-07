@@ -19,3 +19,6 @@ def _no_real_db(monkeypatch):
         raise psycopg.OperationalError("테스트에서는 실제 DB에 붙지 않는다 (backend/tests/conftest.py)")
 
     monkeypatch.setattr(psycopg, "connect", refuse)
+    # 앞 테스트의 연결 실패 기억(db.connect의 짧은 차단, 10-08 QA A1)이 다음 테스트로 넘어가지 않게 지운다
+    from backend.app.db import reset_connection_state
+    reset_connection_state()

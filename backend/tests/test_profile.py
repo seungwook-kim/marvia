@@ -144,3 +144,53 @@ def test_pii_key_is_separate_from_bl_key(monkeypatch):
     monkeypatch.setenv("PII_ENCRYPTION_KEY", Fernet.generate_key().decode())
     sealed = crypto.encrypt_pii("김승욱")
     assert crypto.decrypt(sealed) is None and crypto.decrypt_pii(sealed) == "김승욱"  # 서로 다른 열쇠
+
+
+# ── 10-08 QA A5: 입력 검사 강화 ──
+
+ZWSP, NUL, RLO, ZWJ = chr(0x200B), chr(0), chr(0x202E), chr(0x200D)
+
+
+@pytest.mark.parametrize("phone", [
+    "010-abcd-1234-5678",   # 글자를 지우면 01012345678로 통과하던 값
+    "010-1234-567",         # 010 뒤 7자리
+    "010-1234-56789",       # 010 뒤 9자리
+    "010-1234-5678 내선1",
+    "010" + chr(0) + "12345678",
+])
+def test_phone_rejects_letters_and_wrong_length(phone):
+    with pytest.raises(svc.ProfileError) as e:
+        svc.clean(**{**GOOD, "phone": phone})
+    assert e.value.kind == "phone"
+
+
+def test_phone_accepts_separators_and_old_numbers():
+    assert svc.clean(**{**GOOD, "phone": "(010) 1234.5678"}).phone == "01012345678"
+    assert svc.clean(**{**GOOD, "phone": "011-123-4567"}).phone == "0111234567"  # 옛 번호는 7자리도 된다
+    assert svc.clean(**{**GOOD, "phone": "010-1234-" + ZWSP + "5678"}).phone == "01012345678"  # 폭 없는 공백은 지운다
+
+
+def test_text_fields_strip_zero_width_and_reject_control():
+    p = svc.clean(**{**GOOD, "name": "김" + ZWSP + "승욱"})
+    assert p.name == "김승욱"
+    for field in ("name", "address"):
+        for bad in (NUL, RLO):
+            with pytest.raises(svc.ProfileError) as e:
+                svc.clean(**{**GOOD, field: GOOD[field] + bad})
+            assert e.value.kind == field
+    # 줄바꿈·탭은 공백으로 접힌다(거절하지 않는다). 이모지 결합(ZWJ)은 남는다
+    assert svc.clean(**{**GOOD, "address": "서울특별시\n강남구\t테헤란로 1"}).address == "서울특별시 강남구 테헤란로 1"
+    assert ZWJ in svc.clean(**{**GOOD, "name": "김" + chr(0x1F468) + ZWJ + chr(0x1F469)}).name
+
+
+def test_consent_must_be_true_boolean(db, monkeypatch):
+    """consent는 StrictBool이다. "yes"·1 같은 값을 참으로 바꿔 저장하지 않는다."""
+    with pytest.raises(svc.ProfileError):
+        svc.clean(GOOD["name"], GOOD["phone"], GOOD["address"], consent="yes")  # type: ignore[arg-type]
+    headers = _login(monkeypatch, "kim@example.com")
+    with TestClient(app) as client:
+        for value in ("yes", 1, "true"):
+            assert client.put("/api/profile", json={**GOOD, "consent": value}, headers=headers).status_code == 422
+        assert db.profiles == {}
+        assert client.put("/api/profile", json=GOOD, headers=headers).status_code == 200
+    assert "user-123" in db.profiles  # 진짜 true만 저장됐다

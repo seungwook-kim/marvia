@@ -11,6 +11,14 @@
   이때만 session_id로 구분한다
 - 로그인 켜짐 + 헤더 없음 → 401. 메모리·등록·알림이 전부 사람에 묶이는 기능이라 주인 없는 기록을 만들지 않는다
 - 헤더가 있는데 가짜·만료·다른 발급처 → 401
+
+서명이 맞아도 계정 상태로 한 번 더 막는다 (_account_block, DB 연결 한 번):
+- 탈퇴한 계정(withdrawn_users, 10-08 QA A3) → 403. 지운 뒤 남은 출입증(최대 1시간)으로 쓰는 것을 막는다
+- 정지된 계정(suspended_users) → 403 account_suspended
+- 단 기록 삭제·탈퇴(DELETION_ROUTES)는 정지·탈퇴 계정도 통과한다. 개인정보 삭제권이라 막지 않는다 (10-08 QA A4)
+- LLM을 부르는 요청(PROFILE_REQUIRED_ROUTES)은 회원 정보 입력을 마쳐야 한다 → 409 (10-08 QA A6)
+DB가 없거나 못 읽으면 이 확인들은 건너뛴다(열린 쪽으로 실패). 연결 대기는 db.connect의 상한(기본 3초)과
+실패 기억(짧은 차단)으로 짧게 끝난다 (10-08 QA A1)
 """
 from __future__ import annotations
 
@@ -19,7 +27,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 from backend.app.observability.logging import log_failure, request_user_var
 
@@ -66,9 +74,10 @@ def verify_claims(token: str, base_url: str) -> dict:
     )
 
 
-def current_user_id(authorization: str | None = Header(default=None)) -> str | None:
-    """라우터가 Depends로 쓰는 입구. 사용자 ID를 돌려준다. 로그인 기능이 꺼져 있을 때만 None."""
-    user = current_user(authorization)
+def current_user_id(request: Request = None, authorization: str | None = Header(default=None)) -> str | None:  # type: ignore[assignment]
+    """라우터가 Depends로 쓰는 입구. 사용자 ID를 돌려준다. 로그인 기능이 꺼져 있을 때만 None.
+    request는 FastAPI가 넣어 준다. 계정 상태 확인이 경로별 규칙(DELETION_ROUTES 등)을 고를 때 쓴다."""
+    user = current_user(request=request, authorization=authorization)
     return user.id if user else None
 
 
@@ -80,8 +89,9 @@ class CurrentUser:
     email: str | None
 
 
-def current_user(authorization: str | None = Header(default=None)) -> CurrentUser | None:
-    """사용자 ID와 이메일을 같이 돌려준다. 운영자 판단용 (routers/admin.py). 오류 처리는 current_user_id와 같다."""
+def current_user(request: Request = None, authorization: str | None = Header(default=None)) -> CurrentUser | None:  # type: ignore[assignment]
+    """사용자 ID와 이메일을 같이 돌려준다. 운영자 판단용 (routers/admin.py). 오류 처리는 current_user_id와 같다.
+    request가 없으면(코드에서 직접 부른 경우) 경로 규칙 없이 정지·탈퇴만 본다."""
     base_url = supabase_url()
     if not base_url:
         return None
@@ -105,9 +115,16 @@ def current_user(authorization: str | None = Header(default=None)) -> CurrentUse
         # 오류 종류만 남긴다. 출입증 원문은 로그에 넣지 않는다
         log_failure("auth", type(e).__name__)
         raise _unauthorized()
-    if _suspended(user.id):
+    block = _account_block(user.id, _route_of(request))
+    if block == "withdrawn":
+        log_failure("auth", "withdrawn")
+        raise HTTPException(status_code=403, detail=WITHDRAWN)
+    if block == "suspended":
         log_failure("auth", "suspended")
         raise HTTPException(status_code=403, detail=SUSPENDED)
+    if block == "profile_required":
+        log_failure("auth", "profile_required")
+        raise HTTPException(status_code=409, detail=PROFILE_REQUIRED)
     # 하루 토큰 한도의 운영자 예외가 이 이메일을 본다 (services/quota.py). 서명을 확인한 값만 적는다.
     # 로그인 확인은 스레드풀에서 돌아 새 대입은 핸들러로 안 넘어가고, 미들웨어가 만든 dict를 고치면 넘어간다
     holder = request_user_var.get()
@@ -135,23 +152,54 @@ def verified_email(claims: dict) -> str | None:
 
 
 SUSPENDED = "account_suspended"  # 화면이 이 값으로 정지 안내를 띄운다 (lib/api.ts)
+# 탈퇴한 계정의 남은 출입증. 화면은 탈퇴 직후 로그아웃시키므로 보통 보이지 않고, 문장을 그대로 띄워도 되게 쓴다
+WITHDRAWN = "탈퇴한 계정입니다. 다시 이용하려면 새로 가입해 주세요"
+# 회원 정보를 아직 입력하지 않았다. 화면은 GET /api/me의 profile_complete=false로 입력 화면을 먼저 띄우므로
+# 이 응답은 화면을 건너뛴 직접 호출을 막는 서버 쪽 장치다 (10-08 QA A6, docs/specs/user-profile.md)
+PROFILE_REQUIRED = "회원 정보(이름·휴대전화·주소)를 먼저 입력해 주세요. 설정 화면에서 입력할 수 있습니다"
+
+# 정지·탈퇴 계정도 통과시키는 요청 (메서드, 경로). 개인정보 삭제권(개인정보보호법 제36·37조)은 정지 중에도 막지 않는다.
+# 탈퇴는 계정 삭제가 실패했을 때 다시 눌러 마저 끝내야 해서 탈퇴 표시가 있어도 통과한다 (services/account.py, 10-08 QA A4)
+DELETION_ROUTES = frozenset({("DELETE", "/api/account"), ("DELETE", "/api/history")})
+# LLM을 부르는 요청. 회원 정보 입력을 마친 사람만 쓴다 (10-08 QA A6). 로그인 기능이 꺼진 환경(평가·테스트)은 이 확인까지 오지 않는다
+PROFILE_REQUIRED_ROUTES = frozenset({("POST", "/api/agent"), ("POST", "/api/chat"), ("POST", "/api/chat/stream"),
+                                     ("POST", "/api/document")})
 
 
-def _suspended(user_id: str) -> bool:
-    """운영자가 정지한 계정인가 (docs/specs/operator-admin.md 일시 정지).
+def _route_of(request: Request | None) -> tuple[str, str] | None:
+    """요청의 (메서드, 경로). 코드에서 직접 부른 경우(request 없음)는 None."""
+    if request is None or not hasattr(request, "scope"):
+        return None
+    return request.method.upper(), request.scope.get("path", "")
+
+
+def _account_block(user_id: str, route: tuple[str, str] | None) -> str | None:
+    """계정 상태로 이 요청을 막아야 하면 이유를, 아니면 None을 돌려준다.
+    withdrawn(탈퇴, migrations/027) / suspended(운영자 정지, docs/specs/operator-admin.md) / profile_required(회원 정보 없음).
+
     Supabase 차단은 새 로그인만 막고, 이미 받은 출입증은 기한(최대 1시간)까지 통과한다. 그래서 여기서 한 번 더 본다.
-    DB가 없거나 못 읽으면 건너뛴다. 서비스 전체를 멈추지 않으려는 것이고, Supabase 차단은 그대로 유효하다."""
+    DB 연결은 한 번만 열고 필요한 표만 읽는다. DB가 없거나 못 읽으면 None(건너뜀). 서비스 전체를 멈추지 않으려는 것이고,
+    Supabase 차단·계정 삭제는 그대로 유효하다. 못 붙을 때의 대기는 db.connect 상한과 실패 기억으로 짧다 (10-08 QA A1)."""
     if not os.environ.get("DATABASE_URL"):
-        return False
+        return None
+    deletion = route in DELETION_ROUTES
+    need_profile = route in PROFILE_REQUIRED_ROUTES
     try:
         # 함수 안에서 불러온다. 순환 import를 피하고, 테스트는 operators.open_conn을 가짜로 바꿔 끼운다
-        from backend.app.services.customers import is_suspended
+        from backend.app.services.customers import is_suspended, is_withdrawn
         from backend.app.services.operators import open_conn
+        from backend.app.services.profile import exists as profile_exists
         with open_conn() as conn:
-            return is_suspended(conn, user_id)
+            if not deletion:
+                if is_withdrawn(conn, user_id):
+                    return "withdrawn"
+                if is_suspended(conn, user_id):
+                    return "suspended"
+            if need_profile and not profile_exists(conn, user_id):
+                return "profile_required"
     except Exception as e:
         log_failure("suspension_check", type(e).__name__)
-        return False
+    return None
 
 
 def _unauthorized() -> HTTPException:

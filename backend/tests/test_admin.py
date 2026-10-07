@@ -46,6 +46,7 @@ class FakeConn:
         self.profiles: dict[str, tuple] = {}  # user_id -> (name_enc, phone_enc, address_enc), test_profile.py도 쓴다
         self.actions: list[tuple] = []  # admin_actions 줄, test_customers_admin.py가 쓴다
         self.suspended: dict[str, tuple] = {}  # suspended_users
+        self.withdrawn: set[str] = set()  # withdrawn_users
 
     def __enter__(self):
         return self
@@ -55,7 +56,15 @@ class FakeConn:
 
     @contextmanager
     def transaction(self):
-        yield
+        """진짜 트랜잭션처럼 안에서 예외가 나면 표를 들어가기 전 상태로 되돌린다 (정지 순서 시험, 10-08 QA A7)."""
+        import copy
+
+        saved = copy.deepcopy({k: v for k, v in self.__dict__.items()})
+        try:
+            yield
+        except BaseException:
+            self.__dict__.update(saved)
+            raise
 
     def execute(self, sql, params=()):
         q = " ".join(sql.split())
@@ -94,6 +103,8 @@ class FakeConn:
             rows = [(a["action"], a["target_email_enc"], a["target_email_masked"], a["actor_user_id"], a["actor_email_enc"],
                      a["actor_email_masked"], a["created_at"]) for a in reversed(self.audit)]
             return _Result(rows[: params[0]])
+        if q.startswith("SELECT 1 FROM withdrawn_users"):  # 탈퇴 표시 (migrations/027, auth._account_block)
+            return _Result([(1,)] if params[0] in self.withdrawn else [])
         if q.startswith("SELECT 1 FROM suspended_users"):
             return _Result([(1,)] if params[0] in self.suspended else [])
         if q.startswith("SELECT user_id FROM suspended_users"):
@@ -189,7 +200,7 @@ def test_operator_emails_are_never_stored_in_plain_text():
     ops.grant(conn, "new@marvia.test", "user-1", OPERATOR)
     stored = str(conn.operators) + str(conn.audit)
     assert OPERATOR not in stored and "new@marvia.test" not in stored
-    assert conn.audit[1]["target_email_masked"] == "ne***@m***.test"
+    assert conn.audit[1]["target_email_masked"] == "n***@m***.test"
     assert {o["email"] for o in ops.list_operators(conn)} == {OPERATOR, "new@marvia.test"}
 
 
@@ -279,7 +290,7 @@ def test_customers_are_masked(db, monkeypatch):
     with TestClient(app) as client:
         r = client.get("/api/admin/customers", headers=_login(monkeypatch, OPERATOR))
     assert r.status_code == 200 and CUSTOMER not in r.text
-    assert r.json()["items"][0]["email_masked"] == "ki***@e***.com" and r.json()["total"] == 1
+    assert r.json()["items"][0]["email_masked"] == "k***@e***.com" and r.json()["total"] == 1
 
 
 def test_customers_503_when_admin_key_missing(db, monkeypatch):

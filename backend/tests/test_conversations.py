@@ -423,6 +423,8 @@ def test_withdrawal_deletes_conversations(monkeypatch):
     monkeypatch.setattr(account_service, "forget_user", lambda c, u: 0)
     monkeypatch.setattr(account_service, "delete_kakao_link", lambda c, u: None)
     monkeypatch.setattr(account_service, "delete_conversations", lambda c, u: calls.append(u))
+    monkeypatch.setattr(account_service.quota, "forget_user", lambda c, u: None)
+    monkeypatch.setattr(account_service, "_close_account", lambda c, u: False)  # 탈퇴 표시·배 지켜보기 정리 (test_account.py)
     monkeypatch.setattr(account_service, "delete_account", lambda u: None)
     account_service.withdraw("user-9")
     assert calls == ["user-9"]

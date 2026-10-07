@@ -19,7 +19,7 @@ from backend.app.observability.logging import log_failure
 from backend.app.services import operators as ops
 from backend.app.services import customers as customers_svc
 from backend.app.services import profile as profile_svc
-from backend.app.services.account import WithdrawError
+from backend.app.services.account import WithdrawError, WithdrawResult
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -45,7 +45,10 @@ def me(user: Annotated[CurrentUser | None, Depends(current_user)] = None) -> MeR
             with ops.open_conn() as conn:
                 flag = ops.is_operator(conn, user.email)
                 complete = profile_svc.exists(conn, user.id)
-        except Exception as e:  # DB를 못 읽으면 입력 화면으로 막지 않는다 (user-profile EC-06)
+        except Exception as e:
+            # DB를 못 읽으면 입력 화면으로 막지 않는다 (user-profile EC-06). 이때 profile_complete=true는
+            # "확인 못 함"이지 "입력함"이 아니다. LLM 요청의 서버 쪽 확인(auth._account_block)도 같은 이유로 건너뛰므로
+            # 둘이 어긋나지 않는다. DB가 돌아오면 다음 /api/me부터 실제 값이 나간다 (10-08 QA A6)
             log_failure("operator_check", type(e).__name__)
             complete = True
     return MeResponse(user_id=user.id, email=user.email, is_operator=flag, profile_complete=complete)
@@ -76,7 +79,9 @@ class CustomerItem(BaseModel):
     phone_masked: str | None = None
     address_masked: str | None = None
     profile_complete: bool = False  # 회원 정보를 입력했나
-    is_suspended: bool = False  # 운영자가 일시 정지했나
+    is_suspended: bool = False  # 운영자가 일시 정지했나 (우리 정지 표 기준)
+    # Supabase 계정에 차단이 걸려 있나. is_suspended와 다르면 둘이 어긋난 것이고, 해제 버튼으로 바로잡는다 (10-08 QA A7)
+    supabase_banned: bool = False
     created_at: datetime | None
     last_sign_in_at: datetime | None
     is_operator: bool
@@ -103,13 +108,15 @@ def customers(_: Annotated[CurrentUser, Depends(require_operator)]) -> Customers
     except Exception as e:
         log_failure("admin_customers", type(e).__name__)
         raise HTTPException(status_code=503, detail=DB_DOWN)
+    banned = {u.get("id") for u in users if customers_svc._banned_in_supabase(u)}
     items = []
     for c in ops.mask_customers(users, operator_hashes):
         p = profiles.get(c.user_id)
         # 이름은 직접 입력한 값을 먼저, 없으면 구글 이름 (user-profile Goal)
         items.append(CustomerItem(**{**c.__dict__, "name_masked": (p or {}).get("name") or c.name_masked,
                                      "phone_masked": (p or {}).get("phone"), "address_masked": (p or {}).get("address"),
-                                     "profile_complete": p is not None, "is_suspended": c.user_id in suspended}))
+                                     "profile_complete": p is not None, "is_suspended": c.user_id in suspended,
+                                     "supabase_banned": c.user_id in banned}))
     return CustomersResponse(items=items, total=len(items))
 
 
@@ -204,7 +211,10 @@ class CustomerProfileBody(BaseModel):
 
 
 class CustomerDeleteResponse(BaseModel):
-    deleted_records: int
+    deleted_records: int  # 이번 요청에서 지운 조회 기록 수
+    # 앞선 시도가 기록을 이미 지웠고(그때 계정 삭제만 실패) 이번에 계정 삭제를 마저 끝냈다. 이때 deleted_records는 0이다.
+    # 화면이 "0건 지움"을 "기록은 지난번에 지웠다"로 바르게 안내하게 한다 (10-08 QA A8)
+    resumed: bool = False
 
 
 class ActionItem(BaseModel):
@@ -227,6 +237,14 @@ _CUSTOMER_ERRORS = {
 }
 
 
+RETRY_LATER = "처리하지 못했습니다. 잠시 뒤 다시 시도하세요"
+# 탈퇴 실패 단계별 문구 (services/account.WithdrawError.stage). 본인 탈퇴(routers/account.py)도 같은 사실을 같은 뜻으로 알린다
+WITHDRAW_MESSAGES = {
+    "account_records": "기록을 지우지 못해 아무것도 바뀌지 않았습니다. 잠시 뒤 다시 시도하세요",
+    "account_delete": "기록과 이력은 지웠지만 로그인 계정 삭제가 끝나지 않았습니다. 다시 누르면 계정 삭제를 마저 합니다",
+}
+
+
 def _customer_call(stage: str, fn):
     """고객 동작 공통 오류 처리. 규칙 위반은 4xx, Supabase·DB 실패는 503."""
     try:
@@ -241,9 +259,13 @@ def _customer_call(stage: str, fn):
         raise HTTPException(status_code=400, detail={"name": "이름을 1~30자로 입력해 주세요",
                                                      "phone": "휴대전화 번호를 확인해 주세요",
                                                      "address": "주소를 5~200자로 입력해 주세요"}.get(e.kind, "입력값을 확인해 주세요"))
-    except (AdminError, WithdrawError) as e:
-        log_failure(stage, type(e).__name__)
-        raise HTTPException(status_code=503, detail="처리하지 못했습니다. 잠시 뒤 다시 시도하세요")
+    except WithdrawError as e:
+        # 어디까지 됐는지 사실대로 알린다 (10-08 QA A8). account_records면 아무것도 안 지워졌고 이력도 없다
+        log_failure(stage, f"{e.stage} {e.reason}")
+        raise HTTPException(status_code=503, detail=WITHDRAW_MESSAGES.get(e.stage, RETRY_LATER))
+    except AdminError as e:
+        log_failure(stage, f"{e.kind} {e.code}" if e.code else e.kind)
+        raise HTTPException(status_code=503, detail=RETRY_LATER)
     except Exception as e:
         log_failure(stage, type(e).__name__)
         raise HTTPException(status_code=503, detail=DB_DOWN)
@@ -265,9 +287,9 @@ def update_customer(user_id: str, body: CustomerProfileBody, user: Annotated[Cur
 
 @router.delete("/admin/customers/{user_id}", response_model=CustomerDeleteResponse)
 def delete_customer(user_id: str, user: Annotated[CurrentUser, Depends(require_operator)]) -> CustomerDeleteResponse:
-    """강제 탈퇴. 기록 → 회원 정보 → 계정 순서 (services/account.withdraw)."""
-    return CustomerDeleteResponse(deleted_records=_customer_call("admin_delete",
-                                                                 lambda c: customers_svc.delete(c, user_id, user.id, user.email)))
+    """강제 탈퇴. 기록 → 회원 정보 → 계정 순서 (services/account.withdraw). 이력은 기록 삭제와 같은 트랜잭션."""
+    result: WithdrawResult = _customer_call("admin_delete", lambda c: customers_svc.delete(c, user_id, user.id, user.email))
+    return CustomerDeleteResponse(deleted_records=result.deleted_records, resumed=result.resumed)
 
 
 @router.get("/admin/actions", response_model=list[ActionItem])
@@ -282,14 +304,14 @@ class ReasonBody(BaseModel):
 
 @router.post("/admin/customers/{user_id}/suspend")
 def suspend_customer(user_id: str, body: ReasonBody, user: Annotated[CurrentUser, Depends(require_operator)]) -> dict:
-    """일시 정지. 사유 필수. Supabase 차단 + suspended_users (operator-admin 일시 정지 절)."""
+    """일시 정지. 사유 필수. suspended_users·이력을 먼저, 같은 트랜잭션에서 Supabase 차단 (operator-admin 일시 정지 절, 10-08 QA A7)."""
     _customer_call("admin_suspend", lambda c: customers_svc.suspend(c, user_id, user.id, user.email, body.reason))
     return {"ok": True}
 
 
 @router.post("/admin/customers/{user_id}/resume")
 def resume_customer(user_id: str, user: Annotated[CurrentUser, Depends(require_operator)]) -> dict:
-    """정지 해제."""
+    """정지 해제. 정지 표에 없어도 Supabase에만 차단이 남았으면 푼다 (10-08 QA A7)."""
     _customer_call("admin_resume", lambda c: customers_svc.resume(c, user_id, user.id, user.email))
     return {"ok": True}
 
