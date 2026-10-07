@@ -26,13 +26,18 @@ import geography from './fixtures/geography.json';
 import documentFixture from './fixtures/document.json';
 import adminFixture from './fixtures/admin.json';
 import memoryFixture from './fixtures/memory.json';
+import {tourAck, tourCargo, tourChanges, tourClock, tourWatchItems} from './tour';
 
 /** 끝 슬래시를 뗀 백엔드 주소. 비어 있으면 데모 모드다. */
 /** 정지된 계정에 서버가 403 account_suspended를 줄 때 보여 줄 문장. getMe가 이 문장으로 정지를 알아본다 */
 export const SUSPENDED_MESSAGE = '운영자가 이 계정을 일시 정지했어요. 문의가 필요하면 운영자에게 연락해 주세요.';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '').trim().replace(/\/+$/, '');
-export const isLive = API_BASE !== '';
+/** 서버를 부르는 실제 모드인지. 데모 둘러보기(lib/tour.ts)를 켜면 startTour()가 false로 바꾼다 (ES 모듈 live binding이라 가져다 쓴 곳도 같이 바뀐다) */
+export let isLive = API_BASE !== '';
+/** 데모 둘러보기 중인지 (10-07). 켜지면 서버·DB·LLM을 부르지 않고 가공 데이터와 시뮬레이터만 쓴다 */
+export let tour = false;
+export function startTour() { isLive = false; tour = true; }
 
 /** 판정은 LLM 호출과 재시도(validate 3단계, SDD 5.7)까지 기다려야 해서 넉넉히 잡는다. 이력은 DB 읽기뿐이다. */
 const AGENT_TIMEOUT_MS = 90_000;
@@ -155,6 +160,8 @@ async function callOnce(path: string, init: RequestInit, timeoutMs: number): Pro
  * 연결 자체가 안 되면(서버 재시작·잠깐 끊김) 1.5초, 3초 뒤 두 번 더 해 본다. 응답이 온 오류(4xx·5xx)는 다시 하지 않는다.
  * 연결 실패는 응답이 없으니 서버가 요청을 처리하지 않은 것이라, 다시 보내도 같은 일이 두 번 되지 않는다. */
 async function call(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  // 데모 둘러보기에서는 어떤 경우에도 서버를 부르지 않는다 (막지 못한 경로가 있어도 여기서 멈춘다)
+  if (tour) throw new Error('데모에서는 쓸 수 없어요.');
   for (let attempt = 0; ; attempt++) {
     try {
       return await callOnce(path, init, timeoutMs);
@@ -508,6 +515,7 @@ export async function deleteMyAccount(): Promise<{deleted_records: number; accou
 /** GET /api/memory. 로그인 사용자의 메모장(번호 없는 글 + 항목)과 기억한 화물 요약. 원본 B/L은 오지 않는다.
  * 데모 모드는 가공 예시를 돌려준다(화면에 가공 예시라고 표시). 못 읽으면 오류를 올린다(화면이 안내). */
 export async function getMemory(): Promise<MemoryResponse> {
+  if (tour) return {...(structuredClone(memoryFixture) as unknown as MemoryResponse), cargo: tourCargo()};
   if (!isLive) { await new Promise<void>(resolve => setTimeout(resolve, 180)); return structuredClone(memoryFixture) as unknown as MemoryResponse; }
   return (await call('/api/memory', {}, HISTORY_TIMEOUT_MS)).json();
 }
@@ -580,6 +588,7 @@ export async function setWatch(blNo: string, on: boolean): Promise<{watch: boole
 
 /** GET /api/watch/changes. 지난 접속 뒤 판정이 바뀐 화물 목록. 데모 모드에는 지켜보는 화물이 없어 빈 목록이다. */
 export async function getWatchChanges(): Promise<WatchChange[]> {
+  if (tour) return tourChanges();
   if (!isLive) return [];
   const res = await call('/api/watch/changes', {}, HISTORY_TIMEOUT_MS);
   return (await res.json()).changes ?? [];
@@ -587,6 +596,7 @@ export async function getWatchChanges(): Promise<WatchChange[]> {
 
 /** POST /api/watch/changes/seen. 보여 준 변경을 확인 처리한다. 다시 접속해도 같은 알림이 뜨지 않는다. */
 export async function markWatchChangesSeen(): Promise<{cleared: number}> {
+  if (tour) { tourAck(); return {cleared: 0}; }
   if (!isLive) return {cleared: 0};
   return (await call('/api/watch/changes/seen', {method: 'POST'}, HISTORY_TIMEOUT_MS)).json();
 }
@@ -797,6 +807,8 @@ export interface WatchList { items: WatchItem[]; updated_at: string | null; samp
 /** 내 감시 화물 목록. 서버(isLive)면 GET /api/watch (10-06), 데모 모드면 가공 예시를 돌려준다(sample).
  * 서버는 선명을 모르면 null을 주므로 화면 글자가 비지 않게 가린 B/L로 채운다 */
 export async function getWatchList(): Promise<WatchList> {
+  // 데모 둘러보기: 10초마다 움직이는 시뮬레이터 위치 (lib/tour.ts)
+  if (tour) return {items: tourWatchItems(), updated_at: tourClock().toISOString(), sample: true};
   if (!isLive) {
     const data = structuredClone(watchMap) as {items: WatchItem[]; updated_at: string};
     return {items: data.items, updated_at: data.updated_at, sample: true};

@@ -15,7 +15,8 @@
 import {useEffect, useRef, useState, type CSSProperties} from 'react';
 import {EyeOff, LocateFixed, Maximize2, X} from 'lucide-react';
 import {addBasemap, drawLocalGeography} from '@/lib/basemap';
-import {getPresentationData, getWatchList, type WatchItem, type WatchList} from '@/lib/api';
+import {getPresentationData, getWatchList, tour, type WatchItem, type WatchList} from '@/lib/api';
+import {TOUR_TICK_MS} from '@/lib/tour';
 import {listWatchedVessels, onVesselWatchChange, unwatchVessel, type WatchedVessel} from '@/lib/watchVessel';
 import {dateTime, verdictLabels} from '@/lib/format';
 import {VerdictBadge} from '@/components/Shared';
@@ -89,6 +90,8 @@ export function WatchMap() {
   const hover = useRef<(i: number | null, fromMap?: boolean) => void>(() => {});
   const focus = useRef<(i: number) => void>(() => {});
   const fitAll = useRef<() => void>(() => {});
+  /** 마지막으로 보던 지도 중심·확대. 지도를 다시 그려도 화면이 튀지 않게 한다 */
+  const view = useRef<{center: [number, number]; zoom: number} | null>(null);
   // 배만 지켜보는 줄 (10-08). 못 읽으면 빈 목록으로 두고 화물 지도는 그대로 그린다. 체험 모드는 늘 빈 목록이다
   const [vessels, setVessels] = useState<WatchedVessel[]>([]);
   // 배만 지켜보는 줄의 해제 (10-08). 지도 아래 따로 있던 목록(WatchedVessels)을 지우면서 해제 버튼을 이 목록으로 옮겼다
@@ -105,6 +108,12 @@ export function WatchMap() {
     <button type="button" className="wm-unwatch icon-button" onClick={() => void unwatch(item.mmsi!)} disabled={unwatching === item.mmsi}
       aria-label={`${item.ship_name} 지켜보기 해제`} title="지켜보기 해제"><EyeOff size={16}/></button> : null;
   useEffect(() => { let alive = true; void getWatchList().then(l => { if (alive) setList(l); }); return () => { alive = false; }; }, []);
+  // 데모 둘러보기: 배 위치가 10초마다 움직인다 (lib/tour.ts). 실제 모드는 들어올 때 한 번 읽는다
+  useEffect(() => {
+    if (!tour) return;
+    const id = setInterval(() => { void getWatchList().then(setList); }, TOUR_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
   useEffect(() => {
     let alive = true;
     const load = () => listWatchedVessels().then(l => { if (alive) setVessels(l); }).catch(() => { /* 화물 지도만 보인다 */ });
@@ -134,8 +143,11 @@ export function WatchMap() {
       const port = L.latLng(demo.port.lat, demo.port.lng);
       // 중심을 먼저 정한 뒤 선을 올린다 (VesselMap과 같은 이유: 범위를 모르면 Leaflet이 멈춘다)
       map.fitBounds(L.latLngBounds([...points, port]).pad(.25), {maxZoom: 8, animate: false});
+      // 다시 그릴 때(데모의 10초 갱신, 경로 보기 켜고 끄기)는 보던 확대·위치를 그대로 둔다
+      if (view.current) map.setView(view.current.center, view.current.zoom, {animate: false});
       // 바탕은 세계 지도, 못 쓰면 해안선 (lib/basemap.ts, 10-06)
-      const base = addBasemap(L, map, () => { drawLocalGeography(L, map); });
+      // 바탕은 세계 지도, 못 쓰면 해안선. 데모는 10초마다 다시 그려 깜빡이지 않게 레포의 해안선 바탕을 바로 쓴다
+      const base = tour ? (drawLocalGeography(L, map), {dispose() {}}) : addBasemap(L, map, () => { drawLocalGeography(L, map); });
       map.attributionControl.setPrefix(false);
       // 부산항 마커는 배 핀보다 아래층에 두고, 이름표(툴팁 층)는 늘 핀 위에 떠서 배가 같은 자리에 있어도 가려지지 않는다
       L.marker(port, {icon: L.divIcon({className: 'port-marker', html: '<span>⚑</span>', iconSize: [28, 28], iconAnchor: [14, 14]}), interactive: false, zIndexOffset: -1000})
@@ -274,7 +286,7 @@ export function WatchMap() {
 
       const ro = new ResizeObserver(() => map.invalidateSize());
       ro.observe(host.current);
-      cleanup = () => { hover.current = () => {}; setHovered(null); ro.disconnect(); base.dispose(); map.remove(); };
+      cleanup = () => { const c = map.getCenter(); view.current = {center: [c.lat, c.lng], zoom: map.getZoom()}; hover.current = () => {}; setHovered(null); ro.disconnect(); base.dispose(); map.remove(); };
     });
     return () => { disposed = true; cleanup?.(); };
   }, [list, vessels, showTrack]);  // eslint-disable-line react-hooks/exhaustive-deps

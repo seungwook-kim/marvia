@@ -10,7 +10,8 @@ import {useRouter} from 'next/navigation';
 import {RefreshCw} from 'lucide-react';
 import {useApp} from './AppProvider';
 import {VerdictBadge} from './Shared';
-import {getKakaoStatus, getMemory, getWatchChanges, getWatchList, isLive, markWatchChangesSeen} from '@/lib/api';
+import {getKakaoStatus, getMemory, getWatchChanges, getWatchList, isLive, markWatchChangesSeen, tour} from '@/lib/api';
+import {TOUR_TICK_MS} from '@/lib/tour';
 import {dateTime, verdictLabels} from '@/lib/format';
 import type {CargoSummary, KakaoStatus, Verdict, WatchChange} from '@/lib/types';
 import type {WatchItem} from '@/lib/api';
@@ -71,6 +72,8 @@ export function TodayBoard() {
   }
   // 로그인한 사람이 바뀌면 다시 읽는다 (앞 사람의 화물이 남지 않게 먼저 비운다)
   useEffect(() => { setCargo(null); setWatch([]); setChanges([]); void load(); }, [user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // 데모 둘러보기: 시뮬레이터가 10초마다 움직이므로 같이 다시 읽는다 (lib/tour.ts)
+  useEffect(() => { if (!tour) return; const id = setInterval(() => void load(), TOUR_TICK_MS); return () => clearInterval(id); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = (cargo ?? []).filter(c => c.status === 'active');
   const count = (v: Verdict) => active.filter(c => c.last_verdict === v).length;

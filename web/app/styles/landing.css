@@ -165,3 +165,7 @@
 @media(prefers-reduced-motion:reduce){
   .lp-shots img{transition:none}
 }
+
+/* 데모 둘러보기 버튼 (10-07): 주 버튼 옆 보조 버튼 */
+.intro-demo{display:inline-flex;align-items:center;justify-content:center;min-height:52px;margin-left:10px;padding:0 22px;border:1px solid #fff;border-radius:10px;background:rgba(255,255,255,.08);color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+.intro-demo:hover{background:rgba(255,255,255,.18)}

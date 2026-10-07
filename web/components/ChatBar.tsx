@@ -19,7 +19,7 @@ import {WatchOfferAction} from './WatchOfferAction';
 import {ChatCandidateChips} from './ChatCandidateChips';
 import {EvidencePopover} from './EvidencePopover';
 import {ConversationEvidence} from './ConversationEvidence';
-import {DOCUMENT_MAX_BYTES, isLive, QUOTA_MESSAGE} from '@/lib/api';
+import {DOCUMENT_MAX_BYTES, isLive, QUOTA_MESSAGE, tour} from '@/lib/api';
 import {onComposerRequest} from '@/lib/composer';
 import {stageLabels, type ProgressStage} from '@/lib/progress';
 
@@ -27,9 +27,10 @@ const MAX = 500;  // routers/chat.py ChatRequest.message max_length
 
 /** 처음 보는 사람을 위한 예시 문장. 누르면 입력창에 채우기만 한다(보내기는 사용자가). 실제 모드는 누구나 바로 결과를 볼 수 있는
  * 입항 선박 검색만 둔다 (데모 B/L을 실제 사용자에게 보여 주지 않는다, 10-01). 데모 모드는 가공 B/L */
-const EXAMPLES = isLive
-  ? ['이번 주 일본에서 부산 들어오는 배 보여줘', '상하이에서 출발해서 부산 오는 배 있어?', '2주 안에 베트남에서 들어오는 배 알려줘', '3일 안에 부산 들어오는 배 전부']
-  : ['MRVDEMO1101 화물 괜찮아?', 'MRVDEMO1107 지금 조치해야 해?', '중국에서 부산 들어오는 배 보여줘'];
+const LIVE_EXAMPLES = ['이번 주 일본에서 부산 들어오는 배 보여줘', '상하이에서 출발해서 부산 오는 배 있어?', '2주 안에 베트남에서 들어오는 배 알려줘', '3일 안에 부산 들어오는 배 전부'];
+const DEMO_EXAMPLES = ['MRVDEMO1101 화물 괜찮아?', 'MRVDEMO1107 지금 조치해야 해?', '중국에서 부산 들어오는 배 보여줘'];
+/** 데모 둘러보기(lib/tour.ts)에서는 isLive가 실행 중에 바뀌므로 그때그때 고른다 */
+const examples = () => isLive ? LIVE_EXAMPLES : DEMO_EXAMPLES;
 
 /** 사용자가 움직임 줄이기를 켰으면 부드러운 스크롤을 쓰지 않는다 (MDN prefers-reduced-motion) */
 function scrollBehavior(): ScrollBehavior {
@@ -215,7 +216,8 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(text); }
   }
-  function fill(example: string) { if (blocked) return; offerText(example); inputRef.current?.focus(); }
+  // 데모 둘러보기에서는 입력칸을 막고 예시를 누르면 바로 보낸다 (미리 만든 답, LLM 없음)
+  function fill(example: string) { if (blocked) return; if (tour) { void send(example); return; } offerText(example); inputRef.current?.focus(); }
 
   // 판정 답 말풍선 안의 배지·할 일 한 줄. 대화가 비어 있는데 결과만 있는 경우(데모 첫 화면, 저장된 판정 열기)도 같은 모양으로 그린다 (시안 2-2)
   const verdictBlock = result?.verdict ? <div className="chat-verdict"><VerdictBadge verdict={result.verdict} size="lg"/>{result.actions[0] && <p className="chat-todo"><span>지금 할 일</span>{result.actions[0]}</p>}<button type="button" className="chat-show-detail" onClick={onShowDetail}>결과 보기</button></div> : null;
@@ -234,8 +236,8 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
         <h2>어떤 화물을 확인할까요?</h2>
         <p>B/L 번호를 조회하면 배 위치와 통관 단계를 함께 보여드려요.</p>
         <div className="feature-tiles">
-          <button type="button" onClick={() => isLive ? goToComposer() : fill(EXAMPLES[0])} disabled={blocked}><PackageSearch size={20}/>B/L 번호로 조회하기</button>
-          <button type="button" onClick={() => fill(isLive ? EXAMPLES[0] : EXAMPLES[2])} disabled={blocked}><Ship size={20}/>입항 예정 선박 찾기</button>
+          <button type="button" onClick={() => isLive ? goToComposer() : fill(examples()[0])} disabled={blocked}><PackageSearch size={20}/>B/L 번호로 조회하기</button>
+          <button type="button" onClick={() => fill(isLive ? examples()[0] : examples()[2])} disabled={blocked}><Ship size={20}/>입항 예정 선박 찾기</button>
           <button type="button" onClick={() => fileRef.current?.click()} disabled={blocked}><FileText size={20}/>서류 사진 올리기</button>
         </div>
       </div> : <ol className="chat-thread" aria-live="polite">
@@ -268,11 +270,11 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
           </div>}
           <p className="sr-only" role="status">{attachment ? `파일을 첨부했어요: ${attachment.file.name}. 보내면 사진에서 B/L 번호를 찾아 조회해요.` : ''}</p>
           <label htmlFor="chat-input" className="sr-only">Marvia에게 질문하기</label>
-          <textarea id="chat-input" ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste} rows={1} maxLength={MAX} disabled={blocked}
-            placeholder={attachment ? '사진에 대해 덧붙일 말을 쓰거나 그대로 보내 주세요' : cargoShown ? '이 화물에 대해 더 물어보세요' : 'B/L 번호를 입력해 주세요'}
+          <textarea id="chat-input" ref={inputRef} value={text} onChange={e => setText(e.target.value)} onKeyDown={onKey} onPaste={onPaste} rows={1} maxLength={MAX} disabled={blocked || tour}
+            placeholder={tour ? '데모에서는 아래 예시 질문만 눌러 볼 수 있어요' : attachment ? '사진에 대해 덧붙일 말을 쓰거나 그대로 보내 주세요' : cargoShown ? '이 화물에 대해 더 물어보세요' : 'B/L 번호를 입력해 주세요'}
             aria-describedby="chat-help" autoComplete="off" spellCheck={false}/>
           <div className="composer-foot">
-            <button type="button" className="attach-trigger" onClick={() => fileRef.current?.click()} disabled={blocked} aria-label="서류 사진이나 PDF 첨부하기" title="서류 사진이나 PDF 첨부하기"><Paperclip size={18}/></button>
+            <button type="button" className="attach-trigger" onClick={() => fileRef.current?.click()} disabled={blocked || tour} aria-label="서류 사진이나 PDF 첨부하기" title="서류 사진이나 PDF 첨부하기"><Paperclip size={18}/></button>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={onFile}/>
             <div className="composer-send">
               {/* 글자 수는 쓰기 시작한 뒤에만 보인다. 빈 입력창에 숫자를 늘 두면 어수선하다 */}
@@ -284,8 +286,8 @@ export function ChatBar({idle = false, onShowDetail}: {idle?: boolean; onShowDet
         </form>
       </div>
       {/* 시작 문장: 대화가 비어 있을 때만. 누르면 입력창에 채우기만 한다 */}
-      {empty && <div className="chat-examples" aria-label="질문 예시">{EXAMPLES.map(e =>
-        <button key={e} type="button" onClick={() => fill(e)} disabled={blocked}>{e}<span aria-hidden="true">↗</span></button>)}</div>}
+      {(empty || tour) && <div className="chat-examples" aria-label="질문 예시">{examples().map(e =>
+        <button key={e} type="button" onClick={() => fill(e)} disabled={blocked || (tour && loading)}>{e}<span aria-hidden="true">↗</span></button>)}</div>}
       <p id="chat-help" className="sr-only">Enter로 보내고 Shift + Enter로 줄을 바꿔요. 사진은 붙여넣기나 끌어 놓기로도 첨부할 수 있어요</p>
     </div>
 

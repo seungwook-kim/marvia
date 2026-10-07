@@ -9,6 +9,7 @@ import {useState} from 'react';
 import {LoaderCircle} from 'lucide-react';
 import {signInWithGoogle} from '@/lib/auth';
 import {IntroContent} from './IntroContent';
+import {enterTour} from '@/lib/tour';
 
 export function LoginScreen() {
   const [busy, setBusy] = useState(false);
@@ -25,6 +26,8 @@ export function LoginScreen() {
     <button type="button" className="intro-btn" onClick={start} disabled={busy}>
       {busy ? <LoaderCircle size={16} className="spin"/> : <GoogleMark/>}{busy ? '구글로 이동 중' : 'Google로 시작하기'}
     </button>
+    {/* 로그인 없이 예시 데이터로 둘러보기 (10-07, lib/tour.ts). 포트폴리오를 보는 사람은 B/L도 계정도 없다 */}
+    <button type="button" className="intro-demo" onClick={enterTour}>데모 둘러보기</button>
     {error && <p role="alert" className="intro-error">{error}</p>}
   </>;
   // 윗줄 오른쪽 작은 로그인 (10-07 정운 엘레강스: 글자만, 같은 동작)

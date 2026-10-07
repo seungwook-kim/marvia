@@ -9,7 +9,9 @@ import {createClient, type Session, type SupabaseClient} from '@supabase/supabas
 
 const URL_ = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim();
 const KEY = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '').trim();
-export const authEnabled = URL_ !== '' && KEY !== '';
+/** 로그인 기능이 켜졌는지. 데모 둘러보기(lib/tour.ts)에서는 disableAuth()로 끈다 (로그인 화면·회원 정보·대화 목록을 건너뛴다) */
+export let authEnabled = URL_ !== '' && KEY !== '';
+export function disableAuth() { authEnabled = false; }
 
 let client: SupabaseClient | null = null;
 
