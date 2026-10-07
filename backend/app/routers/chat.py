@@ -8,6 +8,7 @@ POST /api/chat/stream은 같은 일을 하면서 처리 단계를 SSE로 흘려 
 지켜보기·카카오톡 보내기는 DB를 여는 함수(_watch_hooks, _kakao_hooks)를 여기서 만들어 넘긴다. 서비스는 DB를 모른다.
 답을 만든 뒤 _save_conversation이 로그인 사용자의 대화를 뒤에서 저장한다. 실패해도 답에는 영향이 없다.
 화물 비서 기억(docs/specs/memory.md) 쓰기는 run_agent가 뒤 작업으로 돌려 응답·스트림을 늦추지 않는다.
+두 채팅 경로의 요청 검증 오류는 영어 문구·입력 원문 대신 한국어 안내로 돌려준다 (_ChatRoute, 10-08 QA C6).
 """
 from __future__ import annotations
 
@@ -22,8 +23,10 @@ from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
 from backend.app.auth import current_user_id
@@ -209,6 +212,34 @@ class ChatResponse(BaseModel):
 
 
 BAD_MESSAGE = "문장을 1~500자로 입력해 주세요"
+BAD_REQUEST = "요청 형식을 확인해 주세요"  # 문장 밖 칸(대화 기록·화면 자료 등)이 계약에 안 맞을 때. 어느 칸인지만 밝히고 값은 되돌리지 않는다
+
+
+def _validation_reply(exc: RequestValidationError) -> JSONResponse:
+    """채팅 요청 검증 오류를 한국어 안내로 바꾼다 (10-08 QA C6).
+    FastAPI 기본 422는 영어 문구에 입력 원문(input)을 그대로 되돌려 보낸다. 501자 문장이면 사용자가 쓴 글 전체가,
+    대화 기록이면 화면이 보낸 지난 대화가 응답·로그에 다시 실린다. 원문은 돌려주지 않는다.
+    문장(message) 칸이면 빈 문장과 같은 400 BAD_MESSAGE ({"detail": 글}, 화면이 이미 아는 모양), 그 밖의 칸이면 422와 칸 위치만."""
+    errors = exc.errors()
+    if any(tuple(e.get("loc", ()))[:2] == ("body", "message") for e in errors):
+        return JSONResponse(status_code=400, content={"detail": BAD_MESSAGE})
+    fields = sorted({".".join(str(p) for p in tuple(e.get("loc", ()))[1:] if not isinstance(p, int)) for e in errors} - {""})
+    return JSONResponse(status_code=422, content={"detail": BAD_REQUEST, "fields": fields})
+
+
+class _ChatRoute(APIRoute):
+    """/api/chat·/api/chat/stream 전용 경로. 요청 검증 오류만 _validation_reply로 바꾸고 나머지는 FastAPI 기본 처리 그대로다.
+    앱 전체 오류 처리(main.py)를 바꾸지 않고 이 두 경로에만 건다 (FastAPI 문서 "Custom Request and APIRoute class" 방식)."""
+
+    def get_route_handler(self):
+        original = super().get_route_handler()
+
+        async def handler(request: Request):
+            try:
+                return await original(request)
+            except RequestValidationError as exc:
+                return _validation_reply(exc)
+        return handler
 STREAM_FAILED = "답을 만드는 중 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요."
 # 오래 걸리는 단계(LLM 판정 등)에서 중간 장비가 조용한 연결을 끊지 않게 보내는 빈 줄 간격 (chat-progress.md How)
 PING_SEC = 15
@@ -339,7 +370,6 @@ def _save_conversation(body: ChatRequest, user_id: str | None, response: ChatRes
         log_failure("conversation_save", type(e).__name__)
 
 
-@router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest, user_id: Annotated[str | None, Depends(current_user_id)] = None) -> ChatResponse:
     """문장 하나를 받아 화물 조회·후속 질문·입항 선박 검색·안내 중 하나로 답한다."""
     with request_span("/api/chat"):  # 요청 전체를 루트 span 하나로 감싼다. 안의 관측이 전부 자식이 된다
@@ -365,7 +395,6 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-@router.post("/chat/stream")
 def chat_stream(body: ChatRequest, user_id: Annotated[str | None, Depends(current_user_id)] = None) -> StreamingResponse:
     """/api/chat과 같은 처리를 하면서 실제 단계 소식을 SSE로 보낸다 (docs/specs/chat-progress.md).
 
@@ -422,6 +451,12 @@ def chat_stream(body: ChatRequest, user_id: Annotated[str | None, Depends(curren
     # no-cache·X-Accel-Buffering: 중간 프록시가 모아 두었다 한꺼번에 보내지 않게 한다
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# 두 채팅 경로는 검증 오류를 한국어로 바꾸는 경로 클래스(_ChatRoute)로 등록한다 (10-08 QA C6).
+# 데코레이터(router.post)는 경로 클래스를 고를 수 없어 add_api_route로 등록한다. 이름·경로·응답 모양은 데코레이터 때와 같다
+router.add_api_route("/chat", chat, methods=["POST"], response_model=ChatResponse, route_class_override=_ChatRoute)
+router.add_api_route("/chat/stream", chat_stream, methods=["POST"], route_class_override=_ChatRoute)
 
 
 @router.get("/vessels/detail")

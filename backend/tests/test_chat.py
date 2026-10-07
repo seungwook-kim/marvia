@@ -128,7 +128,8 @@ def test_vessel_search_no_match_explains_previous_port(monkeypatch):
 
 def test_other_returns_reply(monkeypatch):
     _route(monkeypatch, intent="other", reply="B/L 번호로 화물을 조회할 수 있어요.")
-    assert svc.handle("안녕", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
+    # 인사("안녕")는 10-08 QA C4부터 LLM 없이 GREETING_REPLY다 (test_chat_qa_1008.py). 여기서는 인사가 아닌 잡담을 쓴다
+    assert svc.handle("고마워", "s1", None, lambda req: None).reply == "B/L 번호로 화물을 조회할 수 있어요."
 
 
 def test_api(monkeypatch):
@@ -139,7 +140,8 @@ def test_api(monkeypatch):
     with TestClient(app) as client:
         r = client.post("/api/chat", json={"message": "TESTBL01 괜찮아?", "session_id": "s1"})
         assert r.status_code == 200 and r.json()["kind"] == "cargo" and r.json()["request"]["bl_no"] == "TESTBL01"
-        assert client.post("/api/chat", json={"message": "가" * 501, "session_id": "s1"}).status_code == 422  # EC-07
+        # EC-07. 10-08 QA C6부터 501자도 빈 문장과 같은 400 한국어 안내다 (입력 원문을 되돌리지 않는다)
+        assert client.post("/api/chat", json={"message": "가" * 501, "session_id": "s1"}).status_code == 400
         assert client.post("/api/chat", json={"message": "  ", "session_id": "s1"}).status_code == 400
 
 

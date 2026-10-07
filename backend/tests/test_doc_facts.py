@@ -214,7 +214,7 @@ def test_chat_tool_appends_code_lines_and_hides_values_from_llm(monkeypatch):
     results = _llm(monkeypatch, DOCS)
     asked = []
     monkeypatch.setattr(doc_facts, "read", lambda user_id, bl: asked.append((user_id, bl)) or FACTS)
-    r = svc.handle("운임 착불이야?", "s1", CONTEXT, _run(), USER)
+    r = svc.handle("이 화물 서류 정보 다 알려 줘", "s1", CONTEXT, _run(), USER)  # 칸을 특정하지 않으면 전부 (10-08 QA C10)
     assert asked == [(USER, BL)]  # 문장에 B/L이 없으면 화면 화물
     assert "운임: 착불(도착지 지급)" in r.reply and f"화물 인도 연락처: {COMPANY}(포워더) {PHONE}" in r.reply
     tool_result = str(results[0][1])
@@ -245,7 +245,8 @@ def test_chat_tool_resolves_bl_token_without_lookup(monkeypatch):
     def run(req):
         raise AssertionError("서류 정보 질문에 화물 조회를 하면 안 된다")
     r = svc.handle("TESTBL09 운임 누가 내?", "s1", None, run, USER)
-    assert asked == ["TESTBL09"] and "인코텀즈: FOB" in r.reply
+    # 물은 칸(운임)만 답한다. 인코텀즈는 묻지 않아 빠진다 (10-08 QA C10)
+    assert asked == ["TESTBL09"] and "운임: 착불" in r.reply and "인코텀즈" not in r.reply
     assert "TESTBL09" not in str(results[0][1])
 
 

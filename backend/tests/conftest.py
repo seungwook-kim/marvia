@@ -19,3 +19,13 @@ def _no_real_db(monkeypatch):
         raise psycopg.OperationalError("테스트에서는 실제 DB에 붙지 않는다 (backend/tests/conftest.py)")
 
     monkeypatch.setattr(psycopg, "connect", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _chat_agent_breaker_closed():
+    """채팅 에이전트 회로 차단(services/chat._agent_breaker)을 테스트마다 닫힌 상태로 시작한다 (10-08 QA C1).
+    프로세스 메모리 상태라 앞 테스트의 에이전트 실패가 쌓이면 뒤 테스트가 에이전트를 건너뛴다."""
+    from backend.app.services import chat  # noqa: PLC0415 - 이 픽스처에서만 쓴다
+    chat._agent_breaker.reset()
+    yield
+    chat._agent_breaker.reset()
