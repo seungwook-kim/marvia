@@ -44,6 +44,21 @@ def test_llm_call_adds_prompt_and_completion_tokens(monkeypatch):
     assert quota.used("session:s1") == 42
 
 
+def test_cached_input_is_not_counted(monkeypatch):
+    """제공사 캐시로 읽은 입력은 하루 한도에 세지 않는다 (10-08). 입력 100 중 80이 캐시면 20 + 출력 12."""
+    monkeypatch.setenv("LLM_MODEL", "test/model")
+    monkeypatch.setattr(llm, "_call_once", lambda kwargs: llm.LLMResult(
+        content="{}", prompt_tokens=100, cached_tokens=80, completion_tokens=12))
+
+    def call():
+        with session_scope("s2", None):
+            llm.chat([{"role": "user", "content": "q"}])
+    _fresh(call)
+    assert quota.used("session:s2") == 32
+    # 캐시가 입력보다 크게 잡혀도 음수가 되지 않는다
+    assert llm.quota_tokens(llm.LLMResult(content=None, prompt_tokens=10, cached_tokens=50, completion_tokens=3)) == 3
+
+
 def test_tokens_go_to_user_not_session_when_logged_in(monkeypatch):
     monkeypatch.setenv("LLM_MODEL", "test/model")
     monkeypatch.setattr(llm, "_call_once", lambda kwargs: llm.LLMResult(content="{}", prompt_tokens=5, completion_tokens=5))

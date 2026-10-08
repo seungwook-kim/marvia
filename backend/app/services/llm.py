@@ -497,6 +497,16 @@ def _status_kind(status: int) -> str:
     return "bad_request"
 
 
+def quota_tokens(result: LLMResult) -> int:
+    """하루 한도에 쌓을 토큰: 입력 + 출력에서 제공사 캐시로 읽은 입력은 뺀다 (10-08 결정).
+
+    왜: 프롬프트 + Skill 문서(약 1만 7천 토큰)는 매 호출 캐시에서 읽히고 값도 일반 입력의 1/10이다(Haiku 5.5 기준).
+    그대로 세면 채팅 한 턴(LLM 5번, 입력 약 10만)만으로 하루 한도가 차서, 비용과 상관없이 사용자가 막혔다.
+    새로 처리한 입력과 출력만 세면 한도가 실제 비용에 가깝게 움직인다."""
+    prompt = result.prompt_tokens or 0
+    return max(prompt - (result.cached_tokens or 0), 0) + (result.completion_tokens or 0)
+
+
 def chat(
     messages: list[dict],
     *,
@@ -537,7 +547,7 @@ def chat(
             result = _call_once(kwargs)
             result.attempts = attempt
             # 1명당 하루 토큰 한도에 쌓는다 (services/quota.py, docs/specs/token-quota.md). 이 요청은 끝까지 답하고 다음 요청부터 막는다
-            quota.add((result.prompt_tokens or 0) + (result.completion_tokens or 0))
+            quota.add(quota_tokens(result))
             return result
         except LLMError as e:
             if not e.retryable or attempt == MAX_ATTEMPTS:
