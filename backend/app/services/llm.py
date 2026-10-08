@@ -28,6 +28,8 @@
                      키 대신 `gcloud auth application-default login` 로그인 정보(ADC)를 쓴다.
                      Cloud Run에서는 서비스 계정에 Vertex AI 사용자 권한이 있어야 한다
                      VERTEX_THINKING_BUDGET=0이면 Gemini가 생각 없이 바로 답한다. 비우면 모델 기본값 (_vertex_thinking)
+  "claude/"로 시작   Anthropic Messages API 직접 호출 (ANTHROPIC_API_KEY, 10-08). 예: LLM_MODEL=claude/claude-haiku-5-5
+                     OpenAI 형식 요청을 _anthropic_call이 바꿔 보낸다. 구조화 출력은 스키마 도구를 강제로 부르게 해서 받는다
   그 밖             OpenRouter. 예: LLM_MODEL=openai/gpt-4o-mini
   .env 한 줄로 두 길을 오갈 수 있게 같이 둔다.
 """
@@ -45,6 +47,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Literal, get_args
 
+import httpx
 import openai
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
@@ -66,6 +69,17 @@ BASE_URL = "https://openrouter.ai/api/v1"
 VERTEX_PREFIX = "vertex/"
 VERTEX_URL = "https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/endpoints/openapi"
 VERTEX_SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+# Anthropic(Claude) 직접 호출 (10-08 사용자 결정). "claude/claude-haiku-5-5"처럼 앞머리가 붙은 모델은 ANTHROPIC_API_KEY로
+# Messages API에 바로 보낸다. Messages API는 OpenAI 형식이 아니라서 _anthropic_call이 요청·응답을 서로 바꿔 준다.
+# 판정·채팅·서류 코드는 그대로 OpenAI 형식으로 부르고, 바꾸는 일은 이 파일 한 곳에서만 한다
+CLAUDE_PREFIX = "claude/"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"  # 요청 헤더 anthropic-version. 응답 모양이 이 버전에 묶인다
+# Messages API는 max_tokens가 필수다. 판정 JSON(이유·조치·답·통관 해설)이 넉넉히 들어가는 크기
+ANTHROPIC_MAX_TOKENS = 8192
+# 구조화 출력(response_format json_schema)을 Claude에서 받는 방법: 이 이름의 도구 하나를 스키마 그대로 만들고 그 도구를
+# 반드시 부르게(tool_choice) 한다. 도구 입력이 곧 스키마에 맞는 JSON이다. 결과는 본문(content)으로 돌려줘 _ask_json이 그대로 읽는다
+STRUCTURED_TOOL = "structured_output"
 TIMEOUT_SEC = 60.0  # 호출 하나가 요청 전체 시간을 다 먹지 않게 하는 상한
 
 # 최초 1회 + 재시도 1회만 한다. 3회씩 돌리면 사용자가 너무 오래 기다린다.
@@ -77,7 +91,8 @@ RETRY_WAIT_SEC = 2.0  # 과부하는 잠깐 뒤 풀리는 경우가 많다
 # 다시 불러 볼 만한 것: 한도 초과(429), 제공사 과부하·게이트웨이(500·502·503).
 # 무료 모델은 503 provider_overloaded를 자주 내고, Vertex는 과부하를 500으로 준다 (_status_kind도 500을 overloaded로 본다).
 # 타임아웃은 넣지 않는다. 60초를 한 번 더 기다리면 시간 예산을 넘는다.
-RETRYABLE_CODES = {429, 500, 502, 503}
+# 529는 Anthropic의 과부하 코드다 (claude/ 모델)
+RETRYABLE_CODES = {429, 500, 502, 503, 529}
 # 끝까지 못 쓰고 끊긴 답의 finish_reason. JSON이 깨졌고 이 값이면 _ask_json이 같은 대화로 한 번 더 묻는다.
 # None: 끝 신호 없이 스트림이 끊김. "error": 제공사가 생성 중 오류로 멈춤
 # length(토큰 한도)와 stop(정상 종료)은 넣지 않는다. 다시 물어도 같은 한도에 닿거나, 형식 문제라 프롬프트로 고쳐야 한다
@@ -229,9 +244,183 @@ def _create_with_deadline(client: OpenAI, kwargs: dict, extra_body: dict | None)
     return box["resp"]
 
 
-def _call_once(kwargs: dict) -> LLMResult:
-    """OpenRouter 또는 Vertex AI를 딱 한 번 부른다. 실패는 전부 LLMError로 바꿔서 올린다."""
+# ── Anthropic(Claude) 직접 호출 (10-08) ──────────────────────────────
+
+def _anthropic_http() -> httpx.Client:
+    """Anthropic Messages API로 가는 HTTP 클라이언트. 키가 없으면 LLMError(auth)로 올려 라우터가 partial로 돌려준다.
+    테스트는 이 함수를 가짜 transport를 쓰는 클라이언트로 바꿔 끼운다."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        raise LLMError("ANTHROPIC_API_KEY가 없습니다", kind="auth")
+    return httpx.Client(timeout=TIMEOUT_SEC, headers={
+        "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"})
+
+
+def _text_of(content) -> str:
+    """OpenAI 메시지의 content(글자 또는 [{"type":"text","text":...}] 목록)를 글자 하나로."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return "" if content is None else str(content)
+
+
+def _to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
+    """OpenAI 형식 대화를 (system 글, Messages API 메시지 목록)으로 바꾼다.
+
+    - system 줄은 맨 위 system 칸 하나로 모은다 (Messages API는 대화 안에 system 역할이 없다)
+    - assistant의 tool_calls는 tool_use 블록으로, role=tool 결과는 user 메시지의 tool_result 블록으로 바꾼다
+    - Messages API는 같은 역할이 연달아 오면 안 되므로, 이어지는 같은 역할은 블록을 합쳐 한 메시지로 만든다
+    """
+    system_parts: list[str] = []
+    out: list[dict] = []
+
+    def push(role: str, blocks: list[dict]) -> None:
+        if not blocks:
+            return
+        if out and out[-1]["role"] == role:
+            out[-1]["content"].extend(blocks)
+        else:
+            out.append({"role": role, "content": blocks})
+
+    for m in messages:
+        role = m.get("role")
+        if role == "system":
+            text = _text_of(m.get("content"))
+            if text:
+                system_parts.append(text)
+        elif role == "assistant":
+            blocks: list[dict] = []
+            text = _text_of(m.get("content"))
+            if text:
+                blocks.append({"type": "text", "text": text})
+            for call in m.get("tool_calls") or []:
+                fn = call.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                blocks.append({"type": "tool_use", "id": call.get("id"), "name": fn.get("name"), "input": args})
+            push("assistant", blocks)
+        elif role == "tool":
+            push("user", [{"type": "tool_result", "tool_use_id": m.get("tool_call_id"),
+                           "content": _text_of(m.get("content"))}])
+        else:  # user
+            text = _text_of(m.get("content"))
+            push("user", [{"type": "text", "text": text or " "}])
+    return "\n\n".join(system_parts), out
+
+
+def _anthropic_request(kwargs: dict) -> dict:
+    """chat()이 만든 OpenAI 형식 kwargs를 Messages API 요청 본문으로 바꾼다."""
+    system, messages = _to_anthropic_messages(kwargs["messages"])
+    body: dict = {"model": kwargs["model"].removeprefix(CLAUDE_PREFIX), "messages": messages,
+                  "max_tokens": kwargs.get("max_tokens") or ANTHROPIC_MAX_TOKENS}
+    if system:
+        # 프롬프트 + Skill 문서처럼 매번 같은 앞부분은 캐시해 비용·지연을 줄인다 (OpenRouter 자동 캐시와 같은 목적)
+        body["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+    tools = [{"name": t["function"]["name"], "description": t["function"].get("description", ""),
+              "input_schema": t["function"].get("parameters") or {"type": "object", "properties": {}}}
+             for t in kwargs.get("tools") or [] if t.get("type") == "function"]
+    response_format = kwargs.get("response_format") or {}
+    schema = (response_format.get("json_schema") or {}).get("schema") if response_format.get("type") == "json_schema" else None
+    choice = kwargs.get("tool_choice")
+    if schema is not None:
+        # 구조화 출력: 스키마 도구를 더하고 그것만 부르게 한다. 다른 도구가 있어도 이번 답은 JSON으로 끝난다(tool_choice="none" 뜻과 같다)
+        tools.append({"name": STRUCTURED_TOOL, "description": "Return the final answer in this exact shape.",
+                      "input_schema": schema})
+        body["tool_choice"] = {"type": "tool", "name": STRUCTURED_TOOL}
+    elif choice == "none" and tools:
+        body["tool_choice"] = {"type": "none"}
+    if tools:
+        body["tools"] = tools
+    return body
+
+
+def _anthropic_result(data: dict, latency_ms: int) -> LLMResult:
+    """Messages API 응답을 LLMResult로 바꾼다. 스키마 도구 호출은 본문 JSON으로, 다른 도구 호출은 tool_calls로."""
+    texts: list[str] = []
+    calls: list[dict] = []
+    structured: str | None = None
+    for block in data.get("content") or []:
+        if block.get("type") == "text":
+            texts.append(block.get("text", ""))
+        elif block.get("type") == "tool_use":
+            if block.get("name") == STRUCTURED_TOOL:
+                structured = json.dumps(block.get("input") or {}, ensure_ascii=False)
+            else:
+                calls.append({"id": block.get("id"), "name": block.get("name"),
+                              "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False)})
+    usage = data.get("usage") or {}
+    cache_read = usage.get("cache_read_input_tokens") or 0
+    cache_write = usage.get("cache_creation_input_tokens") or 0
+    # OpenAI 형식과 맞춘다: prompt_tokens는 캐시에서 읽은 것·새로 캐시한 것까지 포함한 전체 입력 토큰
+    prompt_tokens = (usage.get("input_tokens") or 0) + cache_read + cache_write
+    stop = data.get("stop_reason")
+    finish = {"max_tokens": "length", "end_turn": "stop", "stop_sequence": "stop", "tool_use": "tool_calls"}.get(stop, stop)
+    if structured is not None:
+        finish = "stop"  # 스키마 도구를 부른 것은 정상 끝이다 (_ask_json은 length만 따로 본다)
+    return LLMResult(
+        content=structured if structured is not None else ("".join(texts) or None),
+        tool_calls=calls,
+        model=data.get("model", ""),
+        provider="anthropic",
+        request_id=data.get("id"),
+        prompt_tokens=prompt_tokens if usage else None,
+        completion_tokens=usage.get("output_tokens") if usage else None,
+        cached_tokens=cache_read if usage else None,
+        cost=None,  # Messages API는 금액을 주지 않는다. Langfuse가 모델 가격표로 계산한다
+        latency_ms=latency_ms,
+        finish_reason=finish,
+    )
+
+
+def _anthropic_call(kwargs: dict) -> LLMResult:
+    """claude/ 모델을 Anthropic Messages API로 한 번 부른다. 실패는 _call_once와 같은 LLMError 종류로 올린다.
+    전체 시간 상한(TIMEOUT_SEC)은 httpx timeout과 별도 스레드 대기로 함께 지킨다 (_create_with_deadline과 같은 이유)."""
     model = kwargs["model"]
+    body = _anthropic_request(kwargs)
+    client = _anthropic_http()
+    box: dict = {}
+
+    def run():
+        try:
+            box["resp"] = client.post(ANTHROPIC_URL, json=body)
+        except BaseException as e:  # 스레드 밖에서 다시 올린다
+            box["error"] = e
+
+    start = time.monotonic()
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(TIMEOUT_SEC)
+    latency_ms = int((time.monotonic() - start) * 1000)
+    try:
+        if worker.is_alive():
+            raise LLMError(f"{model}: {TIMEOUT_SEC:g}초 안에 답이 없음", latency_ms=latency_ms, kind="timeout")
+        if "error" in box:
+            e = box["error"]
+            kind = "timeout" if isinstance(e, httpx.TimeoutException) else "connection"
+            raise LLMError(f"{model}: 연결 실패 {type(e).__name__}", latency_ms=latency_ms, kind=kind) from e
+        resp = box["resp"]
+        if resp.status_code >= 400:
+            try:
+                err = (resp.json() or {}).get("error") or {}
+            except ValueError:
+                err = {}
+            # 오류 본문의 message는 요청 내용을 되풀이하지 않는 짧은 설명이다. 키나 사용자 글은 담기지 않는다
+            raise LLMError(f"{model}: HTTP {resp.status_code} {err.get('type', '')} {err.get('message', '')[:200]}",
+                           code=resp.status_code, latency_ms=latency_ms, kind=_status_kind(resp.status_code))
+        return _anthropic_result(resp.json(), latency_ms)
+    finally:
+        if not worker.is_alive():
+            client.close()
+
+
+def _call_once(kwargs: dict) -> LLMResult:
+    """OpenRouter, Vertex AI 또는 Anthropic(claude/)을 딱 한 번 부른다. 실패는 전부 LLMError로 바꿔서 올린다."""
+    model = kwargs["model"]
+    if model.startswith(CLAUDE_PREFIX):
+        return _anthropic_call(kwargs)
     is_vertex = model.startswith(VERTEX_PREFIX)
     if is_vertex:
         client = _vertex_client()
@@ -1352,7 +1541,8 @@ def web_search(query: str) -> list[dict]:
     if not query or len(query) > WEB_QUERY_CHARS or any(t in query.upper() for t in WEB_BLOCKED_TOKENS):
         raise LLMError("web_search: 검색어가 비었거나 너무 길거나 B/L·MRN 토큰이 들어 있음", kind="bad_query")
     model = os.environ.get("LLM_MODEL") or WEB_FALLBACK_MODEL
-    if model.startswith(VERTEX_PREFIX):
+    if model.startswith((VERTEX_PREFIX, CLAUDE_PREFIX)):
+        # 웹 검색은 OpenRouter 웹 플러그인이라 OpenRouter 모델로만 된다 (vertex/·claude/ 모델은 대신 이 모델로, 10-08)
         model = WEB_FALLBACK_MODEL
     start = time.monotonic()
     # 검색도 요청 트레이스에 generation으로 남긴다: 비용과 결과가 Langfuse에서 보이게.
