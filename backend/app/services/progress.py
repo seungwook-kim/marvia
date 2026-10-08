@@ -31,7 +31,6 @@ STAGES = (
     "tool_position",    # 선박 실시간 위치 (get_live_position)
     "tool_schedule",    # 부산 입항 기록 (get_port_schedule)
     "tool_distance",    # 남은 항로 거리 (estimate_distance)
-    "tool_web",         # 웹 검색 (services/chat.py WEB_TOOL. Skill 문서에 없는 실무 질문만)
 )
 
 _listener: ContextVar[Callable[[str], None] | None] = ContextVar("progress_listener", default=None)

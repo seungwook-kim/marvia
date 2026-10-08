@@ -84,7 +84,12 @@ def test_system_has_prompt_and_judge_skills(monkeypatch):
     (llm.GRADE_SKILLS, ["customs-stages/SKILL.md", "customs-stages/rules.md"],
      ["ais-reliability/SKILL.md", "port-busan/SKILL.md", "cargo-verdict/"]),
     (llm.FOLLOW_UP_SKILLS, ["ais-reliability/SKILL.md", "customs-stages/SKILL.md", "port-busan/SKILL.md",
-                            "cargo-verdict/SKILL.md"], []),
+                            "cargo-verdict/SKILL.md", "import-basics/SKILL.md"], []),
+    # 실무 기초 Skill은 채팅 · 후속 질문에만 들어가고 판정 · 선박 고르기 · 채점에는 들어가지 않는다
+    (llm.JUDGE_SKILLS, ["ais-reliability/SKILL.md"], ["import-basics/"]),
+    (llm.PICK_SKILLS, [], ["import-basics/"]),
+    (llm.GRADE_SKILLS, [], ["import-basics/"]),
+    (llm.CHAT_AGENT_SKILLS, ["import-basics/SKILL.md"], []),
 ])
 def test_skills_per_call(folders, present, absent):
     """호출마다 필요한 Skill 폴더만 붙인다. 붙이는 문서는 통째로다."""

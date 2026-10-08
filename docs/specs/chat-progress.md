@@ -41,7 +41,6 @@
 | tool_position | 에이전트가 실시간 위치(get_live_position)를 고른 때 | 선박 실시간 위치 조회 |
 | tool_schedule | 에이전트가 부산 입항 기록(get_port_schedule)을 고른 때 | 부산 입항 기록 조회 |
 | tool_distance | 에이전트가 남은 항로 거리(estimate_distance)를 고른 때 | 남은 항로 거리 계산 |
-| tool_web | 에이전트가 웹 검색(web_search)을 고른 때 | 웹 검색 |
 
 경로마다 지나간 단계만 나온다. 예: 정상 조회 understand → customs → identify → position → judge, 되묻기 understand → customs → identify, 부산 외 understand → customs.
 

@@ -7,7 +7,7 @@ import pytest
 
 from backend.app.services import chat as svc
 from backend.app.services import llm
-from backend.tests.test_chat_agent import _agent, agent_path, web_off  # noqa: F401 (fixture)
+from backend.tests.test_chat_agent import _agent, agent_path  # noqa: F401 (fixture)
 
 USER = "user-1"
 ON_SCREEN = {"arrivals": [{"ship_name": "TEST STAR", "flag": "Panama", "eta": "2026-10-09T03:00:00", "call_sign": "TST01"},
@@ -63,7 +63,7 @@ def _say(msg, store, on_screen=ON_SCREEN, user=USER, run_tool=None):
                       on_screen=on_screen, run_tool=run_tool)
 
 
-# ── 요청 문장에는 웹 검색을 다시 시키지 않는다 ──
+# ── 요청 문장에는 다시 묻지 않는다 ──
 
 @pytest.mark.parametrize("msg,expected", [("지금 지도에 보이는 배 추적현황에 넣어줘", True), ("이 배 감시 켜 줘", True), ("알림 꺼 줘", True),
                                           ("B/L 번호는 어디에 넣어요?", False), ("하우스 b/l은 누가 만들어?", False),
@@ -72,18 +72,15 @@ def test_is_action_request(msg, expected):
     assert svc.is_action_request(msg) is expected
 
 
-def test_action_request_gets_no_web_nudge(monkeypatch):
-    searched = []
-    monkeypatch.setattr(llm, "web_search", lambda q: searched.append(q) or [])
-    monkeypatch.delenv("WEB_SEARCH", raising=False)
+def test_action_request_gets_no_nudge(monkeypatch):
     calls = _agent(monkeypatch, [], [("", "not_in_skills", "")])
     r = svc.handle("지금 지도에 보이는 배 추적현황에 넣어줘", "s1", None, lambda req: None)
-    assert len(calls) == 1 and searched == [] and r.reply == svc.NOT_IN_SKILLS
+    assert len(calls) == 1 and r.reply == svc.NOT_IN_SKILLS
 
 
 # ── 배 지켜보기 ──
 
-def test_selected_arrival_is_watched_by_call_sign(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_selected_arrival_is_watched_by_call_sign(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     store = Vessels()
     r = _say("지금 지도에 보이는 배 추적현황에 넣어줘", store)
@@ -92,28 +89,28 @@ def test_selected_arrival_is_watched_by_call_sign(monkeypatch, agent_path, web_o
     assert r.watch_vessel_set == {"mmsi": RESOLVED, "name": "TEST MOON", "on": True} and r.watch_set is None
 
 
-def test_turning_off_removes_vessel(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_turning_off_removes_vessel(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": False, "ship_name": None})
     store = Vessels()
     r = _say("이 배 그만 지켜봐 줘", store)
     assert store.removed == [RESOLVED] and r.reply == svc.VESSEL_OFF_REPLY.format(name="TEST MOON")
 
 
-def test_single_ship_on_screen_is_used_without_selection(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_single_ship_on_screen_is_used_without_selection(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     store = Vessels()
     _say("이 배 지켜봐 줘", store, {"arrivals": [{"ship_name": "TEST STAR", "call_sign": "TST01"}]})
     assert store.added[0][1] == "TEST STAR"
 
 
-def test_cargo_vessel_with_mmsi_skips_resolve(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_cargo_vessel_with_mmsi_skips_resolve(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     store = Vessels()
     _say("이 배 지켜봐 줘", store, {"vessel": {"ship_name": "TEST SUN", "mmsi": 440999001}})
     assert store.resolved == [] and store.added[0][0] == 440999001
 
 
-def test_unclear_ship_asks_which_one(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_unclear_ship_asks_which_one(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     store = Vessels()
     two = {"arrivals": [{"ship_name": "A ONE", "call_sign": "A1"}, {"ship_name": "B TWO", "call_sign": "B2"}]}
@@ -121,7 +118,7 @@ def test_unclear_ship_asks_which_one(monkeypatch, agent_path, web_off):  # noqa:
     assert _say("이 배 지켜봐 줘", store, None).reply == svc.VESSEL_ASK_WHICH
 
 
-def test_typed_name_matches_screen_row_but_invented_name_is_refused(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_typed_name_matches_screen_row_but_invented_name_is_refused(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": "test star"})
     store = Vessels()
     _say("test star 지켜봐 줘", store)
@@ -131,7 +128,7 @@ def test_typed_name_matches_screen_row_but_invented_name_is_refused(monkeypatch,
     assert _say("지켜봐 줘", store2).reply == svc.VESSEL_ASK_WHICH and store2.added == []
 
 
-def test_typed_name_uses_candidates_and_requires_one_pick(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_typed_name_uses_candidates_and_requires_one_pick(monkeypatch, agent_path):  # noqa: F811
     tools = [{"type": "function", "function": {"name": "get_vessel_candidates", "description": "d",
                                                "parameters": {"type": "object", "properties": {}}}}]
     _vessel_llm(monkeypatch, {"on": True, "ship_name": "OTHER SHIP"}, tools)
@@ -144,7 +141,7 @@ def test_typed_name_uses_candidates_and_requires_one_pick(monkeypatch, agent_pat
     assert _say("OTHER SHIP 지켜봐 줘", store2, None, run_tool=lambda n, a: two).reply == svc.VESSEL_MANY and store2.added == []
 
 
-def test_not_logged_in_and_no_watch_words_change_nothing(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_not_logged_in_and_no_watch_words_change_nothing(monkeypatch, agent_path):  # noqa: F811
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     store = Vessels()
     assert _say("이 배 지켜봐 줘", store, user=None).reply == svc.VESSEL_NEED_LOGIN and store.added == []
@@ -153,7 +150,7 @@ def test_not_logged_in_and_no_watch_words_change_nothing(monkeypatch, agent_path
     assert store.added == [] and seen[0]["error"]["code"] == "not_requested" and r.watch_vessel_set is None
 
 
-def test_errors_use_router_messages(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_errors_use_router_messages(monkeypatch, agent_path):  # noqa: F811
     from backend.app.routers import watch as watch_router
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
     assert _say("이 배 지켜봐 줘", Vessels(add_error="limit")).reply == watch_router._VESSEL_ERRORS["limit"][1]
@@ -161,7 +158,7 @@ def test_errors_use_router_messages(monkeypatch, agent_path, web_off):  # noqa: 
     assert _say("이 배 지켜봐 줘", unknown).reply == watch_router._VESSEL_ERRORS["unknown_vessel"][1]
 
 
-def test_ship_words_with_arrivals_on_screen_are_not_taken_as_cargo_watch(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_ship_words_with_arrivals_on_screen_are_not_taken_as_cargo_watch(monkeypatch, agent_path):  # noqa: F811
     """화면에 화물과 입항 목록이 함께 있을 때 "이 배 지켜봐 줘"는 화물 지켜보기로 가로채지 않고 배 지켜보기로 간다."""
     from backend.app.schemas.agent import AgentRequest
     _vessel_llm(monkeypatch, {"on": True, "ship_name": None})
