@@ -3,7 +3,8 @@
 책임: LLM 앞뒤의 코드 몫을 맡는다. LLM 호출은 여기서 하지 않는다 (CLAUDE.md, llm.extract_doc_fields가 4단계).
   read_lines()   전처리(빨간 도장 지우기 + 방향 맞추기) 후 OCR. 픽셀이 너무 많은 그림은 풀기 전에 거절한다 (ImageTooLarge)
   take_bl()      "B/L NO." 이름표 근처에서 B/L 번호를 찾는다. LLM에 넘기지 않기 위해 코드가 먼저 뽑는다
-  take_bl_candidates() 이름표마다 찾은 서로 다른 B/L 전부. 둘 이상이면 어느 것인지 서류만으로 모른다 (라우터가 uncertain)
+  take_bl_candidates() 이름표마다 찾은 서로 다른 B/L 전부. 둘 이상이면 어느 것인지 서류만으로 모른다 (라우터가 uncertain).
+                 이름표를 못 읽었으면 선사 코드+숫자 모양 번호가 정확히 하나일 때만 그것을 쓴다 (_take_carrier_bl)
   mask_bl()      OCR 글자에서 B/L 번호를 [BL]로, 다른 B/L 모양·컨테이너 번호를 [ID]로, 전화·이메일을 [PHONE]·[EMAIL]로 가린다.
                  B/L을 못 찾았어도 B/L 모양·컨테이너 번호는 늘 가린다
   take_contact_phone() 화물 인도 연락처 회사 줄 근처의 회사 전화를 코드가 OCR 줄에서 뽑는다 (전화는 LLM에 안 간다)
@@ -329,6 +330,7 @@ def take_bl_candidates(lines: list[str]) -> list[str]:
     10-08 QA: 정정본("B/L NO. (CORRECTED) …")이나 마스터·하우스 B/L이 같이 적힌 서류에서 첫 번호만 골라
     바로 조회·저장했다. 둘 이상이면 어느 번호가 사용자 화물인지 서류만으로 모르므로 라우터가 bl_status를 uncertain으로 둔다.
     같은 번호가 두 이름표에 적힌 것(머리말과 본문)은 하나로 친다.
+    이름표에서 하나도 못 찾았으면 이름표 없는 대안(_take_carrier_bl)을 본다.
     """
     out: list[str] = []
     for i, line in enumerate(lines):
@@ -338,7 +340,31 @@ def take_bl_candidates(lines: list[str]) -> list[str]:
         value = _value_near_label(lines, i, line[m.end():])
         if value and value not in out:
             out.append(value)
+    if not out:
+        carrier = _take_carrier_bl(lines)
+        if carrier:
+            out.append(carrier)
     return out
+
+
+# 이름표 없는 B/L 후보: 선사 코드 영문 4자 + 숫자 8~12자.
+# 팩스 사진은 "B/L No." 이름표가 작고 흐려 OCR 줄에 아예 없는데, 값은 한 덩어리로 정확히 읽히는 일이 있다.
+# 컨테이너 번호(영문 3자 + U + 숫자 7자)는 같은 일반 B/L 모양이라 뺀다. 숫자 없는 낱말도 패턴상 걸리지 않는다.
+# 이름표 없이 모양만 보므로 다른 선사형 번호가 서류에 있으면 틀릴 수 있다. 그래서 서로 다른 후보가 정확히 하나일 때만 받고,
+# 둘 이상이면 추측하지 않고 None으로 두어 사용자가 직접 넣게 한다
+_CARRIER_BL = re.compile(r"[A-Z]{4}\d{8,12}")
+_CONTAINER_NO = re.compile(r"[A-Z]{3}U\d{7}")
+
+
+def _take_carrier_bl(lines: list[str]) -> str | None:
+    """B/L 이름표를 못 읽었을 때의 대안. 선사 코드+숫자 모양 후보가 정확히 하나일 때만 돌려준다."""
+    found: set[str] = set()
+    for line in lines:
+        for tok in re.findall(r"[A-Za-z0-9]+", line):
+            t = tok.upper()
+            if _CARRIER_BL.fullmatch(t) and not _CONTAINER_NO.fullmatch(t) and _BL_PATTERN.fullmatch(t):
+                found.add(t)
+    return found.pop() if len(found) == 1 else None
 
 
 def _value_near_label(lines: list[str], i: int, rest: str) -> str | None:
@@ -539,6 +565,11 @@ def dates_in(text: str) -> set[datetime.date]:
         found.append((int(y), int(mo), int(d)))
     # 달 이름 자리에서만 숫자 0을 알파벳 O로 본다. OCR이 OCT를 "0CT"로 읽는다
     for d, mon, y in re.findall(r"(\d{1,2})[- ]?([A-Z0]{3})[- ]?(\d{4})", text.upper()):
+        mon = mon.replace("0", "O")
+        if mon in MONTHS:
+            found.append((int(y), MONTHS[mon], int(d)))
+    # 달 이름이 앞에 오는 미국식: "SEP.25.2026", "SEP 25, 2026" (B/L의 laden on board 날짜에 흔하다)
+    for mon, d, y in re.findall(r"([A-Z0]{3})[ .\-]*(\d{1,2})[ .,\-]+(\d{4})", text.upper()):
         mon = mon.replace("0", "O")
         if mon in MONTHS:
             found.append((int(y), MONTHS[mon], int(d)))
