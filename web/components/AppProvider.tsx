@@ -14,6 +14,7 @@ import {markTold, untold} from '@/lib/changesTold';
 import type {EvidenceItem, Citation} from '@/lib/evidenceTypes';
 import type {AgentRequest, AgentResponse, ChatCargo, ChatDocument, ChatMap, ChatOnScreen, ChatResponse, ConversationMessage, ConversationSummary, DocumentResponse, WatchChange, WatchOffer} from '@/lib/types';
 import {decideAttachment} from '@/lib/docAttach';
+import {notifyVesselWatchChange} from '@/lib/watchVessel';
 
 /** 채팅 문장 상한. routers/chat.py ChatRequest.message max_length와 같다 (ChatBar MAX) */
 const CHAT_MAX = 500;
@@ -85,8 +86,11 @@ function pickable(agent?: AgentResponse | null, request?: AgentRequest | null): 
 
 /** 화면에 지금 보이는 배들을 서버가 알아들을 모양으로. 화물 카드가 보이면 그 화물의 배와 마지막 위치, 선박 표가 보이면 표의 앞 10척(수입 화물선만).
  * B/L·컨테이너 번호는 담지 않는다. 글자는 서버 상한(routers/chat.py SCREEN_TEXT_MAX 80자, 시각 40자)에 맞춰 자른다. 없으면 null */
-const SCREEN_TEXT = 80, SCREEN_TIME = 40, SCREEN_ROWS = 10;
-function onScreenOf(view: 'cargo' | 'vessels' | 'none', result: AgentResponse | null, vessels: ChatResponse | null): ChatOnScreen | null {
+/** 선박 목록에서 고른 배 (지도에 보이는 배). 채팅이 "이 배 지켜봐 줘"의 그 배를 on_screen의 selected로 받는다 */
+export interface SelectedArrival { name: string; call_sign: string | null }
+const SCREEN_TEXT = 80, SCREEN_TIME = 40, SCREEN_ROWS = 10, CALL_SIGN_MAX = 20;
+function onScreenOf(view: 'cargo' | 'vessels' | 'none', result: AgentResponse | null, vessels: ChatResponse | null,
+                    picked: SelectedArrival | null = null): ChatOnScreen | null {
   const cut = (v: string | null | undefined, n = SCREEN_TEXT) => v ? v.slice(0, n) : null;
   if (view === 'cargo' && result?.vessel) {
     const v = result.vessel, p = result.position;
@@ -94,8 +98,14 @@ function onScreenOf(view: 'cargo' | 'vessels' | 'none', result: AgentResponse | 
       position_time: cut(p?.last_time, SCREEN_TIME), destination: cut(result.customs?.discharge_port_name)}};
   }
   if (view === 'vessels' && vessels?.vessels.length) {
-    return {arrivals: vessels.vessels.filter(v => v.is_cargo !== false).slice(0, SCREEN_ROWS).map(v => ({
-      ship_name: v.ship_name.slice(0, SCREEN_TEXT), flag: cut(v.nationality), eta: cut(v.expected_arrival, SCREEN_TIME), previous_port: cut(v.previous_port)}))};
+    const isPicked = (v: {ship_name: string; call_sign: string | null}) => !!picked && picked.name === v.ship_name && picked.call_sign === (v.call_sign ?? null);
+    let rows = vessels.vessels.filter(v => v.is_cargo !== false).slice(0, SCREEN_ROWS);
+    // 고른 배가 앞 10줄 밖이면(모든 선종 보기 등) 마지막 줄 대신 넣는다. 서버는 10줄까지만 받는다
+    const extra = picked && !rows.some(isPicked) ? vessels.vessels.find(isPicked) : undefined;
+    if (extra) rows = [...rows.slice(0, SCREEN_ROWS - 1), extra];
+    return {arrivals: rows.map(v => ({
+      ship_name: v.ship_name.slice(0, SCREEN_TEXT), flag: cut(v.nationality), eta: cut(v.expected_arrival, SCREEN_TIME), previous_port: cut(v.previous_port),
+      call_sign: cut(v.call_sign, CALL_SIGN_MAX), ...(isPicked(v) ? {selected: true} : {})}))};
   }
   return null;
 }
@@ -132,6 +142,8 @@ interface AppState {
   view: 'cargo' | 'vessels' | 'none';
   /** 숨겨 둔 화물 결과를 다시 보인다 (선박 검색 뒤 "내 화물 결과로 돌아가기") */
   backToCargo: () => void;
+  /** 선박 목록에서 고른 배. VesselList가 고르거나 목록이 사라질 때 알린다 (null이면 고른 배 없음). 서버로 보내는 on_screen에 selected로 실린다 */
+  selectedArrival: SelectedArrival | null; setSelectedArrival: (v: SelectedArrival | null) => void;
   /** 결과 칸의 React key. 새 화물 조회일 때만 바뀌고 후속 질문에는 그대로라 지도·펼친 근거가 다시 그려지지 않는다 */
   cargoKey: string;
   /** 로그인 기능이 켜졌는지, 세션 확인이 끝났는지, 누가 로그인했는지 */
@@ -180,6 +192,7 @@ export function AppProvider({children}:{children:ReactNode}) {
   const [suspended,setSuspended] = useState(false);
   const [meReady,setMeReady] = useState(!authEnabled);
   const [watching,setWatchingMap] = useState<Record<string,boolean>>({});
+  const [selectedArrival,setSelectedArrival] = useState<SelectedArrival | null>(null);
   const [usage,setUsage] = useState<UsageInfo|null>(null);
   const [cargoKey,setCargoKey] = useState('');
   const [authExpired,setAuthExpired] = useState(false);
@@ -308,7 +321,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     if (inflight.current) return;  // 답을 기다리는 중에 바꾸면 곧 올 답이 새 화면에 섞인다
     epoch.current++; startSession(newSessionId()); clearScreen(); syncUrl(null);
   }
-  function clearScreen() { imageUrls.current.forEach(u => URL.revokeObjectURL(u)); imageUrls.current = []; setCargoKey(''); setThread([]); setVessels(null); setView('cargo'); setResult(null); setRequest(isLive ? emptyRequest : presentation.demo.choices[0].request as AgentRequest); setDocHints(null); setError(''); setWatchingMap({}); setReplaying(false); }
+  function clearScreen() { imageUrls.current.forEach(u => URL.revokeObjectURL(u)); imageUrls.current = []; setCargoKey(''); setThread([]); setVessels(null); setView('cargo'); setResult(null); setRequest(isLive ? emptyRequest : presentation.demo.choices[0].request as AgentRequest); setDocHints(null); setError(''); setWatchingMap({}); setSelectedArrival(null); setReplaying(false); }
   /** 저장된 대화를 열어 화면을 되살린다. 말풍선은 messages(+extra)로, 아래 결과 칸은 context·result로 (단일 화물 답을 받았을 때와 같은 상태) */
   async function openConversation(id: string) {
     if (inflight.current) return false;
@@ -460,11 +473,12 @@ export function AppProvider({children}:{children:ReactNode}) {
     // 서버가 단계에 들어갈 때마다 목록에 더한다. 같은 단계가 두 번 오면(후속 질문이 재조회할 때 등) 한 번만 둔다
     const res = await sendChatStream(message, context,
       s => { seen.push(s); if (!stepLog.some(x => x.stage === s)) stepLog.push({stage: s, at: Date.now()}); setStages(list => list.includes(s) ? list : [...list, s]); },
-      history, document, onScreenOf(view, result, vessels), shown);
+      history, document, onScreenOf(view, result, vessels, selectedArrival), shown);
     setThread(t => [...t, {role: 'assistant', text: res.reply, kind: res.kind, map: res.map ?? null, cargos: res.cargos ?? [], watchOffer: res.watch_offer ?? null, ...pickable(res.agent, res.request),
       ...(res.evidence_items?.length ? {evidence: res.evidence_items, citations: res.citations ?? []} : {}), ...(stepLog.length ? {steps: stepLog, tookMs: Date.now() - startedAt} : {})}]);
     // 대화로 지켜보기를 켜고 껐으면 결과 칸의 버튼·말풍선 버튼이 같은 상태를 보게 한다
     if (res.watch_set) setWatching(res.watch_set.bl_no, res.watch_set.on);
+    if (res.watch_vessel_set) notifyVesselWatchChange();  // 배 지켜보기 버튼·목록이 서버 상태를 다시 읽는다
     if (res.kind === 'cargo' && res.agent && res.request) {
       if (context && result && isFollowUp(res.agent, res.request, context, result, seen)) {
         // 후속 질문의 답은 대화 칸에만 둔다. 서버는 지난 결과의 answer만 바꿔 돌려주므로(routers/agent.py _follow_up)
@@ -499,7 +513,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     try { window.sessionStorage.removeItem(CHAT_STATE_KEY); } catch { /* 괜찮다 */ }
   }
 
-  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,ask,askWithAttachment,readingDoc,showCargo,backToCargo,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation,authExpired}}>{children}</Context.Provider>;
+  return <Context.Provider value={{data:presentation,request,result,loading,stages,pendingSince,error,replaying,lookup,replay,ask,askWithAttachment,readingDoc,showCargo,backToCargo,selectedArrival,setSelectedArrival,cargoKey,thread,vessels,view,authEnabled,authReady,user,isOperator,profileComplete,meReady,setProfileComplete,suspended,docHints,setDocHints,reset,usage,refreshUsage,watching,setWatching,conversationsOn,conversations,activeId,savedId,opening,newConversation,openConversation,removeConversation,authExpired}}>{children}</Context.Provider>;
 }
 /** 화물 답이 후속 질문의 답인지 고른다. 응답 계약(C1, ChatResponse)에 표시 칸이 없어 화면이 확인할 수 있는 사실로만 본다.
  * - 같은 B/L이 아니면 새 조회다

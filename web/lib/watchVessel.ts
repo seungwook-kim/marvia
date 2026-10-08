@@ -51,6 +51,8 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 export const onVesselWatchChange = (fn: Listener) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
 const notify = () => listeners.forEach(fn => fn());
+/** 채팅이 서버에서 배를 넣거나 뺀 뒤(ChatResponse.watch_vessel_set), 같은 화면의 배 지켜보기 버튼·목록이 새로 읽게 알린다 */
+export const notifyVesselWatchChange = notify;
 
 // 데모 둘러보기(lib/tour.ts): 서버를 부르지 않고 이 페이지 메모리에서만 켜고 끈다. 새로 고치면 비워진다
 const tourVessels = new Map<number, WatchedVessel>();

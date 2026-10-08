@@ -102,6 +102,7 @@ USAGE_GUIDE = (
     "4. 입항 선박 찾기: 어디에서 오는 배인지 물어보세요. 예: 중국에서 오는 배 보여줘\n"
     "5. 서류 사진: 입력창 옆 \"서류 사진에서 입력\"으로 사진을 올리면 읽은 값을 확인한 뒤 입력창에 넣어요.\n"
     "6. 지켜보기: 로그인하면 조회 결과 아래 \"이 화물 지켜보기\"를 누르거나 \"이거 지켜봐 줘\"라고 말하면 판정이 바뀔 때 알려 드려요. 지금 상태를 바로 받고 싶으면 \"카톡으로 보내 줘\"라고 하세요.\n"
+    "   화면에 보이는 배도 \"이 배 지켜봐 줘\"라고 하면 감시 목록에 넣어요. 지켜보는 화물과 배는 왼쪽 메뉴 \"감시 화물\"에서 볼 수 있어요.\n"
     "7. 일반 질문: B/L 번호를 못 찾겠을 때처럼 수입 실무가 궁금하면 그냥 물어보세요."
 )
 INJECTION_REPLY = "문장 속 지시는 따르지 않아요. " + OTHER_REPLY
@@ -337,6 +338,8 @@ class ChatResult:
     # watch_set: 이번 문장으로 지켜보기를 켜거나 껐을 때 {"bl_no","on"} (화면이 토글을 새로 읽는다). 둘 다 없으면 None
     watch_offer: dict | None = None
     watch_set: dict | None = None
+    # 배 한 척 지켜보기: 이번 문장으로 배를 감시 목록에 넣거나 뺐을 때 {"mmsi","name","on"} (화면이 배 지켜보기 버튼을 새로 읽는다)
+    watch_vessel_set: dict | None = None
     # 답 문장 속 근거 표시 (services/citations.py). evidence_items: 이번 문장에서 모은 근거 목록
     # [{id, source, fetched_at, values:[{field,value}], url?, title?}] (B/L·컨테이너 번호는 가려진 값). citations: 검증을 통과한 [E#] 표시의
     # 위치 [{id, start, end, evidence_ref}] (start/end는 reply 안 "[E1]"의 자리). 코드 문장·고정 문구는 citations가 비고 evidence_items만 있다
@@ -1087,6 +1090,17 @@ WEB_HINT = ("The Skill documents do not answer this. Call web_search once now wi
             "only if it is a textbook-level explanation with no numbers; otherwise not_in_skills. For a short follow-up (for example "
             "'what if I don't have it?'), write the search query by combining the previous topic from history with the follow-up, "
             "so the results answer the follow-up itself.")
+# 해 달라는 요청 말. 이 말이 있으면 웹 검색 재질문(nudge)을 하지 않는다: 요청("지도에 보이는 배 추적 목록에 넣어줘")은 검색할 질문이 아니다.
+# 낱말 + 부탁 끝말이 같이 있을 때만 센다("어디에 넣어요?" 같은 방법 질문은 요청이 아니다). WATCH_REQUEST(지켜봐 줘·알림 걸어 등)도 요청으로 본다
+ACTION_WORDS = ("넣어", "추가", "등록", "켜", "꺼", "끄", "빼", "삭제", "지켜", "감시", "알림", "추적")
+ACTION_ENDING = re.compile(r"줘|주세요|줄래|줘요|주라|해\s*줘|해라|하자")
+
+
+def is_action_request(masked: str) -> bool:
+    """이번 문장이 무언가를 해 달라는 요청인가 (넣어·켜·지켜봐 줘 등). 웹 검색 재질문을 건너뛸 때만 쓴다."""
+    return bool(ACTION_ENDING.search(masked) and any(w in masked for w in ACTION_WORDS)) or bool(WATCH_REQUEST.search(masked))
+
+
 # 화면에 화물이 있는데 도구 없이 안내만 냈을 때 한 번 다시 물으며 붙이는 말 ("이 배 지금 어디쯤이야?"에 ask_cargo를 안 부르는 경우)
 CARGO_ON_SCREEN_HINT = ("You called no tool. has_current_cargo is true. If the message asks about this ship or this cargo "
                         "(where it is, when it arrives, customs, what to do), call ask_cargo. If it asks which ships come "
@@ -1127,6 +1141,13 @@ AGENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "on": {"type": "boolean", "description": "true to start watching, false to stop."},
         }, "required": ["on"]}}},
+    {"type": "function", "function": {
+        "name": "watch_vessel",
+        "description": "Turn watching on or off for ONE ship (not a cargo) on the user's watch list. Only when the user clearly asks to watch, track, or add a ship, or to stop watching one. Pass ship_name only when the user typed a ship name; otherwise null (code uses the selected or only ship on screen, or asks the user which one). Code refuses it otherwise and writes the reply itself.",
+        "parameters": {"type": "object", "properties": {
+            "on": {"type": "boolean", "description": "true to start watching, false to stop."},
+            "ship_name": {"type": ["string", "null"], "description": "The ship name exactly as the user typed it, or null."},
+        }, "required": ["on", "ship_name"]}}},
     {"type": "function", "function": {
         "name": "send_kakao",
         "description": "Send the CURRENT status of the cargo on screen (or the cargo whose B/L is in this message) to the user's own KakaoTalk right now. Only when the user clearly asks to send it to KakaoTalk now (\"카톡으로 보내 줘\", \"지금 알림 보내 줘\"). Not for \"tell me when it changes\" (that is set_watch). Code refuses it otherwise, writes the message and the reply itself.",
@@ -1507,7 +1528,10 @@ def _masked_screen(on_screen: dict | None, refs: dict[str, str] | None = None) -
         try:
             item = {"ship_name": _screen_text(row.get("ship_name"), 80, shared), "flag": _screen_text(row.get("flag"), 80, shared),
                     "eta": _screen_text(row.get("eta"), 40, shared),
-                    "previous_port": _screen_text(row.get("previous_port"), 80, shared)}
+                    "previous_port": _screen_text(row.get("previous_port"), 80, shared),
+                    "call_sign": _screen_text(row.get("call_sign"), 20, shared)}  # 배를 지켜볼 때 MMSI를 찾는 열쇠
+            if row.get("selected") is True:  # 사용자가 목록에서 고른 배 (지도에 보이는 배). 켜져 있을 때만 칸이 생긴다
+                item["selected"] = True
         except _ScreenInjection:
             log_failure("chat", "blocked prompt injection pattern in on_screen arrival")
             continue
@@ -1752,6 +1776,16 @@ WATCH_FAIL_REPLY = {
 
 
 @dataclass
+class VesselHooks:
+    """로그인한 사용자의 배 지켜보기(B/L 없이 배만, services/vessel_watch.py)를 쓰는 함수 둘. 라우터가 만든다 (routers/chat._vessel_hooks).
+    add(mmsi, call_sign, name, flag, dest, eta): {"mmsi"} 또는 {"error": VesselWatchError.kind}. MMSI가 없으면 호출부호로 찾는다
+    (입항 예정 목록에는 MMSI가 없다. 고르는 규칙은 services/vessel_pick). remove(mmsi, call_sign, name): {"mmsi"} 또는 {"error": kind}."""
+
+    add: Callable[..., dict]
+    remove: Callable[..., dict]
+
+
+@dataclass
 class WatchHooks:
     """로그인한 사용자의 지켜보기를 실제로 읽고 쓰는 함수 셋. 라우터가 DB 연결을 열어 만들어 넘긴다 (routers/chat._watch_hooks).
     서비스가 DB를 몰라야 가짜 함수로 시험할 수 있다 (run_tool과 같은 방식).
@@ -1761,12 +1795,29 @@ class WatchHooks:
     tool: Callable[[str, bool], dict]
     state: Callable[[str], dict]
     worry: Callable[[str], str | None]
+    vessel: VesselHooks | None = None  # 배 지켜보기 (watch_vessel 도구). 없으면 저장소에 연결하지 못했다고 안내한다
 
 
 def wants_send_now(masked: str) -> bool:
     """가린 문장이 "지금 카카오톡으로 보내 줘"인가. 앞날 낱말(바뀌면 등)이 있으면 지켜보기 요청이라 아니다."""
     return bool(SEND_NOW.search(masked)) and not FUTURE_WORDS.search(masked)
 
+
+# ── 배 한 척 지켜보기 ("지금 지도에 보이는 배 추적 목록에 넣어줘", "이 배 지켜봐 줘") ──
+# 화물 지켜보기(WATCH_*)와 표·규칙이 다르다: B/L 없이 배(MMSI)만 올린다 (services/vessel_watch.py). 문장은 모두 코드가 쓴다.
+# 켜기 낱말: WATCH_WORDS에 추적·넣어·추가·등록·빼 줘를 더한 것. 도구 호출만으로 DB에 쓰지 않게 이 말이 문장에 있어야 한다
+VESSEL_WATCH_WORDS = re.compile(WATCH_WORDS.pattern + r"|추적|넣어|추가|등록|제거|삭제|빼\s*줘|빼\s*주")
+SHIP_POINTER = re.compile(r"(?<![가-힣])(?:배|선박)(?:를|을|은|는|이|가|도)?(?![가-힣])")  # "이 배", "배를" (배송 같은 낱말은 아니다)
+# 감시 성공 답 끝의 감시 화면 링크 줄. 줄 머리를 화면(ChatBar linkify)이 링크 줄로 알아보고, 사이트 안 경로(/watch)는 앱 안에서 연다
+WATCH_PAGE_LINE = "감시 화물에서 보기: [감시 화물](/watch)"
+VESSEL_ASK_WHICH = "어느 배를 넣을까요? 배 이름을 알려 주세요."
+VESSEL_NEED_LOGIN = "로그인하면 배를 감시 목록에 넣을 수 있어요."
+VESSEL_UNAVAILABLE = "지켜보기 저장소에 연결하지 못했어요. 잠시 뒤 다시 말씀해 주세요."
+VESSEL_NOT_FOUND = "그 이름의 배를 찾지 못했어요. 배 이름을 다시 확인해 주세요."
+VESSEL_MANY = "같은 이름의 배가 여러 척이라 어느 배인지 정하지 못했어요. 목록에서 배를 눌러 고른 뒤 다시 말씀해 주세요."
+VESSEL_ON_REPLY = "{name} 선박을 감시 목록에 넣었어요."
+VESSEL_OFF_REPLY = "{name} 선박을 감시 목록에서 뺐어요."
+VESSEL_DEFAULT_ERROR = "배 지켜보기를 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요."
 
 WATCH_ALREADY_HEAD = "이미 이 화물을 지켜보고 있어요."
 WATCH_ALREADY_ON = WATCH_ALREADY_HEAD + " 판정이 바뀌면 알려 드려요."
@@ -1922,6 +1973,8 @@ def _agent(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, 
         result = replace(result, reply=f"{result.reply}\n\n{done_watch['msg']}")  # 화물 답과 같이 말한 경우: 답 뒤에 코드 문장
     if done_watch.get("set"):
         return replace(result, watch_set=done_watch["set"])
+    if done_watch.get("vessel_set"):
+        return replace(result, watch_vessel_set=done_watch["vessel_set"])
     if done_watch.get("msg"):  # 못 켰다. 이번 문장에서는 제안하지 않는다
         return result
     return _with_offer(result, signals, context, user_id, history, watch)
@@ -2207,6 +2260,99 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
                          set={"bl_no": bl, "on": bool(result.get("on"))})
         return {"ok": True, "watching": bool(result.get("on"))}
 
+    def vessel_error_text(kind: str) -> str:
+        """배 지켜보기 오류 종류를 사용자 문장으로. 문장은 routers/watch.py _VESSEL_ERRORS와 같은 것을 쓴다 (복사하지 않는다).
+        라우터는 이 모듈이 올라올 때 서로 부르지 않게 쓰는 자리에서 가져온다."""
+        from backend.app.routers import watch as watch_router  # noqa: PLC0415
+        entry = watch_router._VESSEL_ERRORS.get(kind)
+        return entry[1] if entry else VESSEL_DEFAULT_ERROR
+
+    def vessel_target(name_arg) -> dict | str:
+        """지켜볼 배 한 척을 코드가 정한다 (LLM이 아니라). 돌려주는 값: 배 {name, flag, dest, eta, call_sign, mmsi} 또는 못 정한 이유 문장.
+        순서: (1) 사용자가 쓴 배 이름 (2) 화면에서 고른 줄(selected) (3) 화면에 배가 정확히 한 척 (4) 되묻기.
+        이름은 사용자가 이번 문장·앞 줄에 실제로 쓴 글자일 때만 쓴다 (LLM이 지어낸 이름으로 엉뚱한 배를 올리지 않게).
+        이름이 같은 배가 여러 척이면 고르지 않는다 (services/vessel_pick과 같은 원칙: 하나일 때만)."""
+        rows = list((screen or {}).get("arrivals") or [])
+        shown_vessel = (screen or {}).get("vessel")
+        if isinstance(name_arg, str) and name_arg.strip():
+            name = " ".join(name_arg.split())[:80]
+            wanted = _norm_name(name)
+            if not wanted or guard.looks_like_injection(name) or wanted not in _norm_name(user_text):
+                return VESSEL_ASK_WHICH
+            for row in rows:  # 화면에 같은 이름의 줄이 있으면 그 줄이 가장 믿을 만하다 (호출부호가 있다)
+                if _norm_name(row.get("ship_name")) == wanted:
+                    return {"name": row["ship_name"], "flag": row.get("flag"), "dest": None, "eta": row.get("eta"),
+                            "call_sign": row.get("call_sign"), "mmsi": None}
+            if shown_vessel and _norm_name(shown_vessel.get("ship_name")) == wanted and shown_vessel.get("mmsi"):
+                return {"name": shown_vessel["ship_name"], "flag": shown_vessel.get("flag"), "dest": shown_vessel.get("destination"),
+                        "eta": None, "call_sign": None, "mmsi": shown_vessel["mmsi"]}
+            if run_tool is None or CANDIDATES_TOOL not in mcp_names:
+                return VESSEL_NOT_FOUND
+            try:
+                found = (run_tool(CANDIDATES_TOOL, {"ship_name": name}) or {}).get("candidates") or []
+            except Exception as e:  # noqa: BLE001 - 후보 조회가 죽어도 요청 전체를 죽이지 않는다
+                log_failure("chat_agent_tool", f"watch_vessel candidates {type(e).__name__}")
+                return VESSEL_NOT_FOUND
+            same = [c for c in found if _norm_name(c.get("name")) == wanted]
+            pool = same or (found if len(found) == 1 else [])  # 이름이 같은 배, 없으면 후보가 딱 한 척일 때만
+            if not pool:
+                return VESSEL_MANY if len(found) > 1 else VESSEL_NOT_FOUND
+            if len({c.get("mmsi") for c in pool}) != 1:
+                return VESSEL_MANY
+            c = pool[0]
+            return {"name": c.get("name") or name, "flag": c.get("flag"), "dest": c.get("dest"), "eta": None,
+                    "call_sign": c.get("call_sign"), "mmsi": c.get("mmsi")}
+        picked = [r for r in rows if r.get("selected")]
+        if len(picked) == 1:
+            row = picked[0]
+        elif not picked and len(rows) == 1 and not shown_vessel:
+            row = rows[0]
+        elif not picked and not rows and shown_vessel:
+            return {"name": shown_vessel["ship_name"], "flag": shown_vessel.get("flag"), "dest": shown_vessel.get("destination"),
+                    "eta": None, "call_sign": None, "mmsi": shown_vessel.get("mmsi")}
+        else:
+            return VESSEL_ASK_WHICH
+        return {"name": row["ship_name"], "flag": row.get("flag"), "dest": None, "eta": row.get("eta"),
+                "call_sign": row.get("call_sign"), "mmsi": None}
+
+    def run_watch_vessel(args: dict) -> dict:
+        """배 한 척 지켜보기 켜기·끄기 도구. run_watch와 같은 안전 규칙이다: 가린 문장에 켜기 낱말이 있어야 하고
+        (VESSEL_WATCH_WORDS, 지금 보내 달라는 말은 제외) 로그인해야 한다. 어느 배인지는 vessel_target이 코드로 정한다. 문장은 코드가 쓴다."""
+        on, ship_name = args.get("on"), args.get("ship_name")
+        if not isinstance(on, bool) or not VESSEL_WATCH_WORDS.search(masked) or wants_send_now(masked):
+            watch_out["refused"] = True
+            return _tool_error("not_requested", "The user did not ask to watch or stop watching a ship. Do not call watch_vessel on your own.")
+        if user_id is None:
+            watch_out["msg"] = VESSEL_NEED_LOGIN  # 아무것도 바꾸지 않는다
+            return _tool_error("login_required", "Not logged in. Nothing was changed.")
+        hooks = watch.vessel if watch is not None else None
+        if hooks is None:
+            watch_out["msg"] = VESSEL_UNAVAILABLE
+            return _tool_error("unavailable", "The vessel watch store is not available.")
+        target = vessel_target(ship_name)
+        if isinstance(target, str):
+            watch_out["msg"] = target
+            return _tool_error("which_ship", target)
+        if not target.get("mmsi") and not target.get("call_sign"):
+            watch_out["msg"] = VESSEL_ASK_WHICH  # MMSI도 호출부호도 없으면 어느 배인지 찾을 열쇠가 없다
+            return _tool_error("which_ship", "The ship has no call sign or MMSI on screen.")
+        try:
+            if on:
+                result = hooks.add(target.get("mmsi"), target.get("call_sign"), target["name"], target.get("flag"),
+                                   target.get("dest"), target.get("eta"))
+            else:
+                result = hooks.remove(target.get("mmsi"), target.get("call_sign"), target["name"])
+        except Exception as e:  # noqa: BLE001 - 저장소 문제가 요청 전체를 죽이지 않게
+            log_failure("chat_watch", f"vessel {type(e).__name__}")
+            result = {"error": "db"}
+        if "error" in result:
+            watch_out["msg"] = VESSEL_UNAVAILABLE if result["error"] == "db" else vessel_error_text(str(result["error"]))
+            return _tool_error(str(result["error"]), "Could not change watching this ship.")
+        shown = target["name"]
+        watch_out.update(msg=(VESSEL_ON_REPLY.format(name=shown) + "\n" + WATCH_PAGE_LINE) if on else VESSEL_OFF_REPLY.format(name=shown),
+                         vessel_set={"mmsi": int(result["mmsi"]), "name": shown, "on": on})
+        return {"ok": True, "watching": on}
+
     docs_out: dict = signals.setdefault("docs", {})  # {"msg": 코드가 쓴 서류 정보 문장, "bl": 대상 B/L}
 
     def run_docs(args: dict) -> dict:
@@ -2310,7 +2456,9 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     # (LLM에 맡기면 화물 질문 도구까지 불러 엉뚱한 답이 붙을 수 있다).
     # 조건: 새 B/L이 없고 화면에 화물이 있고, (앞 답이 제안이고 짧은 긍정) 또는 (WATCH_REQUEST 모양의 WATCH_ONLY_MAX자 이하 문장)
     short = masked.strip()
-    if not message_bls and context is not None and (
+    # 입항 선박 목록이 화면에 있는데 "이 배 지켜봐 줘"처럼 배를 가리키면 화물 지켜보기로 가로채지 않는다: LLM이 watch_vessel을 고른다
+    about_ship = bool(screen and screen.get("arrivals")) and bool(SHIP_POINTER.search(short)) and "화물" not in short
+    if not message_bls and context is not None and not about_ship and (
             (offered_prev and AFFIRM.fullmatch(short)) or (WATCH_REQUEST.search(short) and len(short) <= WATCH_ONLY_MAX)):
         run_watch({"on": not WATCH_STOP.search(short)})
         return ChatResult(kind="message", reply=watch_out.get("msg") or WATCH_HOW, watch_set=watch_out.get("set"))
@@ -2392,7 +2540,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         """LLM이 고른 도구 하나를 실행한다. 같은 호출은 한 번만, 화물 도구는 한 문장에 한 번만, 예외는 도구 실패로 돌려준다.
         MCP 도구가 예외를 던지지 않는 것과 같은 원칙이다 (SDD 3.4): 도구 하나가 죽어도 요청 전체가 500이 되면 안 된다."""
         key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)}"
-        if key in seen and name not in ("set_watch", "send_kakao"):  # 지켜보기는 조회가 끝나기를 기다렸다 다시 부를 수 있어 앞 결과를 쓰지 않는다 (같은 일은 두 번 해도 같다)
+        if key in seen and name not in ("set_watch", "watch_vessel", "send_kakao"):  # 지켜보기는 조회가 끝나기를 기다렸다 다시 부를 수 있어 앞 결과를 쓰지 않는다 (같은 일은 두 번 해도 같다)
             return seen[key]
         if name in ("check_cargo", "ask_cargo") and sum(r["name"] in ("check_cargo", "ask_cargo") for r in ran) >= CARGO_CALLS_PER_TURN:
             # 조회한 화물에 바로 이어 묻는 경우도 여기서 막힌다: ask_cargo는 화면의 지난 화물을 보므로 방금 조회한 화물과 다를 수 있다
@@ -2508,6 +2656,8 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
             shown = [{k: v[k] for k in ("ship_name", "call_sign", "nationality", "previous_port", "expected_arrival", "is_cargo")}
                      for v in result.vessels[:ARRIVALS_SHOWN]]
             return {"reply": result.reply, "total": len(result.vessels), "vessels": shown}
+        if name == "watch_vessel":
+            return run_watch_vessel(args)
         if name == "set_watch":
             return run_watch(args)
         if name == "send_kakao":
@@ -2672,8 +2822,9 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
     #     (run_web)이라 그 한도는 그대로다. 웹이 안 되면 모델은 3층(general)으로 답하거나 not_in_skills를 낸다
     fix_left = 1
     # 저장한 것을 묻는 문장이면 웹 검색 대신 recall_memo를 부르게 한 번 다시 묻는다 (웹 검색이 꺼져 있어도)
-    memo_ask = is_memo_question(masked)
-    nudge_left = 1 if (web_search_enabled() or memo_ask) and not BROKER_TOPIC.search(masked) else 0
+    # 해 달라는 요청(넣어 줘·켜 줘)은 검색할 질문이 아니라 다시 묻지 않는다 (is_action_request)
+    memo_ask = is_memo_question(masked) and not is_action_request(masked)
+    nudge_left = 1 if (web_search_enabled() or memo_ask) and not BROKER_TOPIC.search(masked) and not is_action_request(masked) else 0
     web_fix_left = 1
     lookup_fix_left = 1  # 읽기 전용 도구 결과 요약을 고쳐 쓰게 하는 기회 (한 문장에 LLM 호출 최대 3번 상한 안에서 fix·nudge와 겹치지 않는다: 도구가 돈 문장은 그 둘을 안 탄다)
     first = True
@@ -2734,7 +2885,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         log_failure("chat_agent_reply", ",".join(v.rule for v in violations))
         feedback = "\n".join(f"{v.rule}: {v.detail}" for v in violations)
     # 지켜보기·카카오 보내기·서류 정보 도구는 조회 도구가 아니다. 결과 문장은 watch_out·kakao_out·docs_out에 있다
-    calls = [c for c in ran if c["name"] not in ("set_watch", "send_kakao", DOCS_TOOL, RECALL_TOOL)]
+    calls = [c for c in ran if c["name"] not in ("set_watch", "watch_vessel", "send_kakao", DOCS_TOOL, RECALL_TOOL)]
     signals["watch_cue"] = bool(out is not None and out.watch_cue)
 
     # 문장에 지금 화물과 다른 B/L이 있는데 에이전트가 조회하지 않았으면 코드가 조회한다 (대비 경로와 같은 규칙:
@@ -2763,7 +2914,8 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         return ChatResult(kind="message", reply=kakao_out.get("msg") or KAKAO_HOW)
     if not done and not calls and (watch_out.get("msg") or watch_out.get("refused")):
         # 지켜보기만 한 문장이다. 켠 결과, 못 켠 이유, 또는 낱말이 없어 거절한 안내를 코드 문장으로 낸다
-        return ChatResult(kind="message", reply=watch_out.get("msg") or WATCH_HOW, watch_set=watch_out.get("set"))
+        return ChatResult(kind="message", reply=watch_out.get("msg") or WATCH_HOW, watch_set=watch_out.get("set"),
+                          watch_vessel_set=watch_out.get("vessel_set"))
     if not done and not calls and docs_out.get("msg"):
         # 서류 정보만 물은 문장이다. 답은 코드가 쓴 문장뿐이다 (LLM 문장은 값을 모르고 쓴 것이라 쓰지 않는다)
         return ChatResult(kind="message", reply=docs_out["msg"])

@@ -13,6 +13,7 @@ import {ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Ship, Slider
 import {VesselDetail, type DetailEntry} from './VesselDetail';
 import {VesselMap, type MapShip} from './VesselMap';
 import {WatchVesselButton} from './WatchVesselButton';
+import {useApp} from './AppProvider';
 import {getVesselDetail} from '@/lib/api';
 import {dateTime, placeLabel} from '@/lib/format';
 import type {ChatResponse, VesselItem} from '@/lib/types';
@@ -95,6 +96,10 @@ export function VesselList({data}: {data: ChatResponse}) {
 
   const selected = sel && sorted.includes(sel) ? sel : sorted[0] ?? null;
   const selKey = selected ? keyOf(selected) : null;
+  // 지도에 보이는 배를 앱에 알린다. 채팅이 "이 배 지켜봐 줘"의 그 배를 on_screen의 selected로 받는다. 목록이 사라지면 null
+  const {setSelectedArrival} = useApp();
+  useEffect(() => { setSelectedArrival(selected ? {name: selected.ship_name, call_sign: selected.call_sign ?? null} : null); }, [selKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => setSelectedArrival(null), [setSelectedArrival]);
   // 지도에 보이는 배(처음엔 첫 줄)만 자동으로 받는다. 나머지는 눌러야 받는다 (위치 조회 하루 50건 한도)
   useEffect(() => { if (selected) load(selected); }, [selected, load]);
 
