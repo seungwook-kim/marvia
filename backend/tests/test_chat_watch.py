@@ -357,3 +357,23 @@ def test_short_watch_request_skips_llm(monkeypatch, text):
 @pytest.mark.parametrize("text", ["카톡 알림 안 와", "언제 오는지 알려줘", "지켜봐야 해?"])
 def test_non_requests_are_not_short_path(text):
     assert not svc.WATCH_REQUEST.search(text)
+
+
+# ── 같은 문장의 조회가 화물을 못 찾았을 때 ──
+CHECK_THEN_WATCH = [("check_cargo", {"bl_ref": "[BL1]"}), ("set_watch", {"on": True})]
+
+
+def test_watch_on_cargo_not_found_says_not_found_not_saving(monkeypatch):
+    from backend.app.routers.agent import NO_CARGO
+    _llm(monkeypatch, CHECK_THEN_WATCH)
+    store = Hooks(fail="not_saved")
+    r = svc.handle(f"{BL} 지켜봐 줘", "s1", None, lambda req: _response(status="failed", answer=NO_CARGO), USER, watch=store.hooks())
+    assert svc.WATCH_NOT_FOUND in r.reply and svc.WATCH_FAIL_REPLY["not_saved"] not in r.reply
+    assert store.tool_calls == [] and r.watch_set is None  # 저장소를 부르지 않는다
+
+
+def test_watch_genuine_not_saved_keeps_saving_message(monkeypatch):
+    _llm(monkeypatch, CHECK_THEN_WATCH)
+    store = Hooks(fail="not_saved")
+    r = svc.handle(f"{BL} 지켜봐 줘", "s1", None, _run(), USER, watch=store.hooks())
+    assert svc.WATCH_FAIL_REPLY["not_saved"] in r.reply and svc.WATCH_NOT_FOUND not in r.reply

@@ -14,6 +14,7 @@ import {ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Ship, Slider
 import {VesselDetail, type DetailEntry} from './VesselDetail';
 import {VesselMap, type MapShip} from './VesselMap';
 import {WatchVesselButton} from './WatchVesselButton';
+import {useApp} from './AppProvider';
 import {getVesselDetail} from '@/lib/api';
 import {dateTime, placeLabel} from '@/lib/format';
 import type {ChatResponse, VesselItem} from '@/lib/types';
@@ -97,6 +98,10 @@ export function VesselList({data}: {data: ChatResponse}) {
   // 처음에는 아무 배도 고르지 않는다. 첫 줄을 자동으로 고르면 묻지도 않은 배의 자세히를 불러 ShipFinder 하루 한도를 쓴다
   const selected = sel && sorted.includes(sel) ? sel : null;
   const selKey = selected ? keyOf(selected) : null;
+  // 사용자가 고른 배(지도에 보이는 배)를 앱에 알린다. 채팅이 "이 배 지켜봐 줘"의 그 배를 on_screen의 selected로 받는다. 고르기 전이나 목록이 사라지면 null
+  const {setSelectedArrival} = useApp();
+  useEffect(() => { setSelectedArrival(selected ? {name: selected.ship_name, call_sign: selected.call_sign ?? null} : null); }, [selKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => setSelectedArrival(null), [setSelectedArrival]);
 
   function pick(v: VesselItem) {
     if (selected === v && expanded) { setExpanded(false); return; }

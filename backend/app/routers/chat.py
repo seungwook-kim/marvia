@@ -44,6 +44,7 @@ from backend.app.services import memory as memory_service
 from backend.app.services import operators as ops
 from backend.app.services import progress
 from backend.app.services import vessel_detail
+from backend.app.services import vessel_watch as vessel_watch_service
 from backend.app.services import watch as watch_service
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -92,12 +93,15 @@ class ChatScreenVessel(BaseModel):
 
 
 class ChatScreenArrival(BaseModel):
-    """화면의 부산 입항 예정 선박 목록 한 줄. 목록에 MMSI가 없어 이름·국적·입항 예정·직전 항구만 받는다."""
+    """화면의 부산 입항 예정 선박 목록 한 줄. 목록에 MMSI가 없어 이름·국적·입항 예정·직전 항구·호출부호만 받는다."""
 
     ship_name: str = Field(max_length=SCREEN_TEXT_MAX)
     flag: str | None = Field(default=None, max_length=SCREEN_TEXT_MAX)
     eta: str | None = Field(default=None, max_length=SCREEN_TIME_MAX)
     previous_port: str | None = Field(default=None, max_length=SCREEN_TEXT_MAX)
+    # 배를 지켜볼 때 MMSI를 찾는 열쇠(services/vessel_watch.resolve_mmsi)와 사용자가 목록에서 고른 줄(지도에 보이는 배) 표시. 옛 화면은 보내지 않는다
+    call_sign: str | None = Field(default=None, max_length=20)
+    selected: bool = False
 
 
 class ChatScreen(BaseModel):
@@ -191,6 +195,14 @@ class WatchSet(BaseModel):
     on: bool
 
 
+class WatchVesselSet(BaseModel):
+    """이번 문장으로 배 한 척을 감시 목록에 넣거나 뺐다. 화면이 배 지켜보기 버튼·목록을 새로 읽는다."""
+
+    mmsi: int
+    name: str
+    on: bool
+
+
 class ChatResponse(BaseModel):
     kind: Literal["cargo", "vessels", "message"]
     reply: str
@@ -204,6 +216,7 @@ class ChatResponse(BaseModel):
     cargos: list[ChatCargo] = []  # B/L이 2~3개인 문장에서만 채워진다. 한 개짜리 답은 빈 목록이다
     watch_offer: WatchOffer | None = None  # 지켜보기를 먼저 제안한 답에만 채워진다
     watch_set: WatchSet | None = None  # 대화로 지켜보기를 켜거나 껐을 때만 채워진다
+    watch_vessel_set: WatchVesselSet | None = None  # 대화로 배 한 척을 감시 목록에 넣거나 뺐을 때만 채워진다
     # 답 문장 속 근거 표시. 둘 다 선택 칸이라 화면이 무시해도 된다.
     # evidence_items: 이번 문장에서 모은 근거 [{id, source, fetched_at, values:[{field,value}], url?, title?}]. 코드 문장·고정 문구에도 실린다(화면이 글 끝 칩으로 보인다)
     # citations: 검증을 통과한 [E#] 표시 [{id, start, end, evidence_ref}]. start/end는 reply 글 안 "[E1]"의 자리, evidence_ref는 evidence_items[].id
@@ -287,6 +300,43 @@ def _history(body: ChatRequest) -> list[dict]:
 SAVE_WAIT_TRIES, SAVE_WAIT_SEC = 3, 1.0
 
 
+def _vessel_hooks(user_id: str) -> svc.VesselHooks:
+    """로그인 사용자의 배 한 척 지켜보기 함수 둘 (watch_vessel 도구). 켜기 순서는 POST /api/watch/vessels와 같다
+    (routers/watch.add_vessel_watch): DB로 이름·한도를 먼저 보고, 그다음에만 ShipFinder(호출부호로 MMSI 찾기, 위치 받아 두기)를
+    부르고, 다시 연결해 저장한다. 오류는 VesselWatchError.kind만 서비스에 돌려주고 문장은 서비스가 정한다."""
+
+    def mmsi_of(mmsi: int | None, call_sign: str | None, name: str) -> int:
+        """화면 줄에 MMSI가 없으면(입항 예정 목록) 호출부호로 찾는다. 고르는 규칙은 services/vessel_pick 하나다."""
+        if mmsi:
+            return mmsi
+        if not (call_sign or "").strip():
+            raise vessel_watch_service.VesselWatchError("invalid")
+        return vessel_watch_service.resolve_mmsi(call_sign, name)
+
+    def add(mmsi: int | None, call_sign: str | None, name: str, flag: str | None, dest: str | None, eta: str | None) -> dict:
+        try:
+            with ops.open_conn() as conn:
+                vessel_watch_service.precheck(conn, user_id, mmsi, name)
+            mmsi = mmsi_of(mmsi, call_sign, name)
+            vessel_watch_service.fetch_position(mmsi)  # 위치 캐시가 비었으면 한 번 받아 둔다. add_vessel이 지도 첫 점으로 넣는다
+            with ops.open_conn() as conn:
+                return {"mmsi": vessel_watch_service.add_vessel(conn, user_id, mmsi, name, flag, dest, eta)["mmsi"]}
+        except vessel_watch_service.VesselWatchError as e:
+            log_failure("chat_vessel_watch", e.kind)
+            return {"error": e.kind}
+
+    def remove(mmsi: int | None, call_sign: str | None, name: str) -> dict:
+        try:
+            mmsi = mmsi_of(mmsi, call_sign, name)
+        except vessel_watch_service.VesselWatchError as e:
+            log_failure("chat_vessel_watch", e.kind)
+            return {"error": e.kind}
+        with ops.open_conn() as conn:
+            return {"mmsi": vessel_watch_service.remove_vessel(conn, user_id, mmsi)["mmsi"]}
+
+    return svc.VesselHooks(add=add, remove=remove)
+
+
 def _watch_hooks(user_id: str | None) -> svc.WatchHooks | None:
     """로그인 사용자의 지켜보기를 읽고 쓰는 함수 셋. 로그인하지 않았거나 DB가 없으면 None (서비스는 "바꾸지 않고 안내만"으로 안다).
     함수마다 연결을 따로 연다. 한 요청에서 각각 한두 번뿐이라 단순함이 낫다."""
@@ -320,7 +370,7 @@ def _watch_hooks(user_id: str | None) -> svc.WatchHooks | None:
         texts = [(i.get("fields") or {}).get("text") for i in items if i.get("kind") == "worry" and i.get("cargo_key") == key]
         return next((t for t in reversed(texts) if t), None)
 
-    return svc.WatchHooks(tool=tool, state=state, worry=worry)
+    return svc.WatchHooks(tool=tool, state=state, worry=worry, vessel=_vessel_hooks(user_id))
 
 
 def _kakao_hooks(user_id: str | None) -> svc.KakaoHooks | None:
