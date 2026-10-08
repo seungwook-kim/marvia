@@ -1785,6 +1785,8 @@ WATCH_NEED_LOGIN = "로그인하면 이 화물을 지켜보다가 판정이 바�
 WATCH_HOW = "지켜보기를 켜거나 끄려면 \"이 화물 지켜봐 줘\", \"그만 지켜봐도 돼\"처럼 말씀해 주세요."
 WATCH_NO_CARGO = "지켜볼 화물이 없어요. 먼저 B/L 번호로 화물을 조회해 주세요."
 WATCH_ONE_AT_A_TIME = "한 번에 한 화물만 지켜볼 수 있어요. 하나씩 말씀해 주세요."
+# 같은 문장의 조회가 화물을 못 찾았는데 지켜보기를 부탁했을 때 (저장될 화물이 없다. "저장되는 중"이 아니다)
+WATCH_NOT_FOUND = "화물을 찾지 못해 지켜보기를 켜지 못했어요. B/L 번호를 다시 확인해 주세요."
 # WatchError.kind(services/watch.py) 와 저장소 실패(db)를 사용자 문장으로. 켜기가 안 된 이유를 지어내지 않고 종류별로 쓴다
 WATCH_FAIL_REPLY = {
     "not_saved": "이 화물은 아직 저장되는 중이에요. 잠시 뒤에 다시 말씀해 주세요.",
@@ -2260,6 +2262,11 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         if watch is None:
             watch_out["msg"] = WATCH_FAIL_REPLY["db"]
             return _tool_error("unavailable", "The watch store is not available.")
+        if on and any(_is_no_result(d) and d.request and d.request.bl_no == bl for d in done):
+            # 같은 문장의 조회가 "세관에 없음"으로 끝났다. 저장될 화물이 없으니 "저장되는 중"이 아니라 못 찾았다고 사실대로 말한다.
+            # 저장소를 부르지 않는다 (부르면 저장을 기다리며 다시 시도하는 시간만 쓰고 결국 not_saved다)
+            watch_out["msg"] = WATCH_NOT_FOUND
+            return _tool_error("not_found", "The cargo was not found, so it cannot be watched.")
         try:  # 이미 원하는 상태면 다시 켜지 않고 그렇다고 말한다. 상태를 못 읽으면 그냥 바꿔 본다
             if bool(watch.state(bl).get("watch")) == on:
                 tail = kakao_tail() if on else None
