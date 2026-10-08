@@ -259,6 +259,57 @@ def search_ship_name(name: str, last: str | None = None) -> ChatResult | None:
                       vessels=_vessel_rows(chosen), place=None, ports=[], days=DAYS_MAX)
 
 
+# ── 사람 이름 되풀이 막기 ──
+# "호준이", "민수 어디야?", "김대리한테 전달해야 돼"처럼 화물·배와 상관없는 사람 이름에 모델이 "호준이는 ~"처럼 이름을 따라 쓰면
+# (프롬프트의 "이름을 쓰지 말라"는 규칙을 어김) 코드가 그 답을 버리고 고정 문장으로 되묻는다.
+# 사람 이름은 목록으로 알 수 없어서 말 모양으로 가린다: (a) 이름 뒤에 붙는 말(이·아·야·씨·님·한테 등)이 붙은 2~4글자 뿌리,
+# (b) 직함이 끝에 붙은 낱말(김대리), (c) 문장 맨 앞의 2~3글자 낱말(서술어 끝이 아닐 때). 단 Skill 문서·고정 안내에 있는 낱말(화물, 통관 등)은 이름이 아니다
+PERSON_ASK = "누구를 말씀하시는지 잘 모르겠어요. 화물이나 배라면 B/L 번호나 배 이름으로 알려 주세요."
+_PERSON_SUFFIXES = sorted(["이한테", "한테", "이는", "이가", "이랑", "이도", "이야", "씨", "님", "이", "아", "야"], key=len, reverse=True)
+_PERSON_TITLES = ("대리", "과장", "차장", "부장", "팀장", "사장", "대표", "이사", "선배")
+_PREDICATE_END = re.compile(r"(?:다|요|네|죠|어|해|나|라|까|자)$")  # 서술어 끝: 맨 앞 낱말이 이것이면 이름이 아니라 말(망했다, 힘들다)로 본다
+_NOT_A_NAME = {"뭐야", "이거", "저거", "그거", "어디", "언제", "누구", "얼마", "어떻게", "왜", "그럼", "근데", "그리고", "아니"}  # 맨 앞에 자주 오는 물음·이음 낱말
+
+
+def person_names(masked: str, known_words: str) -> list[str]:
+    """가린 문장에서 사람 이름처럼 생긴 낱말(조사를 뗀 뿌리)을 뽑는다. known_words(Skill 문서·고정 안내)에 있는 낱말은 이름이 아니다."""
+    flat_known = re.sub(r"\s+", "", known_words)
+    names: list[str] = []
+    first_word = (masked.split() or [""])[0].strip("?!.,~")  # (c)는 문장 맨 앞 낱말만 본다
+    for token in re.findall(r"[가-힣]{2,8}", masked):
+        stem = None
+        for suffix in _PERSON_SUFFIXES:
+            if token.endswith(suffix) and 2 <= len(token) - len(suffix) <= 4:
+                stem = token[: -len(suffix)]
+                break
+        if stem is None and token.endswith(_PERSON_TITLES):
+            stem = token
+        if stem is None and token == first_word and 2 <= len(token) <= 3 and not _PREDICATE_END.search(token) and token not in _NOT_A_NAME:
+            stem = token
+        if stem and stem not in flat_known and not _PREDICATE_END.search(stem) and stem not in names:
+            names.append(stem)
+    return names
+
+
+def echoes_person_name(masked: str, reply: str, known_words: str) -> bool:
+    """답이 사용자 문장 속 사람 이름을 그대로 옮겨 썼는가 (이름 글자가 답에 들어 있으면 참)."""
+    flat_reply = re.sub(r"\s+", "", reply or "")
+    return any(name in flat_reply for name in person_names(masked, known_words))
+
+
+# 전에 저장한·말한 것을 묻는 말. 낱말만 맞으면 일반 질문이라("포워더 전화번호 알려줘") 지난 일을 가리키는 말이 같이 있을 때만 센다.
+# 이런 문장의 답에는 거래처 이름이 들어가는 게 맞아서 사람 이름 되풀이 막기에서 뺀다. 메모 꺼내 보기(recall_memo)의 대상이기도 하다
+MEMO_REF = re.compile(r"메모|저장\s*(?:해|한|된|돼)|내가\s*(?:말|알려|얘기|이야기|적|준)|아까\s*우리|"
+                      r"우리\s*(?:포워더|거래처|수출자|관세사|판매처)|거래처")
+MEMO_CONTACT = re.compile(r"전화|연락처|담당")
+MEMO_RECALL_END = re.compile(r"(?:뭐|누구)\s*(?:였|이었)|였더라|이었더라")
+
+
+def is_memo_question(masked: str) -> bool:
+    """이번 문장이 전에 저장한·말한 것을 묻는가."""
+    return bool(MEMO_REF.search(masked) or (MEMO_CONTACT.search(masked) and MEMO_RECALL_END.search(masked)))
+
+
 class ChatError(Exception):
     """kind: too_long / empty."""
 
@@ -2124,7 +2175,7 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
 
     def with_evidence(name: str, result: dict) -> dict:
         """도구 결과에서 근거를 모으고, LLM이 문장을 쓰는 도구면 결과에 evidence 글(줄마다 [E#])을 붙여 돌려준다. 실패한 결과는 그대로."""
-        if not isinstance(result, dict) or "error" in result:
+        if not isinstance(result, dict) or "error" in result or result.get("rerouted_to"):  # 돌려 보낸 호출은 ask_cargo가 이미 근거를 모았다
             return result
         now = datetime.now(timezone.utc)
         block = None
@@ -2149,6 +2200,21 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         elif name in mcp_names:
             block = register(mcp_cards(name, result), None, True)
         return {**result, "evidence": block} if block else result
+
+    rerouted: dict = {}  # 화면 화물의 배를 묻는 위치 호출을 ask_cargo로 돌렸는가 {"own": True}
+
+    def is_cargo_vessel_call(name: str, args: dict) -> bool:
+        """위치·거리 도구 호출이 화면 화물의 배를 가리키는가. 화면 배(on_screen.vessel)와 MMSI가 같으면 참.
+        거리 도구는 배 이름 칸이 없어서, 앞에서 화물 배의 위치 호출을 돌려 보냈거나 화면 배의 좌표를 그대로 넘겼을 때 참이다."""
+        vessel = (screen or {}).get("vessel") or {}
+        if not vessel:
+            return False
+        if name == "get_live_position":
+            return args.get("mmsi") is not None and args.get("mmsi") == vessel.get("mmsi")
+        if rerouted.get("own"):
+            return True
+        near = lambda a, b: isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 0.05  # noqa: E731
+        return near(args.get("lat"), vessel.get("lat")) and near(args.get("lng", args.get("lon")), vessel.get("lng"))
 
     def run(name: str, args: dict) -> dict:
         """LLM이 고른 도구 하나를 실행한다. 같은 호출은 한 번만, 화물 도구는 한 문장에 한 번만, 예외는 도구 실패로 돌려준다.
@@ -2279,6 +2345,12 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         if name == "web_search" and web_search_enabled():
             return run_web(args)
         if name in mcp_names:
+            if context is not None and name in ("get_live_position", "estimate_distance") and is_cargo_vessel_call(name, args):
+                # 화면 화물의 배("이 배")를 위치·거리 도구로 따로 찾지 않는다. 그 배의 위치는 화물 결과(ask_cargo)가 이미 알고 있고
+                # 판정 흐름이 검증한 문장으로 답한다. 이 호출은 ask_cargo로 돌려 보낸다 (결과의 rerouted_to로 모델도 안다)
+                rerouted["own"] = True
+                answered = run("ask_cargo", {"question": masked[:300]})
+                return {"rerouted_to": "ask_cargo", **answered} if "error" not in answered else answered
             progress.step(MCP_STAGES.get(name, ""))  # 모르는 도구 이름이면 단계를 보내지 않는다 (progress.step)
             return run_tool(name, args)
         log_failure("chat_agent_tool", f"unknown_tool {name}")
@@ -2643,6 +2715,12 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         return ChatResult(kind="message", reply=checked or fixed(NOT_IN_SKILLS))
     if BROKER_TOPIC.search(masked):  # 세액·관세율·통관 가능 여부: 마르비아는 답하지 않고 관세사에게 묻게 한다 (PRD 4절)
         return ChatResult(kind="message", reply=fixed(BROKER_ONLY))
+    if out.answer_kind in ("unrelated", "clarify") and not is_memo_question(masked) \
+            and echoes_person_name(masked, text, skills_only + OTHER_REPLY + validate.GENERAL_TERMS):
+        # 사람 이름을 답에 따라 썼다. 모델 문장을 버리고 고정 문장으로 누구를 말하는지 되묻는다 (person_names).
+        # 저장한 메모를 묻는 문장(거래처 이름 등)은 사람 이름 이야기가 아니라서 건드리지 않는다
+        log_failure("chat_agent_reply", "person_name_echo")
+        return ChatResult(kind="message", reply=PERSON_ASK)
     general = general_reply(out, text)
     if general:
         return ChatResult(kind="message", reply=general)
