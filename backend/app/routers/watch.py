@@ -12,7 +12,8 @@
 
   GET    /api/watch/vessels             → {"items"}            B/L 없이 배만 지켜보는 목록
   POST   /api/watch/vessels  {mmsi | call_sign, name, flag?, dest?, eta?} → {"mmsi", "watch": true}   배 지켜보기 켜기
-                                    (mmsi 없이 call_sign만 오면 ShipFinder 검색으로 MMSI를 정한다. 못 정하면 422, 검색 실패 503.
+                                    (mmsi 없이 call_sign만 오면 ShipFinder 검색으로 MMSI를 정한다. 못 정하면 422, 검색 실패 503,
+                                     ShipFinder 하루 한도 소진은 503에 다른 안내문.
                                      mmsi는 9자리 정수만 받는다. 아니면 422)
   DELETE /api/watch/vessels/{mmsi}      → {"mmsi", "watch": false}  배 지켜보기 끄기 (9자리 아니면 422)
 
@@ -156,6 +157,8 @@ _VESSEL_ERRORS = {
     "invalid": (422, "배 번호(MMSI) 또는 호출부호와 이름이 필요합니다"),
     "unknown_vessel": (422, "이 배의 선박 번호를 확인하지 못해 지켜볼 수 없어요."),
     "lookup_failed": (503, "선박 번호를 찾는 중 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요."),
+    # 하루 한도 소진은 다시 눌러도 오늘은 같으므로 "잠시 뒤"가 아니라 내일로 안내한다
+    "quota_exhausted": (503, "오늘 선박 조회 한도를 다 썼어요. 내일 다시 시도해 주세요."),
 }
 
 

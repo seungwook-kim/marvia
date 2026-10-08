@@ -291,6 +291,17 @@ def test_call_sign_lookup_failure_is_503_without_leaking(db, me, monkeypatch):
     assert _call("post", "/api/watch/vessels", SIGN_BODY, me).status_code == 503
 
 
+def test_call_sign_quota_exhausted_is_503_with_its_own_message(db, me, monkeypatch):
+    """ShipFinder 하루 한도 소진은 오늘 다시 눌러도 같다. "잠시 뒤"가 아니라 내일로 안내한다."""
+    from backend.app.clients.shipfinder import ShipFinderError
+    _use(monkeypatch, _FakeClient(error=ShipFinderError("quota_exhausted", "secret-url 한도 소진", status=38)))
+    r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
+    assert r.status_code == 503 and "한도" in r.json()["detail"] and "내일" in r.json()["detail"]
+    assert "secret-url" not in r.text and db.rows == {}
+    _use(monkeypatch, _FakeClient(error=ShipFinderError("timeout", "시간 초과")))
+    assert "잠시 뒤" in _call("post", "/api/watch/vessels", SIGN_BODY, me).json()["detail"]
+
+
 def test_mmsi_wins_and_neither_is_422(db, me, monkeypatch):
     client = _use(monkeypatch, _FakeClient([(5, "TST01")]))
     r = _call("post", "/api/watch/vessels", {**VESSEL, "call_sign": "TST01"}, me)
