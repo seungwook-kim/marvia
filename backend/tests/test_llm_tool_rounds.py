@@ -150,3 +150,36 @@ def test_single_round_usage_is_unchanged(monkeypatch):
     monkeypatch.setattr(llm, "end_generation", lambda gen, result, version, **kw: recorded.append(result))
     _ask()
     assert recorded[0].prompt_tokens == 7 and recorded[0].cost is None
+
+
+def test_tool_call_extra_content_is_sent_back(monkeypatch):
+    """Gemini 3.x(Vertex)는 도구 호출마다 thought_signature(extra_content)를 주고, 결과를 돌려줄 때 그대로 되돌려 받는다.
+    빠지면 HTTP 400이다. 값이 없는 제공사는 칸 자체를 넣지 않는다."""
+    sent = []
+    extra = {"google": {"thought_signature": "SIG"}}
+    first = llm.LLMResult(content=None, tool_calls=[{"id": "c1", "name": "get_live_position", "arguments": "{}", "extra_content": extra},
+                                                    {"id": "c2", "name": "get_live_position", "arguments": "{}"}], model="m")
+    replies = [first, _text(json.dumps(ANSWER, ensure_ascii=False))]
+
+    def fake_chat(messages, **kwargs):
+        sent.append([dict(m) for m in messages])
+        return replies[len(sent) - 1]
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    _ask()
+    calls = sent[1][-3]["tool_calls"]  # 두 번째 요청의 assistant 메시지
+    assert calls[0]["extra_content"] == extra and "extra_content" not in calls[1]
+
+
+def test_call_once_reads_extra_content_from_model_extra(monkeypatch):
+    """_call_once는 SDK 응답의 model_extra에서 extra_content를 읽어 tool_calls에 담는다. 없으면 None."""
+    extra = {"google": {"thought_signature": "SIG"}}
+    fn = SimpleNamespace(name="get_live_position", arguments="{}")
+    with_sig = SimpleNamespace(id="c1", function=fn, model_extra={"extra_content": extra})
+    without = SimpleNamespace(id="c2", function=fn)
+    msg = SimpleNamespace(content=None, tool_calls=[with_sig, without])
+    resp = SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="tool_calls")], usage=None, model="m", id="r1")
+    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: resp)))
+    monkeypatch.setattr(llm, "_client", lambda: fake)
+    result = llm._call_once({"model": "openai/gpt-4o-mini", "messages": []})
+    assert result.tool_calls[0]["extra_content"] == extra and result.tool_calls[1]["extra_content"] is None
