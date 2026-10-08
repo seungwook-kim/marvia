@@ -134,5 +134,18 @@ assert.equal((await api.getMe()).is_operator,false,'demo mode must not be an ope
  assert.deepEqual(documentFixture.important,important,'document fixture important must follow routers/document.important_of');
 }
 // 채팅 첨부 사진의 다음 동작 (lib/docAttach.ts, 10-08 QA D4·D6·D7·D8). 따로 둔 검사 파일을 여기서 함께 돌린다
+// 지켜보기 지도 규칙 (lib/watchMerge.ts, 10-08 사용자 결정): 위치 출처 글, seed 핀 구별, 같은 배 접기
+{
+ const wm=Module.createRequire(path.join(root,'lib/watchMerge.ts'))('./watchMerge.ts');
+ assert.equal(wm.positionSourceLabel('worker'),'정기 수집');assert.equal(wm.positionSourceLabel('aisstream'),'실시간 AIS');
+ assert.equal(wm.positionSourceLabel('lookup'),'화물 조회 때 받은 위치');assert(wm.positionSourceLabel('seed').includes('지켜보기를 켤 때'));
+ for(const v of [null,undefined,'','other','toString'])assert.equal(wm.positionSourceLabel(v),null,`unknown source ${v} must hide the row`);
+ assert.equal(wm.isSeedSource('seed'),true);for(const v of ['worker','aisstream','lookup',null])assert.equal(wm.isSeedSource(v),false);
+ // 같은 배: 진행 중 화물의 배 번호와 같은 배만 지켜보기만 접는다. 반출 끝난 화물·배 모르는 화물은 접지 않는다
+ const cargo=[{status:'active',vessel_mmsi:440999901},{status:'active',vessel_mmsi:440999901},{status:'done',vessel_mmsi:440999902},{status:'active',vessel_mmsi:null}];
+ const shared=wm.sharedVesselMmsis(cargo,[{mmsi:440999901},{mmsi:440999902},{mmsi:440999903}]);
+ assert.deepEqual([...shared],[440999901],'only vessel-only rows sharing an active cargo vessel are folded');
+ assert.equal(wm.sharedVesselMmsis(cargo,[]).size,0);assert.equal(wm.sharedVesselMmsis([],[{mmsi:440999901}]).size,0);
+}
 await import('./verify-docattach.mjs');
 console.log('PASS: 7 AgentResponse fixtures, history envelope, document and memory fixtures, null/enums/evidence, replay isolation, date/type mismatch, candidate resolution, session isolation, SSE parsing, stage names, chat cargo table fields, conversation list types, login return address, date/coordinate text, demo non-operator and document fixture bl_status/important.');

@@ -4,7 +4,7 @@
  * 판정·통관은 없다. 배 이름·국적·목적지·도착 예정은 채팅에서 사용자가 본 글 그대로 보낸다 (서버가 길이만 자른다).
  */
 import {accessToken} from './auth';
-import {tour} from './api';
+import {tour, type PositionSource} from './api';
 import {tourAddVessel, tourRemoveVessel, tourVesselPosition} from './tour';
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '').trim().replace(/\/+$/, '');
@@ -19,7 +19,9 @@ export interface VesselRef { mmsi?: number | null; callSign?: string | null; nam
 export interface WatchedVessel {
   mmsi: number; name: string; flag: string | null; dest: string | null; eta: string | null; created_at: string | null;
   lat: number | null; lng: number | null; cog: number | null; sog: number | null; position_at: string | null;
-  track: {lat: number; lng: number; at: string; sog: number | null}[];
+  /** 마지막 점의 위치 출처 (services/vessel_watch.list_vessels, migrations/031). 옛 줄·데모는 null 또는 없음 */
+  position_source?: PositionSource | null;
+  track: {lat: number; lng: number; at: string; sog: number | null; source?: PositionSource | null}[];
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {

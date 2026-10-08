@@ -181,7 +181,9 @@ def remove_vessel(conn, user_id: str, mmsi: int) -> dict:
 
 def list_vessels(conn, user_id: str) -> dict:
     """내가 지켜보는 배 목록. 위치는 watch_positions의 최근 점(마지막 점이 현재), 없으면 null (수집 전).
-    판정·통관 칸은 일부러 없다 (B/L이 없다)."""
+    판정·통관 칸은 일부러 없다 (B/L이 없다).
+    position_source: 마지막 점의 위치 출처(worker·aisstream·seed·lookup, 옛 줄은 null). 화물 목록(watch_list)과 같은 칸이다
+    (migrations/031, 10-08 사용자 결정)."""
     rows = conn.execute(
         "SELECT mmsi, name, flag, dest, eta, created_at FROM vessel_watch WHERE user_id = %s ORDER BY created_at DESC",
         [user_id],
@@ -196,5 +198,6 @@ def list_vessels(conn, user_id: str) -> dict:
             "lat": last["lat"] if last else None, "lng": last["lng"] if last else None,
             "cog": last["cog"] if last else None, "sog": last["sog"] if last else None,
             "position_at": last["at"] if last else None, "track": track,
+            "position_source": last["source"] if last else None,
         })
     return {"items": items}

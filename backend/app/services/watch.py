@@ -187,10 +187,13 @@ def vessel_known(conn, user_id: str, bl_no: str) -> bool:
 
 
 # 첫 위치 점 SQL. worker/collector.py INSERT_WATCH_POSITION과 같은 문장이다 (같은 보고 시각은 한 줄만, UNIQUE (mmsi, ts)).
-# backend가 worker를 import하지 않게 여기 따로 둔다. 둘 중 하나를 고치면 같이 고친다
+# backend가 worker를 import하지 않게 여기 따로 둔다. 둘 중 하나를 고치면 같이 고친다 (services/cargo._keep_position도 같은 칸)
+# 마지막 칸 source는 위치 출처다 (migrations/031, 10-08 사용자 결정). 켤 때 첫 점은 SOURCE_SEED: ShipFinder 캐시라
+# rules.md api_cache_ttl_hours만큼 묵은 위치일 수 있어 화면이 속이 빈 핀으로 따로 보인다 (web/components/WatchMap.tsx)
+SOURCE_SEED = "seed"
 INSERT_WATCH_POSITION = """
-INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat, source)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (mmsi, ts) DO NOTHING
 """
 
@@ -214,7 +217,7 @@ def seed_position(conn, mmsi: int | None) -> bool:
         if ts is None or (pos.lat == 0 and pos.lng == 0):
             return False
         cur = conn.execute(INSERT_WATCH_POSITION,
-                           (mmsi, ts, pos.fetched_at, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat))
+                           (mmsi, ts, pos.fetched_at, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat, SOURCE_SEED))
         return bool(getattr(cur, "rowcount", 0))
     except Exception as e:  # DB 연결은 autocommit이라(db.connect) 이 문장이 실패해도 앞의 켜기는 이미 저장돼 있다
         log_failure("watch_seed_position", type(e).__name__)
@@ -260,7 +263,10 @@ def watch_list(conn, user_id: str) -> dict:
     - B/L은 가린 번호만, 화물을 가리키는 값은 지문(cargo_key)만 준다. 반출 끝난 화물(done)도 목록 뒤에 남는다(화면이 개수만 알린다)
     - updated_at: 줄들 중 가장 최근 조회 시각. 없으면 null
     - known_vessel: 배가 정해졌나. false면 워커가 다시 판정하지 않는다 (E1-9)
-    - auto_paused: 잇달아 실패해 자동 확인을 멈췄나 (E1-1). 사용자가 B/L로 다시 조회하면 풀린다"""
+    - auto_paused: 잇달아 실패해 자동 확인을 멈췄나 (E1-1). 사용자가 B/L로 다시 조회하면 풀린다
+    - position_source: 마지막 점(현재 위치)의 출처. worker·aisstream·seed·lookup, 옛 줄이면 null (migrations/031, 10-08 사용자 결정)
+    - vessel_mmsi: 이 화물의 배 번호(정해지지 않았으면 null). 같은 배를 배만 지켜보기로도 켰으면 화면이 핀 하나로 접는다
+      (10-08 사용자 결정, web/lib/watchMerge.ts). MMSI는 공개 선박 식별 번호라 B/L처럼 가리지 않는다"""
     rows = conn.execute(
         """SELECT cargo_key, bl_masked, label, goods_name, vessel_name, vessel_flag, vessel_mmsi, status,
                   last_verdict, last_stage, last_eta, last_days_margin, last_checked_at, watch_fail_count, watch_attempt_at
@@ -281,6 +287,7 @@ def watch_list(conn, user_id: str) -> dict:
             "lat": last["lat"] if last else None, "lng": last["lng"] if last else None,
             "cog": last["cog"] if last else None, "sog": last["sog"] if last else None,
             "position_at": last["at"] if last else None, "track": track,
+            "position_source": last["source"] if last else None, "vessel_mmsi": mmsi,
             "known_vessel": bool(mmsi), "auto_paused": status == "active" and is_paused(fails, attempted, checked),
         })
     checked_at = [r[12] for r in rows if r[12]]
@@ -288,12 +295,15 @@ def watch_list(conn, user_id: str) -> dict:
 
 
 def _track(conn, mmsi: int) -> list[dict]:
-    """그 배의 최근 위치 TRACK_POINTS개를 오래된 순으로. 최신부터 잘라 온 뒤 뒤집는다."""
+    """그 배의 최근 위치 TRACK_POINTS개를 오래된 순으로. 최신부터 잘라 온 뒤 뒤집는다.
+    점마다 source(위치 출처: worker·aisstream·seed·lookup, 옛 줄은 None)를 붙인다 (migrations/031, 10-08 사용자 결정).
+    화면은 마지막 점의 출처로 핀 모양과 말풍선 "위치 출처" 줄을 정한다."""
     found = conn.execute(
-        "SELECT ts, lat, lng, sog, cog FROM watch_positions WHERE mmsi = %s ORDER BY ts DESC LIMIT %s",
+        "SELECT ts, lat, lng, sog, cog, source FROM watch_positions WHERE mmsi = %s ORDER BY ts DESC LIMIT %s",
         [mmsi, TRACK_POINTS],
     ).fetchall()
-    return [{"at": ts.isoformat(), "lat": lat, "lng": lng, "sog": sog, "cog": cog} for ts, lat, lng, sog, cog in reversed(found)]
+    return [{"at": ts.isoformat(), "lat": lat, "lng": lng, "sog": sog, "cog": cog, "source": source}
+            for ts, lat, lng, sog, cog, source in reversed(found)]
 
 
 def pending_changes(conn, user_id: str) -> list[dict]:

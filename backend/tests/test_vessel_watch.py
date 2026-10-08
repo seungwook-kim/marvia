@@ -99,8 +99,10 @@ def _call(method, path, body=None, headers=None):
         return getattr(c, method)(path, headers=headers, **({"json": body} if body is not None else {}))
 
 
-def _points(n):
-    return [(NOW - timedelta(hours=6 * i), 34.0 + i * 0.1, 128.0 - i * 0.1, 12.5, 60.0) for i in range(n)]
+def _points(n, latest_source="worker"):
+    """최신이 먼저 오는 위치 n개. 마지막 칸은 위치 출처(migrations/031), 최신 점만 latest_source"""
+    return [(NOW - timedelta(hours=6 * i), 34.0 + i * 0.1, 128.0 - i * 0.1, 12.5, 60.0,
+             latest_source if i == 0 else "worker") for i in range(n)]
 
 
 VESSEL = {"mmsi": 440999901, "name": "TEST STAR", "flag": "KR", "dest": "KRPUS", "eta": "10-12 09:00"}
@@ -147,6 +149,15 @@ def test_list_has_last_position_and_no_verdict_fields():
     assert (a["lat"], a["lng"], a["position_at"]) == (34.0, 128.0, NOW.isoformat()) and len(a["track"]) == 3
     assert b["lat"] is None and b["track"] == []
     assert not {"verdict", "stage", "bl_masked", "days_margin"} & set(a)  # 판정·통관·B/L 칸이 없다
+    assert a["position_source"] == "worker" and b["position_source"] is None  # 마지막 점 출처 (migrations/031)
+
+
+def test_list_position_source_is_latest_point_source():
+    """켤 때 첫 점(seed)이 마지막이면 position_source가 seed다. 화면이 속 빈 핀으로 그린다 (10-08 사용자 결정)"""
+    conn = FakeConn({440999901: _points(2, latest_source="seed")})
+    vsvc.add_vessel(conn, USER, 440999901, "TEST STAR")
+    item = vsvc.list_vessels(conn, USER)["items"][0]
+    assert item["position_source"] == "seed" and [p["source"] for p in item["track"]] == ["worker", "seed"]
 
 
 # ── 창구 ──
@@ -324,7 +335,8 @@ def test_add_seeds_cached_position_without_calling_shipfinder(monkeypatch):
     cache.set("shipfinder:pos:440999901", SimpleNamespace(
         last_time=NOW, fetched_at=NOW, lat=35.0, lng=129.0, sog=12.5, cog=60.0, navistat=0))
     vsvc.add_vessel(conn, USER, 440999901, "TEST STAR")
-    assert conn.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0)] and (USER, 440999901) in conn.rows
+    # 마지막 칸은 위치 출처 seed (켤 때 저장해 둔 위치, migrations/031)
+    assert conn.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0, "seed")] and (USER, 440999901) in conn.rows
 
 
 class _PosClient(_FakeClient):
@@ -350,7 +362,7 @@ def test_watch_without_detail_fetches_position_once_and_seeds_point(db, me, monk
     client = _use(monkeypatch, _PosClient([(440999901, "TST01")]))
     r = _call("post", "/api/watch/vessels", SIGN_BODY, me)
     assert r.status_code == 200 and client.positions == [440999901]
-    assert db.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0)]
+    assert db.inserted == [(440999901, NOW, NOW, 35.0, 129.0, 12.5, 60.0, 0, "seed")]
     # 다시 켜면 캐시가 있어 위치를 다시 부르지 않는다 (하루 50회 한도)
     again = _use(monkeypatch, _PosClient())
     assert _call("post", "/api/watch/vessels", VESSEL, me).status_code == 200 and again.positions == []
