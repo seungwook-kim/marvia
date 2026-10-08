@@ -355,8 +355,9 @@ export function AppProvider({children}:{children:ReactNode}) {
       // 화면에는 최근 50말풍선만 (ask와 같다). 사진 첨부 줄은 말풍선 둘이 될 수 있어 펼친 뒤에 자른다 (10-08 QA G12)
       setThread(c.messages.flatMap(toTurns).slice(-50));
       if (c.context && c.result) { setRequest({...c.context, session_id: id}); setResult(c.result); setCargoKey(c.result.trace_id); }
-      // 마지막 답의 종류가 결과 칸을 정한다. ask()가 답마다 하는 것과 같다
-      const last = [...c.messages].reverse().find(m => m.role === 'assistant');
+      // 결과 칸은 가장 최근의 vessels/cargo 답이 정한다. ask()도 vessels·cargo 답에서만 결과 칸을 바꾸고 일반 안내 답은 그대로 둔다.
+      // 마지막 답만 보면 선박 검색 뒤에 안내 답이 붙은 대화를 다시 열 때 지도와 결과 칸이 사라진다
+      const last = [...c.messages].reverse().find(m => m.role === 'assistant' && (m.extra?.kind === 'vessels' || m.extra?.kind === 'cargo'));
       const kind = last?.extra?.kind;
       if (kind === 'vessels' && last?.extra) {
         setVessels({kind: 'vessels', reply: last.text, agent: null, request: null, vessels: [], place: null, ports: [], days: null, ...last.extra} as ChatResponse); setView('vessels');
