@@ -32,7 +32,8 @@ MMSI_MIN, MMSI_MAX = 100_000_000, 999_999_999
 
 class VesselWatchError(Exception):
     """kind: limit(이미 MAX_WATCH척) / invalid(MMSI나 이름이 비었다) /
-    unknown_vessel(호출부호로 배 번호를 하나로 못 정했다) / lookup_failed(ShipFinder 검색이 실패했다)."""
+    unknown_vessel(호출부호로 배 번호를 하나로 못 정했다) / lookup_failed(ShipFinder 검색이 실패했다) /
+    quota_exhausted(오늘 ShipFinder 하루 한도를 다 썼다. 내일까지 다시 불러도 같아서 lookup_failed와 안내가 다르다)."""
 
     def __init__(self, kind: str):
         super().__init__(kind)
@@ -45,13 +46,19 @@ def _clean(value: str | None) -> str | None:
     return text or None
 
 
+def _failure_kind(e: ShipFinderError) -> str:
+    """ShipFinder 실패를 지켜보기 오류 종류로. 하루 한도 소진만 따로 둔다: "잠시 뒤 다시"라고 하면 오늘은 계속 같은 실패다."""
+    return "quota_exhausted" if e.code == "quota_exhausted" else "lookup_failed"
+
+
 def _search(client, keywords: str) -> list:
-    """ShipFinder 검색 한 번. 실패(시간 초과·한도 소진 등)는 lookup_failed. 클라이언트가 이미 시간 제한·재시도를 한 뒤의 결과다."""
+    """ShipFinder 검색 한 번. 하루 한도 소진은 quota_exhausted, 그 밖의 실패(시간 초과 등)는 lookup_failed.
+    클라이언트가 이미 시간 제한·재시도를 한 뒤의 결과다."""
     try:
         return client.search(keywords, max=10).hits
     except ShipFinderError as e:
         log_failure("vessel_watch_resolve", e.code)
-        raise VesselWatchError("lookup_failed")
+        raise VesselWatchError(_failure_kind(e))
     except Exception as e:  # 클라이언트 밖 예상 못 한 실패도 사용자에게 원문을 보이지 않는다
         log_failure("vessel_watch_resolve", type(e).__name__)
         raise VesselWatchError("lookup_failed")
@@ -78,7 +85,7 @@ def resolve_mmsi(call_sign: str, name: str | None = None) -> int:
             client = make_client()
         except ShipFinderError as e:
             log_failure("vessel_watch_resolve", e.code)
-            raise VesselWatchError("lookup_failed")
+            raise VesselWatchError(_failure_kind(e))
         except Exception as e:
             log_failure("vessel_watch_resolve", type(e).__name__)
             raise VesselWatchError("lookup_failed")
