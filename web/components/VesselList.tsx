@@ -2,8 +2,9 @@
 /** 입항 예정 선박 검색 결과 (docs/specs/chat-search.md vessel_search). 오른쪽 칸 구성:
  * 맨 위에 큰 지도(VesselMap, 화물 상세 지도와 같은 모양과 지도 펼치기), 그 아래에 5칸짜리 가벼운 목록.
  * 줄을 누르면 지도가 그 배로 날아가고, 줄이 그 자리에서 펼쳐져 자세히(VesselDetail)가 나온다. 줄과 점은 서로 강조한다.
- * 위치는 배마다 ShipFinder를 한 번씩 불러야 알 수 있고 하루 50건 한도가 있다. 그래서 첫 줄(처음 고른 배)만 자동으로 받고 나머지는 누를 때 받는다.
- * 받은 결과는 서버가 10분 캐시하므로 여기서도 같은 시간 동안 들고 있고, 받아 온 배는 이 세션 동안 지도에 계속 점으로 남는다(cache, 모듈 변수).
+ * 위치는 배마다 ShipFinder를 한 번씩 불러야 알 수 있고 하루 50건 한도가 있다. 그래서 자동으로 받지 않고 선명을 누를 때만 받는다.
+ * 받은 결과는 서버가 10분 캐시하므로 여기서도 같은 시간 동안 들고 있다(cache, 모듈 변수). 지도에는 지금 고른 배 하나만 찍는다.
+ * 다른 배를 고르면 앞 배는 캐시에만 남고(점은 지운다), 10분이 지나면 캐시에서도 지운다. 그 뒤 다시 누르면 API를 부른다.
  * 해수부 입항 신고 기준이라 "직전 기항지"를 그대로 보여 준다. 출발지가 아니라는 점은 줄 펼침의 출처 안내에 있다 (EC-04). 판정은 하지 않는다.
  * 수십 척이 나올 수 있어 화면에서 페이지로 나눈다. 한 페이지 10·30·50척 중 고른다(기본 10).
  * 표에 두지 못한 값(호출부호, 선박 종류, 다음에 들를 항구, 목적)은 펼친 줄 안에 둔다. 가로로 밀리는 표가 되지 않게 5칸만 둔다.
@@ -43,13 +44,13 @@ function detailMmsi(v: VesselItem, e: DetailEntry | undefined): number | null {
   return found?.mmsi && same(found.call_sign, v.call_sign) ? found.mmsi : null;
 }
 
-/** 이 세션에서 받은 자세히 결과. 새 검색을 해도 남아서 지도에 계속 찍힌다 */
+/** 이 세션에서 받은 자세히 결과. 10분 동안만 들고 있다가 지운다(아래 정리 타이머) */
 const cache = new Map<string, DetailEntry>();
 
 export function VesselList({data}: {data: ChatResponse}) {
   const [size, setSize] = useState<number>(PAGE_SIZES[0]);
   const [page, setPage] = useState(1);
-  // 지도가 보여 주는 배(sel)와 그 줄이 펼쳐졌는지(expanded). 고르지 않았으면 표의 첫 줄 배가 지도에 나온다
+  // 지도가 보여 주는 배(sel)와 그 줄이 펼쳐졌는지(expanded). 고르지 않았으면 지도에 배를 찍지 않는다
   const [sel, setSel] = useState<VesselItem | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
@@ -93,10 +94,9 @@ export function VesselList({data}: {data: ChatResponse}) {
       .finally(() => inflight.current.delete(k));
   }, []);
 
-  const selected = sel && sorted.includes(sel) ? sel : sorted[0] ?? null;
+  // 처음에는 아무 배도 고르지 않는다. 첫 줄을 자동으로 고르면 묻지도 않은 배의 자세히를 불러 ShipFinder 하루 한도를 쓴다
+  const selected = sel && sorted.includes(sel) ? sel : null;
   const selKey = selected ? keyOf(selected) : null;
-  // 지도에 보이는 배(처음엔 첫 줄)만 자동으로 받는다. 나머지는 눌러야 받는다 (위치 조회 하루 50건 한도)
-  useEffect(() => { if (selected) load(selected); }, [selected, load]);
 
   function pick(v: VesselItem) {
     if (selected === v && expanded) { setExpanded(false); return; }
@@ -120,11 +120,27 @@ export function VesselList({data}: {data: ChatResponse}) {
     return () => cancelAnimationFrame(id);
   }, [selKey, expanded, page]);
 
-  // 지도에 찍을 배: 이 세션에서 위치를 받은 모든 배
-  const ships = useMemo<MapShip[]>(() => Object.entries(entries).flatMap(([key, e]) => {
-    const pos = e.status === 'done' ? e.data.position : null;
-    return pos ? [{key, name: e.status === 'done' && e.data.vessel?.name || key.split('|')[1], lat: pos.lat, lng: pos.lng, sog: pos.sog, cog: pos.cog, freshness: pos.freshness}] : [];
-  }), [entries]);
+  // 10분(FRESH_MS, 서버 캐시와 같은 시간)이 지난 배는 캐시와 화면 상태에서 지운다. 1분마다 본다.
+  // 지금 고른 배는 지우지 않는다: 지우면 펼친 칸이 "불러오는 중"으로 멈춘다. 다시 고를 때 10분이 지났으면 새로 받는다
+  const selRef = useRef<string | null>(null);
+  selRef.current = selKey;
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      const old = [...cache.entries()].filter(([k, e]) => k !== selRef.current && e.status === 'done' && now - e.at >= FRESH_MS).map(([k]) => k);
+      if (!old.length) return;
+      old.forEach(k => cache.delete(k));
+      setEntries(s => { const n = {...s}; old.forEach(k => { delete n[k]; }); return n; });
+    }, 60 * 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // 지도에 찍을 배: 지금 고른 배 하나. 앞에 고른 배의 점이 남으면 어느 배를 보는지 헷갈린다
+  const ships = useMemo<MapShip[]>(() => {
+    const e = selKey ? entries[selKey] : undefined;
+    const pos = e?.status === 'done' ? e.data.position : null;
+    return pos && selKey ? [{key: selKey, name: e?.status === 'done' && e.data.vessel?.name || selKey.split('|')[1], lat: pos.lat, lng: pos.lng, sog: pos.sog, cog: pos.cog, freshness: pos.freshness}] : [];
+  }, [entries, selKey]);
   const selEntry = selKey ? entries[selKey] : undefined;
   const selData = selEntry?.status === 'done' ? selEntry.data : null;
   const route = useMemo(() => selData?.position?.route ?? [], [selData]);
