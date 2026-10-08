@@ -363,7 +363,7 @@ export function WatchMap() {
         {!loadError.auth && <button type="button" className="button secondary" onClick={() => setAttempt(n => n + 1)}>다시 불러오기</button>}
       </div>
       : !list ? <div className="wm-skeleton" role="status" aria-label="지켜보는 화물을 불러오고 있어요."><div className="wm-sk-map"/><div className="wm-sk-list"><i/><i/><i/><i/></div></div>
-      : !total ? <div className="watch-empty">지켜보는 화물이 없어요. B/L 번호를 조회하면 여기에 자동으로 추가돼요.</div>
+      : !total ? <div className="watch-empty">지켜보는 화물이 없어요. B/L 조회 결과나 선박 옆의 지켜보기 버튼을 누르면 여기에 나와요.</div>
       : <div className="wm-body">
         {active.length > 0 && <div className="wm-map-card">
           <div className="wm-toolbar">

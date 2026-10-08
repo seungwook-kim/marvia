@@ -103,6 +103,21 @@ function onScreenOf(view: 'cargo' | 'vessels' | 'none', result: AgentResponse | 
 /** 로그인하지 않은(또는 대화 목록을 못 쓰는) 탭이 새로고침해도 대화를 이어 가려고 sessionStorage에 두는 값.
  * 탭을 닫으면 사라지고, 주소(URL)에는 대화 글을 넣지 않는다. 저장이 막힌 브라우저에서는 조용히 건너뛴다 */
 const CHAT_STATE_KEY = 'marvia-chat-state';
+/** 새 대화의 첫 질문을 보냈지만 서버가 아직 저장했는지 모르는 동안 탭에 적어 두는 표시.
+ * 답을 기다리다 새로고침해도 주소의 ?c=로 그 대화를 찾고, 서버가 저장할 때까지 잠시 다시 읽으려는 것이다 */
+const PENDING_KEY = 'marvia-pending-conv';
+interface PendingConv { id: string; title: string; at: number }
+/** 표시가 이보다 오래되면 버린다. 그 사이 답이 끝나지 않았으면 저장되지 않은 것으로 본다 */
+const PENDING_TTL_MS = 60_000;
+/** 서버가 저장하기를 기다리며 다시 읽는 간격(ms). 합쳐서 약 10초 */
+const OPEN_RETRY_MS = [1000, 1500, 2000, 2500, 3000];
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
+function readPending(): PendingConv | null {
+  try { const p = JSON.parse(window.sessionStorage.getItem(PENDING_KEY) ?? 'null') as PendingConv | null; return p && p.id && Date.now() - p.at < PENDING_TTL_MS ? p : null; } catch { return null; }
+}
+function writePending(p: PendingConv | null) {
+  try { if (p) window.sessionStorage.setItem(PENDING_KEY, JSON.stringify(p)); else window.sessionStorage.removeItem(PENDING_KEY); } catch { /* 저장이 막혀도 이 화면 안에서는 동작한다 */ }
+}
 interface SavedChat { session: string; thread: ChatTurn[]; request: AgentRequest; result: AgentResponse | null; view: 'cargo' | 'vessels' | 'none'; vessels: ChatResponse | null }
 
 /** 첨부한 서류 사진에서 검사를 통과한 항차·입항 예정일·출항일 (lib/docAttach.ts가 정한다).
@@ -155,7 +170,7 @@ interface AppState {
   savedId: string | null;
   /** 대화를 불러오는 중 (메시지 보내기·다른 대화 열기를 잠시 막는다) */
   opening: boolean;
-  newConversation: () => void; openConversation: (id: string) => Promise<boolean>; removeConversation: (id: string) => Promise<void>;
+  newConversation: () => void; openConversation: (id: string, retryUntilSaved?: boolean) => Promise<boolean>; removeConversation: (id: string) => Promise<void>;
   /** 오늘 LLM 토큰 사용량 (GET /api/usage). exhausted면 입력을 막는다 (docs/specs/token-quota.md) */
   usage: UsageInfo | null; refreshUsage: () => void;
   /** 출입증을 붙인 요청이 401을 받았다(로그인 만료). 화면 위 공통 "다시 로그인" 배너를 띄운다 (Shell, 10-08 QA G8) */
@@ -199,6 +214,9 @@ export function AppProvider({children}:{children:ReactNode}) {
   // 대화를 열거나 새로 시작할 때마다 올린다. 느리게 도착한 옛 응답(대화 내용, 먼저 말 걸기)이 새 화면을 덮지 않게 비교한다
   const epoch = useRef(0);
   const restored = useRef(false);
+  // 지금 경로와 "보냈지만 저장 확인 전인 새 대화". 답을 오래 기다리는 사이 다른 화면으로 가도 최신 값을 보려고 ref에 둔다
+  const pathRef = useRef(pathname); pathRef.current = pathname;
+  const pending = useRef<PendingConv | null>(null);
   const conversationsOn = isLive && authEnabled && !!user && convAvail !== false;
   // 목록을 못 쓰는 실제 모드 탭은 sessionStorage에 대화를 둔다
   const persistLocal = isLive && authReady && !conversationsOn;
@@ -255,12 +273,15 @@ export function AppProvider({children}:{children:ReactNode}) {
   }, [authReady, user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // 로그인하면 주소를 본다. ?c=<id>가 있으면 그 대화를 열고(새로고침·다른 기기·링크), 없으면 새 대화다 (새 session_id).
-  // 새 대화의 주소는 첫 답을 받은 뒤에 붙인다. 서버가 그때 대화를 저장하므로, 그 전에 붙이면 새로고침이 404를 만난다
+  // 새 대화의 주소는 첫 질문을 보낼 때 붙인다(beginPending). 서버는 답이 끝나야 저장하므로, 그 사이 새로고침하면
+  // 탭에 적어 둔 표시(PENDING_KEY)를 보고 404가 나도 잠시 다시 읽는다
   useEffect(() => {
     if (!isLive || !authEnabled || !authReady || !user) { setConversations([]); setConvAvail(null); return; }
     try { window.sessionStorage.removeItem(CHAT_STATE_KEY); } catch { /* 저장소가 막혀 있어도 괜찮다 */ }
     const id = new URLSearchParams(window.location.search).get('c');
-    if (id) void openConversation(id); else startSession(newSessionId());
+    const p = id ? readPending() : null;
+    if (id && p && p.id === id) { pending.current = p; startSession(id); setThread([{role: 'user', text: p.title}]); void openConversation(id, true); }
+    else if (id) void openConversation(id); else startSession(newSessionId());
     void refreshConversations();
   }, [authReady, user?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -290,14 +311,20 @@ export function AppProvider({children}:{children:ReactNode}) {
 
   /** 지금 대화의 session_id를 바꾼다. api.ts의 값이 다음 요청의 session_id가 되고, 화면의 activeId가 같이 바뀐다 */
   function startSession(id: string) { setActiveSession(id); setActiveId(id); }
-  /** 주소만 바꾼다. 대화 글은 주소에 넣지 않고 id만 넣는다. 다른 화면(이력 등)에 있으면 내 화물로 옮겨 간다 */
-  function syncUrl(id: string | null) {
+  /** 주소만 바꾼다. 대화 글은 주소에 넣지 않고 id만 넣는다. 다른 화면(이력 등)에 있으면 내 화물로 옮겨 간다.
+   * navigate=false면 다른 화면에 있을 때 옮기지 않는다: 답을 기다리는 사이 다른 화면으로 간 사람을 끌고 오지 않게 한다 */
+  function syncUrl(id: string | null, navigate = true) {
     setSavedId(id);
     const url = id ? `/?c=${encodeURIComponent(id)}` : '/';
-    if (pathname === '/') window.history.replaceState(null, '', url); else router.push(url);
+    if (pathRef.current === '/') window.history.replaceState(null, '', url); else if (navigate) router.push(url);
   }
   async function refreshConversations() {
-    try { setConversations(await listConversations()); setConvAvail(true); }
+    try {
+      const list = await listConversations();
+      // 방금 보낸 새 대화는 서버가 저장하기 전이면 목록에 없다. 저장 확인 전에는 임시 줄을 맨 위에 남긴다
+      const p = pending.current;
+      setConversations(p && !list.some(c => c.id === p.id) ? [{id: p.id, title: p.title, updated_at: new Date().toISOString()}, ...list] : list); setConvAvail(true);
+    }
     catch (e) {
       // 로그인이 풀렸거나(401) DB가 없으면(503) 목록을 접고 탭 저장으로 간다. 그 밖의 일시 오류는 있던 목록을 그대로 둔다
       const status = errorStatus(e); if (status === 401 || status === 503) setConvAvail(false);
@@ -310,20 +337,27 @@ export function AppProvider({children}:{children:ReactNode}) {
   }
   function clearScreen() { imageUrls.current.forEach(u => URL.revokeObjectURL(u)); imageUrls.current = []; setCargoKey(''); setThread([]); setVessels(null); setView('cargo'); setResult(null); setRequest(isLive ? emptyRequest : presentation.demo.choices[0].request as AgentRequest); setDocHints(null); setError(''); setWatchingMap({}); setReplaying(false); }
   /** 저장된 대화를 열어 화면을 되살린다. 말풍선은 messages(+extra)로, 아래 결과 칸은 context·result로 (단일 화물 답을 받았을 때와 같은 상태) */
-  async function openConversation(id: string) {
+  async function openConversation(id: string, retryUntilSaved = false) {
     if (inflight.current) return false;
     const mine = ++epoch.current;
     setOpening(true); setError('');
     try {
-      const c = await getConversation(id);
+      let c;
+      // 보낸 직후 새로고침해 서버가 아직 저장하지 않았을 수 있다(404). 그때만 약 10초까지 간격을 늘려 다시 읽는다
+      for (let i = 0; ; i++) {
+        try { c = await getConversation(id); break; }
+        catch (e) { if (!retryUntilSaved || errorStatus(e) !== 404 || i >= OPEN_RETRY_MS.length) throw e; await wait(OPEN_RETRY_MS[i]); if (mine !== epoch.current) return false; }
+      }
       if (mine !== epoch.current) return false;
+      pending.current = null; writePending(null);
       startSession(id);
       clearScreen();
       // 화면에는 최근 50말풍선만 (ask와 같다). 사진 첨부 줄은 말풍선 둘이 될 수 있어 펼친 뒤에 자른다 (10-08 QA G12)
       setThread(c.messages.flatMap(toTurns).slice(-50));
       if (c.context && c.result) { setRequest({...c.context, session_id: id}); setResult(c.result); setCargoKey(c.result.trace_id); }
-      // 마지막 답의 종류가 결과 칸을 정한다. ask()가 답마다 하는 것과 같다
-      const last = [...c.messages].reverse().find(m => m.role === 'assistant');
+      // 결과 칸은 가장 최근의 vessels/cargo 답이 정한다. ask()도 vessels·cargo 답에서만 결과 칸을 바꾸고 일반 안내 답은 그대로 둔다.
+      // 마지막 답만 보면 선박 검색 뒤에 안내 답이 붙은 대화를 다시 열 때 지도와 결과 칸이 사라진다
+      const last = [...c.messages].reverse().find(m => m.role === 'assistant' && (m.extra?.kind === 'vessels' || m.extra?.kind === 'cargo'));
       const kind = last?.extra?.kind;
       if (kind === 'vessels' && last?.extra) {
         setVessels({kind: 'vessels', reply: last.text, agent: null, request: null, vessels: [], place: null, ports: [], days: null, ...last.extra} as ChatResponse); setView('vessels');
@@ -335,6 +369,7 @@ export function AppProvider({children}:{children:ReactNode}) {
       const status = errorStatus(e);
       if (status === 401 || status === 503) setConvAvail(false);
       // 못 찾거나 못 읽으면 빈 새 대화로 시작하고 이유를 알린다. 주소의 ?c=도 지운다
+      pending.current = null; writePending(null);
       startSession(newSessionId()); clearScreen(); syncUrl(null);
       setError(status === 404 ? '찾는 대화가 없어요. 새 대화로 시작할게요.' : e instanceof Error ? e.message : '대화를 불러오지 못했어요.');
       return false;
@@ -356,6 +391,15 @@ export function AppProvider({children}:{children:ReactNode}) {
     const id = window.setInterval(refreshUsage, 10 * 60 * 1000);
     return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 대화 화면으로 돌아오거나 창이 다시 보일 때 목록을 다시 읽는다. 다른 화면에 가 있는 사이 저장된 대화가 보이게 한다
+  useEffect(() => { if (conversationsOn && pathname === '/') void refreshConversations(); }, [pathname, conversationsOn]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!conversationsOn) return;
+    const on = () => { if (document.visibilityState === 'visible') void refreshConversations(); };
+    window.addEventListener('focus', on); document.addEventListener('visibilitychange', on);
+    return () => { window.removeEventListener('focus', on); document.removeEventListener('visibilitychange', on); };
+  }, [conversationsOn]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function lookup(req: AgentRequest) {
     if (inflight.current) return false;
@@ -385,6 +429,24 @@ export function AppProvider({children}:{children:ReactNode}) {
   /** 서버에 보낼 앞선 대화. 지금 질문을 더하기 전의 thread(이번 렌더의 값)를 잡아 둔다. 자르기는 chatBody가 한다 (최근 6줄, 500자)
    * 답 글 속 [E1] 표시는 화면용이라 서버로 되돌려 보내는 대화에서는 뗀다. 첨부 사진 정보는 보내지 않는다(chatBody가 role, text만 고른다) */
   function historyNow() { return thread.map(t => t.role === 'assistant' ? {...t, text: t.text.replace(/\s?\[E\d+\]/gi, '')} : t); }
+  /** 새 대화의 첫 질문이면 답을 기다리지 않고 지금 이 대화를 활성으로 만든다: 주소(?c=)와 사이드바 임시 줄을 먼저 맞춰
+   * 중간에 다른 화면으로 갔다 오거나 새로고침해도 같은 대화를 찾게 한다. 서버는 답이 끝나야 저장하므로 임시 줄이다.
+   * 첫 질문이었으면 그 대화 id를, 아니면 null을 돌려준다 (실패 때 settlePending이 되돌린다) */
+  function beginPending(title: string): string | null {
+    const sid = currentSessionId();
+    if (!conversationsOn || !sid || savedId === sid) return null;
+    const p = {id: sid, title: title.trim().slice(0, 30) || '새 대화', at: Date.now()};
+    pending.current = p; writePending(p);
+    setConversations(list => list.some(c => c.id === sid) ? list : [{id: sid, title: p.title, updated_at: new Date().toISOString()}, ...list]);
+    syncUrl(sid, false);
+    return sid;
+  }
+  /** 저장 확인 전 표시를 지운다. saved=false(서버가 저장하지 않은 실패)면 임시 줄과 주소도 되돌린다 */
+  function settlePending(sid: string | null, saved: boolean) {
+    if (!sid) return;
+    if (pending.current?.id === sid) { pending.current = null; writePending(null); }
+    if (!saved && currentSessionId() === sid) { setConversations(list => list.filter(c => c.id !== sid)); syncUrl(null, false); }
+  }
   /** 실패를 대화 칸에만 알린다. 보고 있던 화물 결과는 그대로 둔다 (다시 조회 실패와 같은 방식) */
   function failTurn(e: unknown, fallback: string) {
     const msg = e instanceof Error ? e.message : fallback;
@@ -396,10 +458,11 @@ export function AppProvider({children}:{children:ReactNode}) {
     const history = historyNow();
     // 화면에만 두는 대화. 최근 50줄까지 남기고 대화창은 스크롤로 본다 (ChatBar)
     setThread(t => [...t.slice(-49), {role: 'user', text: message}]);
+    const first = beginPending(message);
     // 서류에서 확인한 출항일이 있으면 그 B/L과 함께 보낸다. 서버가 그 B/L 조회에만 실어 화물 표에 적는다
     const document = docHints?.departed_on ? {bl_no: docHints.bl_no, departed_on: docHints.departed_on} : null;
     try { return await chatTurn(message, history, document); }
-    catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); return false; }
+    catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); settlePending(first, false); return false; }
     finally { finish(); }
   }
 
@@ -416,6 +479,7 @@ export function AppProvider({children}:{children:ReactNode}) {
     const history = historyNow();
     imageUrls.current.push(image.url);
     setThread(t => [...t.slice(-49), {role: 'user', text: text.trim(), image}]);
+    const first = beginPending(text.trim() || file.name);
     setReadingDoc(true);
     try {
       let doc: DocumentResponse;
@@ -427,7 +491,7 @@ export function AppProvider({children}:{children:ReactNode}) {
           imageUrls.current = imageUrls.current.filter(u => u !== image.url);
           setThread(t => t.map(x => x.image?.url === image.url ? {...x, image: {...x.image, url: ''}} : x));
         }
-        failTurn(e, '사진을 읽지 못했어요. 다시 시도해 주세요.'); return 'unread';
+        failTurn(e, '사진을 읽지 못했어요. 다시 시도해 주세요.'); settlePending(first, false); return 'unread';
       }
       finally { setReadingDoc(false); }
       const plan = decideAttachment(doc, text, CHAT_MAX);
@@ -439,13 +503,13 @@ export function AppProvider({children}:{children:ReactNode}) {
       if (!plan.message) {
         // 채팅을 부르지 않은 턴(B/L 없음·불확실, 쓴 글 없음)은 채팅이 저장해 주지 않아 따로 남긴다
         if (conversationsOn && plan.note && await saveAttachmentTurn(shown.text, file.name, plan.note)) {
-          syncUrl(currentSessionId()); void refreshConversations();
-        }
+          settlePending(first, true); syncUrl(currentSessionId(), false); void refreshConversations();
+        } else settlePending(first, false);
         return 'sent';
       }
       await chatTurn(plan.message, history, plan.document, shown);
       return 'sent';
-    } catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); return 'failed'; }
+    } catch (e) { failTurn(e, '답을 만들지 못했어요. 다시 시도해 주세요.'); settlePending(first, false); return 'failed'; }
     finally { finish(); }
   }
 
@@ -477,8 +541,13 @@ export function AppProvider({children}:{children:ReactNode}) {
     }
     if (res.kind === 'vessels') { setVessels(res); setView('vessels'); }
     // 안내 문장(B/L 없음, 화물과 상관없는 질문 등)이 와도 보던 화물 결과는 그대로 둔다. 새 화물 조회가 올 때만 바뀐다
-    // 서버가 이 턴을 저장했다. 주소에 대화 id를 붙이고 목록을 새로 읽는다. 제목은 조금 늦게 생길 수 있어 한 번 더 읽는다
-    if (conversationsOn) { syncUrl(currentSessionId()); void refreshConversations(); setTimeout(() => void refreshConversations(), 3000); }
+    // 서버가 이 턴을 저장했다. 저장 확인 전 표시를 지우고, 주소에 대화 id를 붙이고 목록을 새로 읽는다. 제목은 조금 늦게 생길 수 있어 한 번 더 읽는다.
+    // 답을 기다리는 사이 다른 화면으로 갔으면 그 화면에 둔다(navigate=false). 메뉴의 대화 링크가 savedId로 이 대화를 가리킨다
+    if (conversationsOn) {
+      const sid = currentSessionId();
+      if (pending.current?.id === sid) { pending.current = null; writePending(null); }
+      syncUrl(sid, false); void refreshConversations(); setTimeout(() => void refreshConversations(), 3000);
+    }
     return true;
   }
   function showCargo(agent: AgentResponse, req: AgentRequest) {

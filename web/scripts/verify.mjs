@@ -1,5 +1,5 @@
 /** End-to-end acceptance for the AI-composer home.
- * 1) Demo mode: `npm run dev -- --port 3100` must be running at MARVIA_TEST_URL (default :3100). Fixtures only, no API.
+ * 1) Demo mode: `npm run dev -- --port 3100` must be running at MARVIA_TEST_URL (default http://localhost:3100; 127.0.0.1 makes the Next dev server block dev resources, so the first step times out). Fixtures only, no API.
  * 2) Live mode (optional): a production build made with NEXT_PUBLIC_API_BASE=http://127.0.0.1:3199 running at MARVIA_LIVE_TEST_URL.
  *    This script starts a fake API on :3199 itself, so the browser receives real SSE over the network (docs/specs/chat-progress.md).
  *    Without MARVIA_LIVE_TEST_URL the live checks are reported as SKIP, never as PASS.
@@ -16,7 +16,7 @@ import http from 'node:http';
 import {chromium} from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
-const base = process.env.MARVIA_TEST_URL ?? 'http://127.0.0.1:3100';
+const base = process.env.MARVIA_TEST_URL ?? 'http://localhost:3100';
 const live = process.env.MARVIA_LIVE_TEST_URL ?? '';
 const MOCK_PORT = Number(process.env.MARVIA_MOCK_API_PORT ?? 3199);
 const mockOrigin = `http://127.0.0.1:${MOCK_PORT}`;
@@ -225,7 +225,7 @@ try {
 
     // 이력: 필터, 저장된 판정 재생, 다시 조회해도 재생 스냅샷 조건 그대로
     await page.getByRole('link', {name: '조회 이력'}).first().click(); await page.locator('.hist-list > li').first().waitFor();
-    await page.getByLabel('B/L 뒤 네 자리 검색').fill('ZZZZ'); assert.equal(await page.locator('.hist-list > li').count(), 0);
+    await page.getByLabel('B/L 번호 검색').fill('ZZZZ'); assert.equal(await page.locator('.hist-list > li').count(), 0);
     await page.getByRole('button', {name: '조건 초기화'}).click(); await page.getByLabel('상태별로 거르기').selectOption('failed');
     await page.getByRole('button', {name: /저장된 판정 열기/}).click(); await page.locator('[data-status="failed"]').waitFor();
     await page.getByText('저장된 이력', {exact: true}).waitFor({state: 'attached'});

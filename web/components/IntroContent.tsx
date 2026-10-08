@@ -49,7 +49,7 @@ const VERDICTS = [
   {cls: 'act', name: '긴급', mean: '판매 일정이나 통관을 바로 확인해야 해요.', todo: '판매 일정을 조정할지 바로 정하세요.'},
 ];
 
-/** 데이터 출처 세 곳 */
+/** 데이터 출처 세 곳. 관세청·해수부는 공공 데이터, AIS는 민간 API(ShipFinder)다 */
 const SOURCES = [
   {icon: FileSearch, name: '관세청 UNI-PASS', what: '통관 진행 단계'},
   {icon: Anchor, name: '해양수산부', what: '입항 신고와 실제 입항'},
@@ -111,13 +111,13 @@ export function IntroContent({action, navRight, footer}: {action: ReactNode; nav
       </figure>
     </section>
 
-    {/* 데이터 출처: 넓은 사진 띠 위에 세 곳 */}
+    {/* 데이터 출처: 넓은 사진 띠 위에 세 곳. 제목은 공공 데이터만이 아니라는 사실대로 쓴다 */}
     <section className="lp-band" aria-labelledby="lp-src">
       <img className="lp-band-img" src="/landing/sea-1280.webp" srcSet={SEA_SRCSET} sizes="100vw" alt="" width={1280} height={851} loading="lazy"/>
       <div className="lp-band-shade" aria-hidden="true"/>
       <div className="lp-wrap lp-band-in">
         <p className="lp-eyebrow light">데이터 출처</p>
-        <h2 id="lp-src">공공 데이터 세 곳을 한 화면에</h2>
+        <h2 id="lp-src">공공 데이터와 선박 위치 신호를 한 화면에</h2>
         <ul className="lp-sources">
           {SOURCES.map(({icon: Icon, name, what}) => <li key={name}><Icon size={22} strokeWidth={1.75} aria-hidden="true"/><b>{name}</b><span>{what}</span></li>)}
         </ul>
