@@ -307,10 +307,16 @@ def _row(name, cargo, eta="2026-10-09T00:00:00+00:00"):
     return {"ship_name": name, "is_cargo": cargo, "expected_arrival": eta}
 
 
-def test_c11_list_line_says_non_cargo_when_no_cargo_ships():
-    line = svc._ship_list_line([_row("TEST TUG", False), _row("TEST BARGE", False)])
-    assert line.startswith(" 화물선이 아닌 배를 포함하면 가까운 순으로 TEST TUG")
-    assert svc._ship_list_line([_row("TEST STAR", True), _row("TEST TUG", False)]).startswith(" 가까운 순으로 TEST STAR")
+def test_c11_list_line_says_non_cargo_when_no_cargo_ships(monkeypatch):
+    # 화물선이 없으면 전체 배를 줄로 보이고, 결론 줄이 화물선이 없다고 먼저 말한다 (나열한 배가 화물선인 것처럼 읽히지 않게)
+    lines = svc._ship_list_lines([_row("TEST TUG", False), _row("TEST BARGE", False)]).split("\n")
+    assert lines[0].startswith("· TEST TUG · ") and len(lines) == 2
+    assert svc._ship_list_lines([_row("TEST STAR", True), _row("TEST TUG", False)]) == "· TEST STAR · 10월 9일 09:00 도착 예정"
+    monkeypatch.setattr(svc, "_arrivals", lambda days: [])
+    rows = [_row("TEST TUG", False)]
+    monkeypatch.setattr(svc, "_vessel_rows", lambda chosen: rows)
+    head = svc.search_vessels(None, 7).reply.split("\n")[0]
+    assert head == "1주 안에 부산 오는 수입 화물선은 없고, 입항 예정 선박은 1척이에요."
 
 
 @pytest.mark.parametrize("text, expected", [("부산에서", True), ("부산항으로", True), ("한국으로", True), ("부산 신항으로", True),

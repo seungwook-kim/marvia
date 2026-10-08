@@ -81,8 +81,9 @@ def extract_mrn(message: str) -> tuple[str | None, str]:
 NEED_BL = "조회할 B/L 번호를 문장에 넣어 주세요. 예: (내 B/L 번호) 화물 괜찮아?"
 NO_CARGO = "지금 보고 있는 화물이 없어요. 먼저 B/L 번호로 화물을 조회해 주세요."
 LLM_DOWN = "지금은 문장 이해 기능을 쓸 수 없어 B/L 번호가 있는 조회만 돼요. " + NEED_BL
-PREV_PORT_NOTE = ("해수부 입항 신고의 직전 기항지 기준이에요. 출발지 정보는 없어서, 유럽에서 출발한 배도 "
-                  "중국·싱가포르 등을 거쳐 오면 그 항구로 나와요.")
+# 입항 검색 답의 마지막 출처 줄은 짧게 한 줄. 유럽발 배 설명은 결과가 없을 때만 PREV_PORT_EMPTY_NOTE로 붙인다
+PREV_PORT_NOTE = "해수부 입항 신고의 직전 기항지 기준이에요."
+PREV_PORT_EMPTY_NOTE = PREV_PORT_NOTE + " 출발지가 아니라 직전에 들른 항구라서, 유럽발 배는 중국·싱가포르 등으로 나올 수 있어요."
 # 프롬프트 주입 방어 (SDD 7절). 아래 두 문구는 LLM이 쓴 문장을 내보낼 수 없을 때 대신 쓰는 고정 안내다
 # 끝은 "사용법을 물어보라"로 둔다: 답을 포기할 때마다 B/L만 요구하면 기계적으로 보인다
 OTHER_REPLY = ("마르비아는 B/L 번호로 화물 상태를 확인하고, 지금 보고 있는 화물에 대한 질문에 답하고, "
@@ -662,22 +663,36 @@ def _match_ports_cached(place: str, available: list[str]) -> list[str]:
     return picked
 
 
-def _ship_list_line(vessels: list[dict]) -> str:
-    """검색 결과 앞쪽 배 이름과 입항 예정일을 한 줄로. 건수만 말하면 "어떤 배냐"를 또 물어야 한다.
-    수입 화물선이 있으면 그 배들을, 없으면 전체에서 SHIP_LIST_SHOWN척까지. 값은 해수부 입항 신고 그대로이고 코드가 쓴다 (LLM 문장 아님).
-    vessels는 _vessel_rows가 이미 입항 예정 시각순으로 정렬한 목록이다. 비면 빈 글자.
-    화물선이 0척이면 나열하는 배가 화물선이 아니라고 밝힌다 (10-08 QA C11: "화물선은 0척이에요" 뒤에 배 이름이 나와 모순이었다)."""
-    cargo_only = [v for v in vessels if v["is_cargo"]]
-    picked = cargo_only or vessels
+def _arrival_text(iso: str | None) -> str:
+    """입항 예정 시각을 "10월 8일 08:00"으로. 시간대가 붙어 있으면 한국 시간으로 바꾼다. 없거나 못 읽으면 빈 글자."""
+    if not iso:
+        return ""
+    try:
+        t = datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    if t.tzinfo:
+        t = t.astimezone(KST)
+    return f"{t.month}월 {t.day}일 {t:%H:%M}"
+
+
+def _ship_list_lines(vessels: list[dict]) -> str:
+    """검색 결과 앞쪽 배를 한 척에 한 줄로 ("· 이름 · 10월 8일 08:00 도착 예정 · 직전 기항지"). 건수만 말하면 "어떤 배냐"를 또 물어야 하고,
+    한 문단에 다 붙이면 읽기 힘들다. 말풍선은 줄바꿈을 그대로 보인다.
+    수입 화물선이 있으면 그 배들을, 없으면 전체에서 SHIP_LIST_SHOWN척까지 (화물선이 0척이라는 말은 결론 줄이 한다).
+    값은 해수부 입항 신고 그대로이고 코드가 쓴다 (LLM 문장 아님). vessels는 _vessel_rows가 입항 예정 시각순으로 정렬한 목록이다. 비면 빈 글자."""
+    picked = [v for v in vessels if v["is_cargo"]] or vessels
     if not picked:
         return ""
-    parts = []
+    lines = []
     for v in picked[:SHIP_LIST_SHOWN]:
-        eta = (v.get("expected_arrival") or "")[:10]
-        parts.append(f"{v['ship_name']}({eta[5:].replace('-', '/')} 도착 예정)" if eta else str(v["ship_name"]))
+        eta = _arrival_text(v.get("expected_arrival"))
+        cols = [str(v["ship_name"]), f"{eta} 도착 예정" if eta else "", v.get("previous_port") or ""]
+        lines.append("· " + " · ".join(c for c in cols if c))
     more = len(picked) - SHIP_LIST_SHOWN
-    head = " 가까운 순으로" if cargo_only else " 화물선이 아닌 배를 포함하면 가까운 순으로"
-    return f"{head} {', '.join(parts)}" + (f" 외 {more}척" if more > 0 else "") + "이에요."
+    if more > 0:
+        lines.append(f"외 {more}척")
+    return "\n".join(lines)
 
 
 # 항구 고르기 LLM이 실패했고 지명 글자로도 항구를 못 찾았을 때 (10-08 QA C11)
@@ -686,8 +701,11 @@ PORT_MATCH_FAILED = ("지금은 '{name}'에 해당하는 항구를 고르지 못
 
 
 def _period_text(days: int) -> str:
-    """기간을 답 문장 머리말로. 1일은 "오늘부터 1일": "1일 동안"만 쓰면 내일 하루만 보여 주는 것으로 읽힌다."""
-    return "오늘부터 1일" if days == 1 else f"앞으로 {days}일"
+    """기간을 사람 말로: 7의 배수는 "1주"·"2주", 그 밖에는 "N일".
+    1일은 "오늘부터 1일": "1일 안에"만 쓰면 내일 하루만 보여 주는 것으로 읽힌다."""
+    if days == 1:
+        return "오늘부터 1일"
+    return f"{days // 7}주" if days % 7 == 0 else f"{days}일"
 
 
 # 사용자가 DAYS_MAX보다 긴 기간을 물었을 때 붙이는 코드 문장. search_vessels는 기간을 DAYS_MAX로 줄여 보여 준다
@@ -741,15 +759,17 @@ def search_vessels(place: str | None, days: int | None, label: str | None = None
     chosen.sort(key=lambda p: p.expected_arrival or datetime.max.replace(tzinfo=timezone.utc))
     vessels = _vessel_rows(chosen)
     cargo = sum(v["is_cargo"] for v in vessels)
-    listing = _ship_list_line(vessels)
+    # 답 모양: 첫 줄 결론, 배는 한 척에 한 줄, 마지막 줄 출처. 유럽발 배 설명은 결과가 없을 때만 붙인다
+    listing = _ship_list_lines(vessels)
     period = _period_text(days)
+    where = f"{name}에서 " if place else ""
     if place and not vessels:
-        reply = f"{period} 동안 {name} 항구를 직전에 들른 부산 입항 예정 선박은 없어요. {PREV_PORT_NOTE}"
-    elif place:
-        reply = (f"{period} 동안 {name}({', '.join(ports)})를 직전에 들른 부산 입항 예정 선박 {len(vessels)}척 중 "
-                 f"수입 화물선(컨테이너·일반화물·냉동냉장, 양하)은 {cargo}척이에요.{listing} {PREV_PORT_NOTE}")
+        reply = f"{name}에서 {period} 안에 부산 오는 입항 예정 선박은 없어요.\n{PREV_PORT_EMPTY_NOTE}"
     else:
-        reply = f"{period} 동안 부산 입항 예정 선박 {len(vessels)}척 중 수입 화물선은 {cargo}척이에요.{listing} {PREV_PORT_NOTE}"
+        # 수입 화물선이 하나도 없으면 그 사실을 먼저 말하고, 줄에는 전체 입항 선박을 보인다 (나열한 배가 화물선이 아님을 밝힌다)
+        head = (f"{where}{period} 안에 부산 오는 수입 화물선 {cargo}척이에요." if cargo
+                else f"{where}{period} 안에 부산 오는 수입 화물선은 없고, 입항 예정 선박은 {len(vessels)}척이에요.")
+        reply = "\n".join(x for x in (head, listing, PREV_PORT_NOTE) if x)
     return ChatResult(kind="vessels", reply=reply, vessels=vessels, place=name, ports=ports, days=days)
 
 
