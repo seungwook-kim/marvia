@@ -99,6 +99,6 @@ def test_noun_with_skill_root_is_still_flagged():
 
 
 def test_general_terms_are_not_counted():
-    # 3층(일반 설명)도 허용하는 일반 해운 용어는 Skill에 없어도 센 것이 아니다
+    # 2층(일반 설명)도 허용하는 일반 해운 용어는 Skill에 없어도 센 것이 아니다
     reply = "수하인은 마스터 하우스 선하증권 도착통지서 인도지시서를 포워더에게 받습니다."
     assert validate.skill_unsupported_terms(reply, "") == []

@@ -15,7 +15,6 @@
   extract_doc_fields() 서류 사진 OCR 글자에서 선명·항차·ETA 등 6칸과 B/L 조건·연락처를 옮겨 적는다 (docs/specs/document-extract.md)
   write_memory()     조회·대화 뒤 메모장에 줄 단위 명령만 낸다. 적용은 services/memory.py가 한다 (docs/specs/memory.md)
   chat_agent()       채팅 에이전트. 도구를 골라 부르고 답 한 칸을 낸다 (services/chat.py)
-  web_search()       채팅 에이전트의 좁은 웹 검색 도구
 
 모델 자리 (.env, 계약 C8):
   LLM_MODEL           서비스가 쓰는 기본 모델
@@ -54,7 +53,7 @@ from pydantic import BaseModel, ValidationError
 
 from backend.app.clients import replay  # REPLAY_MODE 녹화 답 재생 (_replay_answer)
 from backend.app.services import quota  # 1명당 하루 토큰 한도 (docs/specs/token-quota.md)
-from backend.app.observability.langfuse import end_generation, end_web_search, get_prompt, start_generation
+from backend.app.observability.langfuse import end_generation, get_prompt, start_generation
 from backend.app.schemas.agent import AgentResponse, Conflict, Evidence, Reason, VesselCandidate, Verdict
 from backend.app.schemas.customs import CustomsRecord
 from backend.app.schemas.signals import SignalSet
@@ -1476,15 +1475,13 @@ CHAT_AGENT_SKILLS = FOLLOW_UP_SKILLS  # 되묻기 설명법(cargo-verdict), 통�
 #     따로 둔 이유: 도구를 쓴 답과 도구를 안 부른 답을 코드가 구별해야 한다. 도구를 안 부르는 모델 문제는
 #     _ask_json 쪽에서 다루고, 여기서는 tool을 낸 답을 코드가 알아보게만 한다
 # 도구를 쓴 답이면 근거 칸은 보지 않는다. 종류를 잘못 골라도 결과는 고정 문구 중 하나라 지어낸 조언이 화면에 가지 않는다
-#   web: 웹 검색 도구(chat.WEB_TOOL)로 받은 결과로 답했다. skill_quote는 웹 검색 결과 원문 한 조각이고,
-#     코드가 가져온 웹 글에 그대로 있는지 본다 (V14와 같은 방식, chat._web_violations)
-#   general: 3층. 교과서 수준의 일반 해운 설명(용어 뜻, 일반 절차)을 모델 지식으로 답했다. 근거 조각 없이 내보내되
+#   general: 2층. 교과서 수준의 일반 해운 설명(용어 뜻, 일반 절차)을 모델 지식으로 답했다. 근거 조각 없이 내보내되
 #     숫자·세액·특정 화물·배 이야기는 안 되고 꼬리표는 없다: 고지는 이용약관에 있다 (chat._agent). 검사는 V7·V9(허용 용어 확장)·V10·V13
 #   unrelated: 한 문장짜리 직접 답을 낼 수 있다 (날짜·"마르비아가 뭐야?" 같은 잡담). 검사에 걸리면 고정 안내로 바뀐다
 #   clarify: 사용자가 쓴 식별자(예: TEST41)가 B/L 번호인지 배 이름인지 모르겠다. 코드가 고정 문장으로 되묻는다
 #     (chat.clarify_reply). reply는 비운다: LLM 글은 화면에 가지 않고 식별자도 코드가 문장에서 직접 뽑는다
 # help·greeting: 사용법 질문과 인사. 문장은 services/chat.py가 고정 문구로 낸다
-CHAT_AGENT_KINDS = ("tool", "skill", "web", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting")
+CHAT_AGENT_KINDS = ("tool", "skill", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting")
 CHAT_AGENT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -1501,8 +1498,8 @@ CHAT_AGENT_SCHEMA = {
 class ChatAgentOutput(BaseModel):
     reply: str  # 화면에 내보내기 전에 services/chat.py가 검사한다
     # 기본값은 도구를 쓴 답(두 칸을 보지 않음)과 예전 녹화 답이 그대로 읽히게 둔 것이다. 실제 호출은 strict 스키마라 늘 채워 온다
-    answer_kind: Literal["tool", "skill", "web", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting"] = "unrelated"
-    skill_quote: str = ""  # answer_kind가 skill이면 Skill 문서, web이면 웹 검색 결과 원문 그대로의 한 조각
+    answer_kind: Literal["tool", "skill", "general", "not_in_skills", "unrelated", "clarify", "help", "greeting"] = "unrelated"
+    skill_quote: str = ""  # answer_kind가 skill이면 그 답을 받치는 Skill 문서 원문 그대로의 한 조각
     # 사용자 말에 걱정·기한 압박이 묻어 있나 ("먼저 제안"). 신호일 뿐이다: 제안할지는 services/chat.py가 정한다.
     # 기본값 False는 예전 녹화 답이 그대로 읽히게 둔 것이다 (실제 호출은 strict 스키마라 늘 채워 온다)
     watch_cue: bool = False
@@ -1531,82 +1528,6 @@ def chat_agent(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
         data["evidence"] = evidence
     return _ask_json(CHAT_AGENT_PROMPT, json.dumps(data, ensure_ascii=False), "chat_agent", CHAT_AGENT_SCHEMA,
                      ChatAgentOutput, model, feedback=feedback, skills=CHAT_AGENT_SKILLS, tools=tools, run_tool=run_tool)
-
-
-# ── 웹 검색 web_search() ──────────────────────────────
-# 채팅 에이전트의 좁은 웹 검색 도구가 쓴다 (services/chat.py WEB_TOOL). Skill 문서가 못 받치는 실무 질문(B/L 번호 찾는 곳, 포워더 확인,
-# A/N 뜻)에만 쓰고, 판정·특정 화물·세액·통관 가능 여부에는 쓰지 않는다 (PRD 4절). 그 제한은 chat.py가 건다. 여기는 검색 호출만 한다.
-# OpenRouter 웹 플러그인을 engine=exa로 쓴다 (계정에 ZDR 제한이 있음):
-#   - engine 기본값(네이티브)은 Gemini의 구글 검색이라 출처가 vertexaisearch 리다이렉트 주소이고 원문이 안 온다. 검증할 글이 없어 못 쓴다
-#   - firecrawl은 ZDR 계정에서 400으로 막힌다
-#   - exa는 응답 annotations(url_citation)에 실제 주소·제목·가져온 원문(content)을 준다 -> 이것이 "가져온 웹 글"이다
-# 검색을 시키는 모델의 답 본문은 버린다 (max_tokens=16). 웹 글 속 지시가 모델을 움직여도 그 출력은 어디에도 안 쓰인다.
-# 에이전트가 읽는 것은 annotations의 글뿐이고, 그 글은 자료로만 간다 (프롬프트 Trust boundary)
-WEB_RESULTS = 3          # 한 번에 받는 결과 수. 비용(결과당 과금)과 에이전트 입력 길이를 같이 줄인다
-WEB_TEXT_CHARS = 1500    # 결과 하나에서 에이전트에 주는 글자 수 상한 (exa가 주는 길이가 대체로 이 안이다)
-WEB_QUERY_CHARS = 120    # 검색어 길이 상한
-WEB_FALLBACK_MODEL = "google/gemini-3.5-flash-lite"  # LLM_MODEL이 vertex/ 모델이면 OpenRouter 웹 플러그인을 못 쓴다. 그때 검색 호출만 이 모델로 한다
-WEB_BLOCKED_TOKENS = ("[BL", "[MRN")  # 가린 B/L·MRN 토큰이 든 검색어는 밖으로 안 나간다 (CLAUDE.md: B/L은 LLM·외부에 안 넘긴다)
-
-
-def web_search(query: str) -> list[dict]:
-    """검색어 하나로 웹을 검색해 [{"title", "url", "text"}]를 돌려준다 (최대 WEB_RESULTS개). 결과가 없으면 빈 목록.
-
-    검색어는 가린 문장에서 만든 것이어야 하고, 호출하는 쪽(chat.py)이 B/L 토큰·MRN·주입 모양을 먼저 거른다. 여기서도 B/L·MRN 토큰은 한 번 더 막는다.
-    TIMEOUT_SEC 전체 시간 상한은 일반 호출과 같다 (_create_with_deadline). 키가 없으면 LLMError. 실패는 전부 LLMError다.
-    """
-    query = (query or "").strip()
-    if not query or len(query) > WEB_QUERY_CHARS or any(t in query.upper() for t in WEB_BLOCKED_TOKENS):
-        raise LLMError("web_search: 검색어가 비었거나 너무 길거나 B/L·MRN 토큰이 들어 있음", kind="bad_query")
-    model = os.environ.get("LLM_MODEL") or WEB_FALLBACK_MODEL
-    if model.startswith((VERTEX_PREFIX, CLAUDE_PREFIX)):
-        # 웹 검색은 OpenRouter 웹 플러그인이라 OpenRouter 모델로만 된다 (vertex/·claude/ 모델은 대신 이 모델로, 10-08)
-        model = WEB_FALLBACK_MODEL
-    start = time.monotonic()
-    # 검색도 요청 트레이스에 generation으로 남긴다: 비용과 결과가 Langfuse에서 보이게.
-    # 검색어는 위에서 B/L·MRN 토큰을 막은 가린 문장이다. 트레이스 실패는 검색을 막지 않는다 (start/end가 삼킨다)
-    generation = start_generation("web_search", query)
-    resp = None
-    try:
-        resp = _create_with_deadline(
-            _client(),
-            {"model": model, "messages": [{"role": "user", "content": query}], "max_tokens": 16},
-            {"plugins": [{"id": "web", "engine": "exa", "max_results": WEB_RESULTS}], "provider": {"require_parameters": True}})
-    except LLMError as e:  # 키 없음 등 _client()가 올린 것. 열어 둔 기록을 닫는다
-        end_web_search(generation, None, model=model, error=str(e))
-        raise
-    except _DeadlineExceeded:
-        end_web_search(generation, None, model=model, error=f"timeout after {TIMEOUT_SEC:g}s")
-        raise LLMError(f"web_search: {TIMEOUT_SEC:g}초 안에 답이 없음", kind="timeout") from None
-    except openai.APIStatusError as e:  # ZDR 거부 등. 메시지는 키를 담지 않는다
-        end_web_search(generation, None, model=model, error=f"HTTP {e.status_code} {e.message}")
-        raise LLMError(f"web_search: HTTP {e.status_code} {e.message}", code=e.status_code, kind=_status_kind(e.status_code)) from e
-    except openai.APIConnectionError as e:
-        end_web_search(generation, None, model=model, error=f"connection {type(e).__name__}")
-        raise LLMError(f"web_search: 연결 실패 {type(e).__name__}", kind="connection") from e
-    if not resp.choices:
-        end_web_search(generation, None, resp.usage, model, error="no_choices")
-        raise LLMError("web_search: 응답에 choices 없음", kind="no_choices")
-    message = resp.choices[0].message
-    notes = getattr(message, "annotations", None) or (getattr(message, "model_extra", None) or {}).get("annotations") or []
-    found, seen = [], set()
-    for note in notes:
-        note = note if isinstance(note, dict) else note.model_dump()
-        cite = note.get("url_citation") or {}
-        url, text = str(cite.get("url") or ""), str(cite.get("content") or "").strip()
-        if not url.startswith(("http://", "https://")) or not text or url in seen:
-            continue
-        seen.add(url)
-        found.append({"title": str(cite.get("title") or url)[:120], "url": url, "text": text[:WEB_TEXT_CHARS]})
-    logger.info("web_search results=%d latency_ms=%d cost=%s", len(found), int((time.monotonic() - start) * 1000),
-                getattr(resp.usage, "cost", None) if resp.usage else None)
-    found = found[:WEB_RESULTS]
-    end_web_search(generation, found, resp.usage, getattr(resp, "model", None) or model)
-    # 웹 검색도 하루 토큰 한도에 쌓는다. chat()을 거치지 않는 호출이라 여기서 따로 더한다 (services/quota.py, docs/specs/token-quota.md).
-    # 검색 결과가 입력에 붙으므로 prompt_tokens가 작지 않다. usage가 없으면 0으로 본다
-    usage = resp.usage
-    quota.add((getattr(usage, "prompt_tokens", 0) or 0) + (getattr(usage, "completion_tokens", 0) or 0) if usage else 0)
-    return found
 
 
 PORT_MATCH_PROMPT = "marvia-port-match"

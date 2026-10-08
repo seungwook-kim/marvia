@@ -316,7 +316,7 @@ def quote_supports(reply: str, quote: str, source: str, user_text: str = "") -> 
 # 지어낸 내용은 대개 명사라서, 형태소 분석기(Kiwi)로 명사(NNG 일반명사, NNP 고유명사)만 뽑는다.
 # 연속한 명사를 합쳐 복합어로 보면 오탐이 늘어 명사 하나씩 본다.
 # 라이선스: kiwipiepy 0.24 이상은 Apache-2.0 (0.23.2 이하는 LGPL이라 requirements.txt에서 0.24대로 묶었다).
-# 버리지 않는다: 호출하는 쪽(chat.py)이 3층(일반 설명)으로 내려 꼬리표를 붙인다. 느슨한 quote_supports와 달리 낱말마다 본다.
+# 버리지 않는다: 호출하는 쪽(chat.py)이 2층(일반 설명)으로 내려 꼬리표를 붙인다. 느슨한 quote_supports와 달리 낱말마다 본다.
 UNSUPPORTED_MIN = 2  # Skill에 없는 핵심 낱말이 이만큼 이상이면 Skill 근거 답이 아니다 (한 개는 말투·조사 변형일 수 있어 봐 준다)
 _UNSUPPORTED_STOP = set("""여러 모든 어떤 아래 직접 바로 먼저 우선 함께 다시 아직 이미 매우 조금 정말 가장 자주 보통 대략 참고 상황 상태 결과 여부
 도움 문제 질문 답변 말씀 사용자 서비스 마르비아 화면 조회 확인 안내 문의 연락 요청 정보 내용 사항 방법 절차 진행 처리 필요 가능 이용 경우 이후 이전 다음 때문 통해 위해
@@ -349,7 +349,7 @@ def _general_nouns() -> frozenset[str]:
 
 def skill_unsupported_terms(reply: str, skills_text: str, user_text: str = "") -> list[str]:
     """V14 보강: 답의 명사(Kiwi, 2글자 이상) 중 Skill 원문 어디에도 없는 것의 목록. 순서는 답에 나온 차례, 중복 없음.
-    제외: 사용자가 질문에 쓴 명사, 일반 해운 용어(GENERAL_TERMS: 3층도 허용하는 말), 흔한 말(_UNSUPPORTED_STOP·_SUPPORT_STOP).
+    제외: 사용자가 질문에 쓴 명사, 일반 해운 용어(GENERAL_TERMS: 2층도 허용하는 말), 흔한 말(_UNSUPPORTED_STOP·_SUPPORT_STOP).
     원문 비교는 quote_found처럼 공백·표시를 뺀 글에서 부분 문자열로 한다 ("선하증권"이 "선하증권을"에도 맞게)."""
     flat_source = _flat(skills_text)
     asked = set(_nouns(user_text))
@@ -365,16 +365,8 @@ def skill_unsupported_terms(reply: str, skills_text: str, user_text: str = "") -
 
 
 def skill_unsupported(reply: str, skills_text: str, user_text: str = "") -> bool:
-    """V14 보강: Skill에 없는 핵심 낱말이 UNSUPPORTED_MIN개 이상이면 True. True인 Skill 답은 chat.py가 3층(일반 설명)으로 내린다."""
+    """V14 보강: Skill에 없는 핵심 낱말이 UNSUPPORTED_MIN개 이상이면 True. True인 Skill 답은 chat.py가 2층(일반 설명)으로 내린다."""
     return len(skill_unsupported_terms(reply, skills_text, user_text)) >= UNSUPPORTED_MIN
-
-
-def quote_sources(quote: str, sources: list[dict]) -> list[dict]:
-    """웹 답의 "웹 참고" 줄에 올릴 출처를 고른다. 근거 조각이 통째로 든 결과만 남긴다.
-    조각이 여러 결과에 걸쳐 있어 하나도 단독으로 안 맞으면 가져온 결과 전부를 돌려준다. 출처는 코드가 가져온 결과에서만 나온다
-    (모델이 쓴 주소는 쓰지 않는다). sources: [{"title","url","text"}]."""
-    single = [s for s in sources if quote_found(quote, s.get("text", ""))]
-    return single or list(sources)
 
 
 def copies_earlier(reply: str, earlier: list[str]) -> bool:
@@ -392,7 +384,7 @@ def copies_earlier(reply: str, earlier: list[str]) -> bool:
     return False
 
 
-# V9·V10의 3층(모델 일반 지식) 전용 허용 목록. 3층 답은 근거 글이 없어서(grounded가 고정 문구뿐) 해운 약어와 낱말 뜻 설명에
+# V9·V10의 2층(모델 일반 지식) 전용 허용 목록. 2층 답은 근거 글이 없어서(grounded가 고정 문구뿐) 해운 약어와 낱말 뜻 설명에
 # 꼭 나오는 말이 V9·V10에 걸린다. 그래서 일반 해운 용어만 따로 허용한다. 주입이 끼워 넣는 표식(예: PWNED, 한국어 암호 낱말)은 여기 없어 계속 걸린다.
 # 영문(V9, 3글자 이상만 본다. B/L, A/N, D/O는 원래 안 본다): 마스터·하우스 B/L, 부두 작업장(CFS, CY), 컨테이너 단위, 무역 조건
 GENERAL_WORDS = {"master", "house", "cfs", "cy", "fcl", "lcl", "teu", "feu", "incoterms", "fob", "cif", "cfr", "exw", "dap", "ddp",
@@ -413,7 +405,7 @@ def check_chat_reply(reply: str, grounded: str, user_text: str, earlier: list[st
     - V9: 답의 영문 낱말(3글자 이상)은 근거 글이나 일반 약어에 있어야 한다. 주입이 끼워 넣는 표식을 잡는다
     - V10: 사용자 글에만 있는 낱말을 답이 그대로 옮기면 위반 (한국어 표식 주입)
     - V13: earlier(이 대화에서 앞서 보여 준 답들)를 거의 그대로 되풀이하면 위반 (copies_earlier)
-    - extra_words·copy_allowed: 3층(일반 설명)만 준다. V9에 더 허용할 영문 낱말(GENERAL_WORDS), V10에 더 허용할 글(Skill 문서와 GENERAL_TERMS).
+    - extra_words·copy_allowed: 2층(일반 설명)만 준다. V9에 더 허용할 영문 낱말(GENERAL_WORDS), V10에 더 허용할 글(Skill 문서와 GENERAL_TERMS).
       숫자 검사(V7)는 그대로 엄격하다: grounded에 고정 문구뿐이면 사용자가 쓰지 않은 숫자는 모두 걸린다
     - V14: skills_text를 주면(도구 없이 Skill 문서로 답한 경우) quote가 그 원문에 그대로 있어야 한다 (quote_found).
       Skill 문서에 없는 조언을 LLM이 지어내는 것을 막는 장치다. 지시문은 근거로 치지 않는다: 지시문은 도메인 지식의 출처가 아니다

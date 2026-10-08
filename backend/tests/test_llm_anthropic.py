@@ -114,17 +114,3 @@ def test_other_models_still_go_to_openrouter(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(llm.LLMError, match="OPENROUTER_API_KEY"):
         llm.chat([{"role": "user", "content": "q"}], model="anthropic/claude-haiku-4.5")
-
-
-def test_web_search_uses_openrouter_fallback_model_for_claude(monkeypatch):
-    monkeypatch.setenv("LLM_MODEL", MODEL)
-    seen = {}
-
-    def fake_create(client, kwargs, extra_body):
-        seen["model"] = kwargs["model"]
-        raise llm._DeadlineExceeded()
-    monkeypatch.setattr(llm, "_client", lambda: object())
-    monkeypatch.setattr(llm, "_create_with_deadline", fake_create)
-    with pytest.raises(llm.LLMError):
-        llm.web_search("A/N 받는 곳")
-    assert seen["model"] == llm.WEB_FALLBACK_MODEL

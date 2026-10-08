@@ -167,7 +167,7 @@ marvia/
 | 기능 | 코드 | 비고 |
 | --- | --- | --- |
 | 대화 목록 (새 대화 · 지난 대화 열기 · 삭제, 첨부 턴 저장) | `routers/conversations.py`, 마이그레이션 018_conversations | 로그인 + `PII_ENCRYPTION_KEY`일 때만 저장 |
-| 채팅 에이전트 · 웹 검색 도구 · 스트림 | `routers/chat.py`, `services/chat.py` | 범위 밖 주제·주입 모양은 LLM 앞에서 고정 답 |
+| 채팅 에이전트 · 스트림 | `routers/chat.py`, `services/chat.py` | 범위 밖 주제·주입 모양은 LLM 앞에서 고정 답 |
 | 답 속 근거 번호 `[E#]` | `services/citations.py`, `EvidencePopover`, `ConversationEvidence` | 번호는 코드가 검사 |
 | 카카오톡 알림 연결 | `routers/kakao.py`, `clients/kakao.py`, 마이그레이션 016_kakao_links, 022 | 연결 · 시험 발송 · 채팅에서 "지금 보내 줘" |
 | 내 화물 현황표 · 엑셀 받기 | `routers/cargo_sheet.py`, 마이그레이션 019 | 신용장별 묶음 |

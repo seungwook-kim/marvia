@@ -27,6 +27,7 @@ B/L 번호(판매 예정일은 선택)를 받아 "내 화물, 지금 신경 써�
 ## 하지 말 것
 
 - langgraph를 설치하거나 import하지 않는다. 문서를 청킹해 검색하고 프롬프트에 붙이는 RAG를 만들지 않는다. 지식은 호출마다 필요한 skills/ 문서를 시스템 프롬프트에 통째로 넣고(llm.py JUDGE_SKILLS 등), 실시간 데이터는 MCP 도구로 가져온다
+- 채팅에 웹 검색 도구를 붙이지 않는다. 신뢰할 수 없는 웹 글이 지켜보기·카카오톡 같은 행동 도구와 메모 자료를 가진 에이전트 입력에 들어가고, 검증할 수 없는 전화번호가 나갈 수 있고, 호출 비용과 일일 한도를 쓰며, 결과가 매번 달라 평가하지 못한다. Skill에 없는 실무 질문과 회사 연락처는 포워더나 선사 확인 안내로 끝낸다
 - LLM SDK(openai 등)는 backend/app/services/llm.py에서만 import한다. 라우터, MCP 도구, 워커, 프론트는 LLM을 직접 부르지 않는다
 - 프롬프트를 코드에 문자열로 두지 않는다. Langfuse Prompt에서 이름으로 가져오고, 못 가져오면 backend/app/prompts/ 사본을 쓴다 (SDD 5.6)
 - 임계값(6시간, 12시간, 0.5노트, 24시간, 부산 반경, 여유 일수 등)을 코드에 숫자로 적지 않는다. rules.md 프론트매터를 코드가 읽는다
@@ -46,7 +47,7 @@ B/L 번호(판매 예정일은 선택)를 받아 "내 화물, 지금 신경 써�
 ## 할 것
 
 - 작업 리스트 ID가 있는 일은 그 행의 "완료 기준"을 그대로 테스트 조건으로 쓴다. 테스트 통과 없이 완료라고 하지 않는다. 지시 형식은 SDD 10절
-- 판정 흐름에서 LLM이 만드는 것은 셋뿐이다: 서류 대조로도 못 가른 복수 후보 중 선박 선택(confidence 포함), 판정 설명(reasons, conflicts, actions, answer, 통관 해설), 후속 질문 답. 나머지는 코드다 (PRD 6.1). llm.py는 이 밖에 채팅 에이전트 답과 의도 분류(services/chat.py), 웹 검색, 서류 칸 추출(doc-extract), 대화 제목, 기억 뽑기(memory-write), 항구 매칭(port-match)도 부르지만 등급·days_margin·신호 같은 판정 값은 코드가 정한다
+- 판정 흐름에서 LLM이 만드는 것은 셋뿐이다: 서류 대조로도 못 가른 복수 후보 중 선박 선택(confidence 포함), 판정 설명(reasons, conflicts, actions, answer, 통관 해설), 후속 질문 답. 나머지는 코드다 (PRD 6.1). llm.py는 이 밖에 채팅 에이전트 답과 의도 분류(services/chat.py), 서류 칸 추출(doc-extract), 대화 제목, 기억 뽑기(memory-write), 항구 매칭(port-match)도 부르지만 등급·days_margin·신호 같은 판정 값은 코드가 정한다
 - 등급(verdict)은 코드가 판정 표로 정한다. LLM은 act를 가르는 신호가 unknown인 회색 지대에서만 표 등급 이상으로 올릴 수 있다 (services/verdict.py, 재료는 skills/cargo-verdict/rules.md)
 - 결정마다 권한자는 하나다. 결정은 backend/ 코드, 재료(임계값·목록·표)는 rules.md 프론트매터, 도메인 지식과 결과 설명법은 SKILL.md, 입력 필드 뜻·Skill 사용처·근거와 보안 규칙·출력 규칙은 프롬프트. 같은 판정 문장을 두 곳에 쓰지 않는다
 - 모든 외부 호출(UNI-PASS, ShipFinder, 해수부, searoute, OpenRouter, Kakao, PortWatch)은 타임아웃, 재시도, 최종 실패 시 partial(또는 조용한 실패) 경로가 있어야 한다 (SDD 8절 표). MCP 도구는 예외를 던지지 않고 {error: {code, message, retryable}}을 돌려준다 (SDD 3.4)

@@ -42,7 +42,7 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 |---|---|
 | B/L 판정 | B/L 번호(판매 예정일은 선택)로 UNI-PASS 조회 → 선박 식별 → 위치·입항 예정·거리 → 1층 신호 7종 → 판정 표 등급 → LLM 설명. 마스터·하우스는 묻지 않고 서버가 둘 다 조회합니다 |
 | 되묻기 | 같은 이름 배가 여럿이고 서류로도 못 가르면 판정하지 않고 항차나 포워더 ETA를 묻거나 후보를 고르게 합니다 |
-| 채팅 | 자연어 창구. 한 문장에 B/L 최대 3개 비교, 화면 화물 후속 질문, 부산 입항 예정 검색, 지켜보기·카카오톡 보내기, 웹 검색. 답 문장에는 근거 번호 `[E#]`가 붙습니다 |
+| 채팅 | 자연어 창구. 한 문장에 B/L 최대 3개 비교, 화면 화물 후속 질문, 부산 입항 예정 검색, 지켜보기·카카오톡 보내기. Skill에 없는 실무 질문은 포워더나 선사 확인 안내로 끝납니다(웹 검색은 두지 않습니다). 답 문장에는 근거 번호 `[E#]`가 붙습니다 |
 | 서류 첨부 | 입항 통지서·B/L 사진이나 PDF를 채팅 입력창에 붙이면 OCR + LLM이 칸을 읽고, B/L을 확실히 읽었으면 바로 조회합니다 |
 | 오늘의 화물 `/today` | 로그인 사용자의 첫 화면. 기억한 화물·지켜보는 화물·판정 변동·카카오 연결 상태 |
 | 지켜보기 | 화물 지켜보기(지도, 경로선, 판정 변동 표시, 카카오톡 알림)와 B/L 없이 배만 지켜보기 |
@@ -277,7 +277,7 @@ cd web && npm install && npm run dev     # :3000. Node 20.9 이상
 | `GOOGLE_CLOUD_PROJECT` / `VERTEX_THINKING_BUDGET` | Vertex 경로일 때만 | |
 | `MEMORY_MODEL` | 기억 뽑기·대화 제목 모델 (배포값 `openai/gpt-4o-mini`) | 기억 뽑기·제목 LLM을 건너뛴다 |
 | `EVAL_COMPARE_MODEL` / `EVAL_GRADER_MODEL` | 평가 (c) 비교 모델 / 통관 해설 채점 모델 | (c)·채점을 건너뛴다 |
-| `CHAT_AGENT` / `WEB_SEARCH` | 채팅 에이전트, 웹 검색 도구 (기본 on) | |
+| `CHAT_AGENT` | 채팅 에이전트 (기본 on) | |
 | `DAILY_TOKENS_PER_USER` | 1명당 하루 LLM 토큰 한도 (예시 100000) | 한도 없음 |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | Langfuse | 트레이스 없음, 프롬프트는 `backend/app/prompts/` 사본 |
 | `DATABASE_URL` | Postgres (compose는 자동 지정) | 이력·기억·지켜보기 저장 없음 |

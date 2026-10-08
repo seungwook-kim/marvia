@@ -1,6 +1,6 @@
 """10-08 QA 채팅 갈래(C1~C11) 회귀 테스트 (services/chat.py, services/guard.py, services/doc_facts.py, routers/chat.py).
 
-키 없이 돈다. LLM(chat_agent·route_chat·match_ports·web_search)·해수부·판정 흐름은 가짜다. B/L·배 이름·컨테이너 번호는 모두 모의값이다.
+키 없이 돈다. LLM(chat_agent·route_chat·match_ports)·해수부·판정 흐름은 가짜다. B/L·배 이름·컨테이너 번호는 모두 모의값이다.
 """
 import time
 
@@ -23,7 +23,6 @@ LONG_ANSWER = "배는 지금 부산 남쪽 바다를 지나고 있고 도착 예
 @pytest.fixture
 def agent_on(monkeypatch):
     monkeypatch.setenv("CHAT_AGENT", "on")
-    monkeypatch.setenv("WEB_SEARCH", "off")
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
 
@@ -218,17 +217,15 @@ def test_c7_history_line_with_impersonation_is_dropped():
     assert turns == [{"role": "user", "text": "알겠어"}]
 
 
-# ── C8 B/L과 웹 질문이 섞인 문장 ──
+# ── C8 B/L과 일반 질문이 섞인 문장 ──
 
-def test_c8_no_web_search_when_message_has_bl(monkeypatch, agent_on):
-    monkeypatch.setenv("WEB_SEARCH", "on")
-    searched = []
-    monkeypatch.setattr(llm, "web_search", lambda q: searched.append(q) or [])
+def test_c8_mixed_message_looks_up_the_cargo_and_never_searches_the_web(monkeypatch, agent_on):
+    # 웹 검색 도구는 없다. 모델이 지어내 불러도 실행되지 않고, 문장에 든 B/L은 코드가 조회한다
     calls = _agent(monkeypatch, [("web_search", {"query": "A/N 받는 곳"})], [("", "tool", "")])
     agent, run = _agent_calls()
     r = svc.handle("TESTBL01 A/N은 어디서 받아요?", "s1", None, run)
-    assert searched == [] and calls[0]["tool_calls"][0]["result"]["error"]["code"] == "web_with_cargo"
-    assert r.kind == "cargo" and agent[0].bl_no == "TESTBL01" and svc.WEB_SEPARATE_NOTE in r.reply
+    assert calls[0]["tool_calls"][0]["result"]["error"]["code"] == "unknown_tool"
+    assert r.kind == "cargo" and agent[0].bl_no == "TESTBL01" and "웹 참고" not in r.reply
 
 
 # ── C9 화면 번호표와 문장 번호표 ──

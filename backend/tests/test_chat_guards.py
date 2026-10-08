@@ -10,7 +10,7 @@ from backend.app.routers.agent import _response
 from backend.app.schemas.agent import AgentRequest
 from backend.app.services import chat as svc
 from backend.app.services import llm, validate
-from backend.tests.test_chat_agent import _agent, _mcp, _no_classic, _out, agent_path, web_off  # noqa: F401 (fixture)
+from backend.tests.test_chat_agent import _agent, _mcp, _no_classic, _out, agent_path  # noqa: F401 (fixture)
 
 KNOWN = llm.skills_reference(llm.CHAT_AGENT_SKILLS) + svc.OTHER_REPLY + validate.GENERAL_TERMS
 
@@ -33,21 +33,21 @@ def test_echo_is_detected_only_when_the_reply_writes_the_name():
     assert not svc.echoes_person_name("호준이", "누구를 말씀하시는지 알려 주세요.", KNOWN)
 
 
-def test_guard_replaces_name_echo_with_fixed_question(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_guard_replaces_name_echo_with_fixed_question(monkeypatch, agent_path):  # noqa: F811
     _no_classic(monkeypatch)
     _agent(monkeypatch, [], [("호준이가 누구인지 알려 주세요.", "unrelated", "")])
     r = svc.handle("호준이", "s1", None, lambda req: pytest.fail("조회하면 안 된다"))
     assert r.reply == svc.PERSON_ASK and "호준" not in r.reply
 
 
-def test_guard_keeps_a_reply_without_the_name(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_guard_keeps_a_reply_without_the_name(monkeypatch, agent_path):  # noqa: F811
     _no_classic(monkeypatch)
     _agent(monkeypatch, [], [("누구를 말씀하시는지 알려 주세요.", "unrelated", "")])
     r = svc.handle("호준이", "s1", None, lambda req: pytest.fail("조회하면 안 된다"))
     assert r.reply == "누구를 말씀하시는지 알려 주세요."
 
 
-def test_memo_question_is_not_replaced_by_person_ask(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_memo_question_is_not_replaced_by_person_ask(monkeypatch, agent_path):  # noqa: F811
     """저장 메모를 묻는 문장이면 거래처 이름이 답에 나와도 이름 되풀이 막기가 나서지 않는다."""
     _no_classic(monkeypatch)
     _agent(monkeypatch, [], [("삼성 전화번호는 저장된 게 없어요.", "unrelated", "")])
@@ -94,7 +94,7 @@ def _run(monkeypatch, script, context=CONTEXT, screen=SCREEN):
     return r, seen, asked, done
 
 
-def test_own_vessel_position_call_is_rerouted_to_ask_cargo(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_own_vessel_position_call_is_rerouted_to_ask_cargo(monkeypatch, agent_path):  # noqa: F811
     r, seen, asked, done = _run(monkeypatch, [("get_live_position", {"mmsi": 440999001}),
                                               ("estimate_distance", {"lat": 34.9, "lng": 129.3, "sog": 12.4})])
     assert seen == [] and len(asked) == 1  # 위치·거리 도구는 실행하지 않았고 화물 질문이 한 번 돌았다
@@ -102,11 +102,11 @@ def test_own_vessel_position_call_is_rerouted_to_ask_cargo(monkeypatch, agent_pa
     assert r.kind == "cargo" and "부산 앞바다" in r.reply
 
 
-def test_other_vessel_is_not_rerouted(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_other_vessel_is_not_rerouted(monkeypatch, agent_path):  # noqa: F811
     _, seen, asked, _ = _run(monkeypatch, [("get_live_position", {"mmsi": 440999004})])
     assert seen == [("get_live_position", {"mmsi": 440999004})] and asked == []
 
 
-def test_no_cargo_on_screen_is_not_rerouted(monkeypatch, agent_path, web_off):  # noqa: F811
+def test_no_cargo_on_screen_is_not_rerouted(monkeypatch, agent_path):  # noqa: F811
     _, seen, asked, _ = _run(monkeypatch, [("get_live_position", {"mmsi": 440999001})], context=None)
     assert seen == [("get_live_position", {"mmsi": 440999001})] and asked == []

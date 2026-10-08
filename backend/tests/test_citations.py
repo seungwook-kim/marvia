@@ -1,4 +1,5 @@
 """근거 표시([E1]) 검증 테스트. 키 없이 돈다. services/citations.py의 규칙마다 통과·위반."""
+import inspect
 from datetime import datetime, timezone
 
 from backend.app.schemas.agent import Evidence
@@ -71,9 +72,9 @@ def test_container_number_masked():
     assert "ABCD1234567" not in build_evidence_list(cards)[0]["values"][0]["value"]
 
 
-def test_web_source_only_http_links():
-    ev = build_evidence_list([], [{"title": "t", "url": "javascript:alert(1)"}, {"title": "ok", "url": "https://a.kr/x"}])
-    assert len(ev) == 1 and ev[0]["source"] == "web" and ev[0]["url"] == "https://a.kr/x"
+def test_evidence_list_takes_cards_only():
+    """근거 목록은 도구가 준 근거 카드에서만 만든다. 외부 글(웹 결과)을 근거로 받는 자리는 없다."""
+    assert list(inspect.signature(build_evidence_list).parameters) == ["cards"]
 
 
 def test_strip_marks():

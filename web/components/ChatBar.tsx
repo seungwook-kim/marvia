@@ -52,15 +52,14 @@ function ChatAttachmentPreview({image}: {image: ChatImage}) {
 }
 
 /** 답 글 속 http(s) 주소를 누를 수 있는 링크로 바꾼다. 단 코드가 붙인 줄만이다 (LLM 문장 속 주소까지 링크로 만들면,
- * 도구 결과·서류 글에 심은 주소가 답에 옮겨지면 누를 수 있는 링크가 된다). 링크로 만드는 줄은 머리가 아래 셋과 "감시 화물에서 보기: "(사이트 안 경로, INTERNAL_LINK)인 줄뿐이다:
- *   "웹 참고: 제목 (주소)"            services/chat.py WEB_NOTE. 주소는 서버가 가져온 검색 결과에서만 온다
+ * 도구 결과·서류 글에 심은 주소가 답에 옮겨지면 누를 수 있는 링크가 된다). 링크로 만드는 줄은 머리가 아래 둘과 "감시 화물에서 보기: "(사이트 안 경로, INTERNAL_LINK)인 줄뿐이다:
  *   "확인처: ...", "진행 상황 직접 보기: ..."  services/referrals.py, 문구 원본은 skills/referrals/rules.md
  * 그 밖의 줄의 주소는 글자 그대로 둔다. 링크도 http·https만 만들고 새 탭으로 연다(noopener: 열린 쪽이 이 창을 못 건드리게).
  * 닫는 괄호는 주소에 넣지 않는다: "(https://...)"의 ")"가 주소 끝에 붙지 않게 */
 const URL_PATTERN = /(https?:\/\/[^\s)]+)/g;
 // "감시 화물에서 보기: [감시 화물](/watch)" (services/chat.py WATCH_PAGE_LINE). 사이트 안 경로만 받아 같은 탭에서 앱 안 이동으로 연다
 const INTERNAL_LINK = /\[([^\]\n]+)\]\((\/[a-z][a-z0-9\-/]*)\)/g;
-const LINK_LINE_PREFIXES = ['웹 참고: ', '확인처: ', '진행 상황 직접 보기: ', '감시 화물에서 보기: '];
+const LINK_LINE_PREFIXES = ['확인처: ', '진행 상황 직접 보기: ', '감시 화물에서 보기: '];
 function linkifyLine(line: string, key: number) {
   if (!LINK_LINE_PREFIXES.some(prefix => line.trimStart().startsWith(prefix))) return line;
   const out: ReactNode[] = [];
