@@ -283,6 +283,8 @@ def test_set_watch_on_seeds_cached_position_once(pos_cache):
     pos_cache.set("shipfinder:pos:440123456", _pos())
     svc.set_watch(conn, USER, BL, True)
     assert list(conn.positions) == [(440123456, datetime(2026, 10, 6, 3, tzinfo=timezone.utc))]
+    # 마지막 칸은 위치 출처 seed: 켤 때 저장해 둔(캐시) 위치라 몇 시간 전일 수 있다 (migrations/031, 10-08 사용자 결정)
+    assert next(iter(conn.positions.values()))[-1] == "seed"
     svc.set_watch(conn, USER, BL, True)  # 다시 켜도 같은 보고 시각은 한 줄
     svc.set_watch(conn, USER, BL, False)
     svc.set_watch(conn, USER, BL, True)

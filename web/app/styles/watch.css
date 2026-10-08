@@ -166,3 +166,11 @@
 .watch-pin.hovered .pin-body{transform:scale(1.18);box-shadow:0 0 0 4px color-mix(in srgb,var(--pin) 28%,transparent),0 3px 10px #191f2859}
 .track-hit{cursor:pointer}
 @media (prefers-reduced-motion: reduce){.watch-pin .pin-body{transition:none}}
+
+/* 지켜보기 버튼 때 넣은 위치(seed)의 핀·칩: 회색 채움(WatchMap VESSEL_COLOR) + 점선 바깥 테두리 (10-08 사용자 결정).
+   테두리 색은 글자 토큰(--text-2)이라 밝은·어두운 화면 모두 지도 위에서 보인다. 판정 테두리(outline, 4px)와 겹치지 않게 더 바깥에 둔다 */
+.watch-pin .pin-body.seeded{position:relative}
+.watch-pin .pin-body.seeded::after{content:'';position:absolute;inset:-10px;border:2px dashed var(--text-2);border-radius:50%;pointer-events:none}
+.watch-chip.seeded{outline:2px dashed var(--text-2);outline-offset:2px}
+.wm-legend{display:flex;align-items:center;gap:10px;margin:8px 0 0;font-size:var(--text-sm);color:var(--muted)}
+.wm-legend .wm-legend-pin{width:14px;height:14px;flex:none;border:0;box-shadow:none;background:#9ca3af}

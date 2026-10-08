@@ -831,14 +831,22 @@ export function getReplaySnapshot(requestId: string) {
 /** 번들 Natural Earth 지형. 지도 타일 서버를 부르지 않는다 (THIRD_PARTY.md). */
 export function getGeography() { return geography; }
 
+/** 위치 점을 넣은 길 (watch_positions.source, migrations/031, 10-08 사용자 결정).
+ * worker 정기 수집, aisstream 실시간 AIS, seed 지켜보기를 켤 때 저장해 둔 위치(몇 시간 전일 수 있다), lookup 화물 조회 때 받은 위치.
+ * 출처 칸이 생기기 전 줄은 null(모름)이다 */
+export type PositionSource = 'worker' | 'aisstream' | 'seed' | 'lookup';
 /** 감시·지도 화면의 화물 한 건 (docs/specs/cargo-watch.md). 위치는 worker가 6시간마다 모은 마지막 값이다 */
 export interface WatchItem {
   bl_masked: string; label: string | null; ship_name: string; status: 'active' | 'done';
   verdict: 'fine' | 'watch' | 'act' | null; stage: string | null; eta: string | null; days_margin: number | null;
   /** 위치는 수집 전이면 null이다. 지도는 위치 있는 화물만 그린다 */
   lat: number | null; lng: number | null; cog: number | null; sog: number | null; position_at: string | null;
+  /** 마지막 점(현재 위치)의 출처. 서버 목록에만 있다. 옛 줄·체험 예시는 null 또는 없음 */
+  position_source?: PositionSource | null;
   /** 6시간마다(또는 조회할 때마다) 저장한 위치 이력, 오래된 순. 마지막 점이 현재 위치(lat·lng)와 같다 */
-  track?: {lat: number; lng: number; at: string; sog: number | null}[];
+  track?: {lat: number; lng: number; at: string; sog: number | null; source?: PositionSource | null}[];
+  /** 이 화물의 배 번호(MMSI). 배가 정해지지 않았으면 null. 같은 배를 배만 지켜보기로도 켰으면 지도가 핀 하나로 접는다 (lib/watchMerge.ts) */
+  vessel_mmsi?: number | null;
   /** 서버 목록에만 있는 칸: 화물 지문, UNI-PASS 품명, 배 국적 */
   cargo_key?: string; goods_name?: string | null; ship_flag?: string | null;
   /** 서버 목록에만 있는 칸 (10-08 QA E1-1·E1-9, services/watch.watch_list). auto_paused: 잇달아 실패해 자동 확인을 멈췄다

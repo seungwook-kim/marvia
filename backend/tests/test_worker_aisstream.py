@@ -141,6 +141,8 @@ def test_handle_message_inserts_with_collector_sql_once():
     assert aisstream.handle_message(conn, MSG, {MMSI}, FETCHED) is False  # 같은 보고는 한 줄
     assert conn.sql == [INSERT_WATCH_POSITION, INSERT_WATCH_POSITION]
     assert len(conn.inserted) == 1
+    # 저장 줄은 8칸 위치 + 마지막 칸 위치 출처 'aisstream' (migrations/031, 10-08 사용자 결정)
+    assert len(conn.inserted[0]) == 9 and conn.inserted[0][8] == "aisstream"
     assert aisstream.handle_message(conn, MSG, set(), FETCHED) is False  # 지켜보지 않으면 DB를 부르지 않는다
     assert len(conn.sql) == 2
 

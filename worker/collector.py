@@ -173,9 +173,14 @@ SELECT c.mmsi FROM (SELECT vessel_mmsi AS mmsi FROM user_cargo
 LEFT JOIN (SELECT mmsi, max(fetched_at) AS last FROM watch_positions GROUP BY mmsi) w ON w.mmsi = c.mmsi
 ORDER BY w.last NULLS FIRST
 """
+# 마지막 칸 source는 그 점을 넣은 길이다 (migrations/031, 10-08 사용자 결정): 이 정기 수집은 SOURCE_WORKER,
+# worker/aisstream.py는 'aisstream'. backend/app/services/watch.py INSERT_WATCH_POSITION(켤 때 첫 점 'seed')과
+# services/cargo._keep_position('lookup')도 같은 칸 순서다. 칸을 바꾸면 네 곳을 같이 고친다.
+# 같은 (mmsi, ts)는 먼저 넣은 쪽 출처가 남는다 (ON CONFLICT DO NOTHING)
+SOURCE_WORKER = "worker"
 INSERT_WATCH_POSITION = """
-INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat, source)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (mmsi, ts) DO NOTHING
 """
 
@@ -203,7 +208,8 @@ def collect_watch_positions(conn, sf: ShipFinderClient, budget: Budget, now: dat
         if ts is None:
             failed.append({"mmsi": mmsi, "code": dropped})  # 언제·어디인지 믿을 수 없으면 경로에 넣지 않는다
             continue
-        cur = conn.execute(INSERT_WATCH_POSITION, (p.mmsi, ts, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat))
+        cur = conn.execute(INSERT_WATCH_POSITION,
+                           (p.mmsi, ts, p.fetched_at, p.lat, p.lng, p.sog, p.cog, p.navistat, SOURCE_WORKER))
         saved += _inserted(cur)
     return {"watched": len(mmsis), "watch_positions_new": saved, "watch_positions_failed": failed}
 

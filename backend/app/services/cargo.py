@@ -293,6 +293,9 @@ def upsert_assessment(conn, user_id: str, request: AgentRequest, response: Agent
     return True
 
 
+POSITION_SOURCE_LOOKUP = "lookup"  # 화물 조회 때 받은 위치 (watch_positions.source, migrations/031)
+
+
 def _keep_position(conn, mmsi: int | None, response: AgentResponse) -> None:
     """이번 조회에서 받은 배 위치를 위치 이력(watch_positions)에 한 점 쌓는다.
 
@@ -308,10 +311,12 @@ def _keep_position(conn, mmsi: int | None, response: AgentResponse) -> None:
     ts = usable_position_time(pos.last_time)
     if ts is None or (pos.lat == 0 and pos.lng == 0):
         return
+    # 마지막 칸 source는 위치 출처 'lookup' (migrations/031, 10-08 사용자 결정). 칸 순서는 worker/collector.py와
+    # services/watch.py의 INSERT_WATCH_POSITION과 같다. 칸을 바꾸면 같이 고친다
     conn.execute(
-        """INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat)
-           VALUES (%s, %s, now(), %s, %s, %s, %s, %s) ON CONFLICT (mmsi, ts) DO NOTHING""",
-        [mmsi, ts, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat],
+        """INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat, source)
+           VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s) ON CONFLICT (mmsi, ts) DO NOTHING""",
+        [mmsi, ts, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat, POSITION_SOURCE_LOOKUP],
     )
 
 

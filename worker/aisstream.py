@@ -14,6 +14,7 @@
    범위는 rules.md aisstream_bbox_busan(기본) 또는 aisstream_bbox_wide(AISSTREAM_BBOX=wide)
 3. PositionReport가 오면 순수 함수 parse_position으로 한 줄을 만들고
    worker/collector.INSERT_WATCH_POSITION과 같은 SQL로 넣는다. 같은 (mmsi, ts)는 한 줄 (UNIQUE 제약)
+   위치 출처 칸(source)에는 SOURCE('aisstream')를 적는다 (migrations/031, 10-08 사용자 결정)
 4. rules.md aisstream_refresh_minutes마다 지켜보는 배 목록을 다시 읽고, 바뀌었으면 다시 붙어 구독을 갈아 낀다
 끊기면 지수 백오프로 다시 붙는다. 어떤 예외에도 프로세스를 죽이지 않는다. 로그에는 오류 종류만 남긴다(키·메시지 원문 금지).
 
@@ -180,7 +181,8 @@ def handle_message(conn, raw: Any, watched: set[int], fetched_at: datetime | Non
     row = parse_position(raw, watched, fetched_at or datetime.now(timezone.utc))
     if row is None:
         return False
-    cur = conn.execute(INSERT_WATCH_POSITION, row)
+    # 마지막 칸은 위치 출처 SOURCE('aisstream', migrations/031, 10-08 사용자 결정). parse_position은 8칸 그대로 두고 여기서 붙인다
+    cur = conn.execute(INSERT_WATCH_POSITION, (*row, SOURCE))
     return (getattr(cur, "rowcount", 0) or 0) > 0
 
 

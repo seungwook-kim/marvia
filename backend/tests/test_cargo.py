@@ -265,6 +265,8 @@ def test_upsert_keeps_position_point_for_watch_map(bl_key):
     inserts = [(sql, params) for sql, params in conn.calls if "INSERT INTO watch_positions" in sql]
     assert len(inserts) == 1 and "ON CONFLICT (mmsi, ts) DO NOTHING" in inserts[0][0]
     assert inserts[0][1][:2] == [440999901, NOW] and 34.5 in inserts[0][1]
+    # 마지막 칸은 위치 출처 lookup (화물 조회 때 받은 위치, migrations/031, 10-08 사용자 결정)
+    assert "navistat, source)" in inserts[0][0] and inserts[0][1][-1] == "lookup"
 
 
 def test_no_position_point_without_confirmed_vessel(bl_key):

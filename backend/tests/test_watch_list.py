@@ -42,9 +42,11 @@ class FakeConn:
         return Cur()
 
 
-def _points(n):
-    """최신이 먼저 오는 위치 n개 (DB의 ORDER BY ts DESC 모양). 6시간 간격"""
-    return [(NOW - timedelta(hours=6 * i), 34.0 + i * 0.1, 128.0 - i * 0.1, 12.5, 60.0) for i in range(n)]
+def _points(n, latest_source="worker"):
+    """최신이 먼저 오는 위치 n개 (DB의 ORDER BY ts DESC 모양). 6시간 간격.
+    마지막 칸은 위치 출처(migrations/031). 최신 점만 latest_source, 나머지는 정기 수집(worker)이다"""
+    return [(NOW - timedelta(hours=6 * i), 34.0 + i * 0.1, 128.0 - i * 0.1, 12.5, 60.0,
+             latest_source if i == 0 else "worker") for i in range(n)]
 
 
 def test_list_has_screen_shape_and_last_point_is_current_position():
@@ -93,6 +95,25 @@ def test_route_returns_list_for_logged_in_user(monkeypatch):
         r = c.get("/api/watch", headers=headers)
     assert r.status_code == 200 and r.json()["items"][0]["bl_masked"] == "MOC*******1006"
     assert conn.calls[0][1] == ["user-123"]  # 출입증의 사용자 것만 읽는다
+
+
+def test_track_points_and_item_carry_position_source():
+    """점마다 출처(source)가 붙고, 줄의 position_source는 마지막 점(현재 위치)의 출처다 (10-08 사용자 결정, migrations/031).
+    vessel_mmsi는 화면이 같은 배의 배만 지켜보기 줄을 접는 데 쓴다"""
+    conn = FakeConn([_cargo_row()], {MMSI: _points(3, latest_source="seed")})
+    item = svc.watch_list(conn, "u1")["items"][0]
+    assert [p["source"] for p in item["track"]] == ["worker", "worker", "seed"]
+    assert item["position_source"] == "seed" and item["vessel_mmsi"] == MMSI
+    sql = next(s for s, _ in conn.calls if "FROM watch_positions" in s)
+    assert "SELECT ts, lat, lng, sog, cog, source FROM watch_positions" in sql
+
+
+def test_position_source_null_for_old_rows_and_missing_position():
+    """출처 칸이 생기기 전 줄(NULL)은 None 그대로, 위치가 없으면 position_source도 None"""
+    conn = FakeConn([_cargo_row(), _cargo_row(cargo_key="k2", vessel_mmsi=None)], {MMSI: _points(1, latest_source=None)})
+    items = {i["cargo_key"]: i for i in svc.watch_list(conn, "u1")["items"]}
+    assert items["k1"]["position_source"] is None and items["k1"]["track"][0]["source"] is None
+    assert items["k2"]["position_source"] is None and items["k2"]["vessel_mmsi"] is None
 
 
 def test_list_marks_unknown_vessel_and_paused_cargo():

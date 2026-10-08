@@ -311,7 +311,7 @@ def test_watch_positions_saved_for_active_cargo_vessels():
     assert result["watched"] == 2 and result["watch_positions_new"] == 1
     assert result["watch_positions_failed"] == [{"mmsi": 999, "code": "not_found"}]
     assert conn.inserted[0][0] == 440000001 and conn.inserted[0][3:5] == (34.6, 128.9)  # 원본·목적지 글은 넣지 않는다
-    assert len(conn.inserted[0]) == 8
+    assert len(conn.inserted[0]) == 9 and conn.inserted[0][8] == "worker"  # 마지막 칸은 위치 출처 (migrations/031)
 
 
 def test_watch_positions_stop_when_budget_runs_out():
@@ -382,3 +382,30 @@ def test_migration_028_fixes_vessel_detail_usage_window_and_adds_watch_columns()
                 "eta_changed_from", "eta_changed_to", "eta_change_hours"):
         assert f"ADD COLUMN IF NOT EXISTS {col}" in sql
     assert path.name > "025_vessel_detail_usage_purge.sql"  # 025 뒤에 적용돼 함수를 덮는다
+
+
+# ── 위치 출처 (migrations/031, 10-08 사용자 결정) ──
+
+def test_migration_031_adds_nullable_source_with_check():
+    """watch_positions.source: NULL 허용(옛 줄은 출처 모름), 네 값만 받는 CHECK. UNIQUE (mmsi, ts)는 건드리지 않는다"""
+    from backend.app.db import MIGRATIONS_DIR
+    sql = " ".join((MIGRATIONS_DIR / "031_watch_positions_source.sql").read_text(encoding="utf-8").split())
+    assert "ALTER TABLE watch_positions ADD COLUMN IF NOT EXISTS source TEXT;" in sql  # NOT NULL이 아니다
+    assert "CHECK (source IN ('worker', 'aisstream', 'seed', 'lookup'))" in sql
+    assert "DROP CONSTRAINT IF EXISTS watch_positions_source_check" in sql  # 다시 적용해도 같은 결과
+    assert "DROP CONSTRAINT IF EXISTS watch_positions_mmsi_ts_key" not in sql  # UNIQUE (mmsi, ts)는 그대로
+
+
+def test_all_watch_position_inserts_share_columns_and_keep_first_writer():
+    """네 넣는 곳(정기 수집·aisstream·켤 때 첫 점·조회)이 같은 칸 순서로 source를 적고, 먼저 넣은 쪽 출처를 남긴다"""
+    import inspect
+
+    from backend.app.services import cargo as cargo_svc
+    from backend.app.services import watch as watch_svc
+    from worker import collector
+    cols = "INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat, source)"
+    keep = " ".join(inspect.getsource(cargo_svc._keep_position).split())
+    for sql in (collector.INSERT_WATCH_POSITION, watch_svc.INSERT_WATCH_POSITION, keep):
+        flat = " ".join(sql.split())
+        assert cols in flat and "ON CONFLICT (mmsi, ts) DO NOTHING" in flat
+    assert (collector.SOURCE_WORKER, watch_svc.SOURCE_SEED, cargo_svc.POSITION_SOURCE_LOOKUP) == ("worker", "seed", "lookup")
