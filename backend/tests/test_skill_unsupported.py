@@ -9,7 +9,7 @@ SKILLS = llm.skills_reference(llm.CHAT_AGENT_SKILLS)
 
 # (a) 실제 사례: 모델 지식을 Skill 답처럼 낸 것. 걸려야 한다
 CASE_Q = "B/L도 없고 포워더는 연락이 안 되는데 뭘 할 수 있을까?"
-CASE_A = ("포워더와 연락이 닿지 않을 때는 포워더가 발행한 선하증권 사본이나 화물 인도증을 찾아 그 안에 적힌 선박 이름과 항차, 선사 이름을 확인한 뒤 "
+CASE_A = ("포워더와 연락이 닿지 않을 때는 포워더가 발행한 선하증권 사본이나 화물 인도증을 찾아 그 안에 적힌 선박 이름과 항차, 선사 이름을 확인한 뒤 공증된 위임장 원본을 챙겨 "
           "선사 고객센터나 부산항만공사 안내를 통해 화물의 도착 일정과 양륙 터미널을 직접 조회할 수 있습니다.")
 
 # (b) 실제 Skill 문장을 공손하게 바꿔 쓴 답. 걸리면 안 된다
@@ -28,7 +28,7 @@ GENUINE = [
 def test_real_case_is_flagged():
     terms = validate.skill_unsupported_terms(CASE_A, SKILLS, CASE_Q)
     # Kiwi는 "인도증"을 인도+증으로 나눈다. 1글자 "증"은 세지 않고, "인도"는 일반 용어 "인도지시서"의 조각이라 허용된다.
-    # 그래서 이 답은 인도증이 아니라 Skill에 없는 다른 명사(발행·사본·고객·센터)로 걸린다
+    # 그래서 이 답은 인도증이 아니라 Skill에 없는 다른 명사(사본·공증·위임장 등)로 걸린다. 발행·고객·센터는 import-basics에 있어 세지 않는다
     assert "사본" in terms and len(terms) >= validate.UNSUPPORTED_MIN
     assert validate.skill_unsupported(CASE_A, SKILLS, CASE_Q)
 

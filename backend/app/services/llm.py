@@ -673,11 +673,13 @@ class LLMAnswer:
 #   customs-stages   통관 단계 목록(rules.md)과 해설법
 #   port-busan       부두 이름 뜻, 하역 장소 문장, 부산 기준값
 #   cargo-verdict    등급 판정 표(rules.md), 등급 뜻·결과 설명법·되묻기와 실패 결과 설명법
+#   import-basics   소규모 수입자의 실무 질문(B/L 번호, A/N, 반출, 보관료, 직접 신고)과 공식 출처. 채팅 · 후속 질문에만 넣는다
 AIS, CUSTOMS, PORT, VERDICT = "ais-reliability", "customs-stages", "port-busan", "cargo-verdict"
+IMPORT = "import-basics"
 ALL_SKILLS = (AIS, CUSTOMS, PORT, VERDICT)
 JUDGE_SKILLS = (AIS, CUSTOMS, VERDICT)  # 신호 읽기 · 통관 해설 · 등급 설명. 판정 입력에 부두 · 하역 장소가 없어 부두 Skill은 안 넣는다
 PICK_SKILLS = (AIS,)                    # 동명 선박 · 후보 판단. 통관 · 부두 · 등급은 쓰지 않는다
-FOLLOW_UP_SKILLS = ALL_SKILLS           # 이전 응답 전체(등급 · 통관 · 하역 장소 · 되묻기 문구 포함)를 근거로 답하므로 전부
+FOLLOW_UP_SKILLS = ALL_SKILLS + (IMPORT,)  # 이전 응답 전체(등급 · 통관 · 하역 장소 · 되묻기 문구 포함)를 근거로 답하므로 전부. 실무 질문용 import-basics도 더한다
 GRADE_SKILLS = (CUSTOMS,)               # 통관 해설 채점은 통관 단계 목록(customs-stages/rules.md)만 기준으로 한다 (평가 때만)
 
 
@@ -1464,7 +1466,7 @@ def route_chat(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
 # Skill 문서를 통째로 넣는다: 도구가 필요 없는 실무 질문은 이 문서 안에서만 답하게 한다 (RAG 아님).
 
 CHAT_AGENT_PROMPT = "marvia-chat-agent"
-CHAT_AGENT_SKILLS = ALL_SKILLS  # 되묻기 설명법(cargo-verdict), 통관 단계, AIS, 부두를 모두 물을 수 있다
+CHAT_AGENT_SKILLS = FOLLOW_UP_SKILLS  # 되묻기 설명법(cargo-verdict), 통관 단계, AIS, 부두, 수입 실무 기초를 모두 물을 수 있다
 # 도구 없이 답할 때의 근거 칸: 실무 질문 답에 Skill 문서에 없는 조언("판매처에 문의")이 섞여 나올 수 있는데,
 # 숫자·영문·옮긴 낱말만 보는 V7·V9·V10으로는 못 잡는다. 그래서 답의 종류(answer_kind)와 근거 문장(skill_quote)을 받는다.
 #   skill: Skill 문서로 답했다. skill_quote는 그 답을 받치는 Skill 문서 원문 한 조각이고, 코드가 원문에 그대로 있는지 본다 (validate V14)

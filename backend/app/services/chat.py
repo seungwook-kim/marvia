@@ -57,6 +57,8 @@ def is_cargo_ship(ship_kind: str | None, purpose: str | None) -> bool:
     return ship_kind in rules["cargo_ship_kinds"] and purpose in rules["cargo_purposes"]
 MESSAGE_MAX = 500          # 입력 문장 상한 (EC-07)
 DAYS_DEFAULT, DAYS_MAX = 7, 14  # 입항 예정 검색 기간. 해수부 한 번 조회가 20쪽까지라 길게 잡지 않는다
+# 모델이 Skill 파일 이름을 출처처럼 답 끝에 적은 꼬리표("[SKILL 2]", "[skills/...]"). 근거 표시는 코드가 다는 [E#]뿐이라 지운다
+SKILL_TAG = re.compile(r"\s*\[(?:SKILL|Skill|skill|skills/)[^\]\n]{0,40}\]")
 # B/L 구분을 말하지 않으면 None으로 넘긴다. 판정 흐름이 하우스, 마스터 순서로 둘 다 조회하고 찾은 쪽을 알려 준다
 # (routers/agent._fetch_customs)
 CACHE_SEC = 600            # 같은 기간 입항 예정은 10분 동안 다시 받지 않는다
@@ -1976,6 +1978,7 @@ def _agent(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, 
     signals: dict = {}
     result = _agent_turn(masked, refs, mrn, session_id, context, run_agent, user_id, history, run_tool, today, watch, signals, kakao, on_screen)
     result = replace(result, reply=hide_bl_tokens(result.reply, signals.get("refs") or refs))
+    result = replace(result, reply=SKILL_TAG.sub("", result.reply).strip())
     result = _with_citations(result, signals)  # 뒤에 붙는 코드 문장(지켜보기·카톡·제안)은 모두 글 끝에 더해지므로 표시 자리는 그대로 맞다
     done_docs = signals.get("docs") or {}
     if done_docs.get("msg") and done_docs["msg"] not in result.reply:

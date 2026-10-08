@@ -134,6 +134,7 @@ marvia/
     port-busan/             부산 기준점·반경·항구 코드, 관제 이벤트 종류, 입항 추세·aisstream 설정 (+ cargo-vessels.md)
     cargo-verdict/          2층 등급 판정 표 재료
     referrals/              확인처(안내처) 문장·주소, 범위 밖 주제
+    import-basics/          수입 실무 기초 FAQ와 공식 출처. SKILL.md만 있고 채팅·후속 질문에만 들어간다
   worker/
     run.py                  진입점. 해수부·위치 수집 + (WATCH_ENABLED면) 지켜보는 화물 재판정 + 오래된 행 정리
     collector.py            해수부 입항 신고·관제 이벤트, 추적 대상 위치, 지켜보는 배 위치 수집

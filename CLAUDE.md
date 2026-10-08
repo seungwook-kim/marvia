@@ -99,7 +99,7 @@ marvia/
   relay/                해수부 API 릴레이 (서울 Cloud Run, FastAPI). 해외 서버에서 해수부 연결이 막혀서 둔다
   mcp_server/           server.py(FastMCP, /mcp, Bearer 토큰), auth.py, tools/(도구 4종), schemas.py(C4), tests/
   worker/               collector.py(위치·입항 실적 수집), watch.py(지켜보는 화물 재판정), aisstream.py(시험 수집, 기본 꺼짐), run.py
-  skills/               폴더마다 SKILL.md + rules.md. ais-reliability/, customs-stages/, port-busan/, cargo-verdict/, referrals/
+  skills/               폴더마다 SKILL.md + rules.md(import-basics/는 SKILL.md만). ais-reliability/, customs-stages/, port-busan/, cargo-verdict/, referrals/, import-basics/
   evals/                schema.py(C7), dataset.jsonl, doc_dataset.jsonl, fixtures/, results/, baseline_rules.py, run_eval.py,
                         judge.py, contract_rate.py, push_dataset.py, replay_fixtures.py
   web/                  Next.js 16. Railway marvia-web이 빌드하므로 compose 밖

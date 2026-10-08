@@ -679,3 +679,26 @@ def test_cargo_summary_drops_injection_like_names():
     assert svc._cargo_summary(_response(status="ok", answer="a", customs=info))["customs"] == \
         {"forwarder_name": None, "carrier_name": "테스트선사(주)", "goods_name": None}
     assert "customs" not in svc._cargo_summary(_response(status="ok", answer="a"))  # 통관 정보가 없으면 칸도 없다
+
+
+# ── import-basics Skill (채팅 근거) 와 Skill 꼬리표 지우기 ──
+
+IMPORT_QUOTE = "못 받았으면 B/L에 적힌 선사나 포워더에 직접 전화해 받으라고 안내한다"
+
+
+def test_import_basics_quote_is_found_in_chat_skills():
+    """채팅 Skill 원문에 import-basics가 들어 있어 V14가 그 문장을 근거로 인정한다."""
+    assert validate.quote_found(IMPORT_QUOTE, llm.skills_reference(llm.CHAT_AGENT_SKILLS))
+
+
+def test_import_basics_answer_is_shown(monkeypatch):
+    reply = "도착통지서를 못 받았다면 B/L에 적힌 선사나 포워더에 직접 전화해 받아 보세요."
+    _agent(monkeypatch, [], [(reply, "skill", IMPORT_QUOTE)])
+    assert svc.handle("A/N 도착통지서 못 받으면 어떻게 해?", "s1", None, lambda req: None).reply == reply
+
+
+def test_model_written_skill_tag_is_removed(monkeypatch):
+    reply = "도착통지서를 못 받았다면 B/L에 적힌 선사나 포워더에 직접 전화해 받아 보세요"
+    _agent(monkeypatch, [], [(reply + " [SKILL 2] [skills/import-basics/SKILL.md].", "skill", IMPORT_QUOTE)])
+    r = svc.handle("A/N 도착통지서 못 받으면 어떻게 해?", "s1", None, lambda req: None)
+    assert "[SKILL" not in r.reply and "[skills/" not in r.reply and reply in r.reply
