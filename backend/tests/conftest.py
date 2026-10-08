@@ -55,3 +55,16 @@ def _chat_agent_breaker_closed():
     chat._agent_breaker.reset()
     yield
     chat._agent_breaker.reset()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_vessel_search_caches():
+    """입항 예정 목록·항구 고르기 캐시(services/chat._plans_cache, _ports_cache)를 테스트마다 비운다 (10-08).
+    10분짜리 프로세스 메모리 캐시라, 앞 테스트가 같은 지역을 물었으면 뒤 테스트가 그 답을 그대로 받아
+    테스트 순서에 따라 결과가 달라졌다(test_chat_agent를 test_chat보다 먼저 돌리면 항구 고르기 테스트가 깨짐)."""
+    from backend.app.services import chat  # noqa: PLC0415 - 이 픽스처에서만 쓴다
+    chat._plans_cache.clear()
+    chat._ports_cache.clear()
+    yield
+    chat._plans_cache.clear()
+    chat._ports_cache.clear()

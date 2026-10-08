@@ -302,10 +302,16 @@ def _keep_position(conn, mmsi: int | None, response: AgentResponse) -> None:
     pos = response.position
     if not mmsi or pos is None:
         return
+    # 수집 워커·aisstream·켤 때 첫 점과 같은 규칙 (10-08 QA E1-6): 미래 시각 보고와 (0,0) 좌표는 버리고 시각은 초 단위로.
+    # 맨 위에서 부르면 watch가 cargo를 부르는 순환이 된다
+    from backend.app.services.watch import usable_position_time
+    ts = usable_position_time(pos.last_time)
+    if ts is None or (pos.lat == 0 and pos.lng == 0):
+        return
     conn.execute(
         """INSERT INTO watch_positions (mmsi, ts, fetched_at, lat, lng, sog, cog, navistat)
            VALUES (%s, %s, now(), %s, %s, %s, %s, %s) ON CONFLICT (mmsi, ts) DO NOTHING""",
-        [mmsi, pos.last_time, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat],
+        [mmsi, ts, pos.lat, pos.lng, pos.sog, pos.cog, pos.navistat],
     )
 
 

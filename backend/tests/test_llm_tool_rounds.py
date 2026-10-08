@@ -108,7 +108,9 @@ def test_call_once_times_out_even_if_connection_stays_alive(monkeypatch):
         llm._call_once({"model": "openai/gpt-4o-mini", "messages": []})
     assert time.monotonic() - start < 1.0
     assert info.value.kind == "timeout" and not info.value.retryable
-    assert 100 <= info.value.latency_ms < 1000
+    # 하한 80ms: Windows 타이머 단위(약 15.6ms) 때문에 0.1초 대기가 93ms 근처에서 끝날 수 있다 (10-08, 가끔 깨지던 원인).
+    # "상한만큼 기다린 뒤 끊었다"는 뜻은 그대로다
+    assert 80 <= info.value.latency_ms < 1000
 
 
 def test_call_once_still_reraises_sdk_errors(monkeypatch):

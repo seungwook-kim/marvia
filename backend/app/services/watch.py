@@ -528,9 +528,14 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, str
     bl_no = crypto.decrypt(bl_encrypted) if bl_encrypted else None
     if bl_no is None:  # 잠근 값이 비었거나 열쇠가 바뀌어 못 연다. 원문 없이는 조회할 수 없다
         raise WatchError("no_bl")
+    from backend.app.routers.agent import is_released, previous_eta, sale_due_out_of_range, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
+
+    # 범위 검사(10-08 QA B2)가 생기기 전에 저장된 터무니없는 판매 예정일(예: 1900-01-01)은 재판정에 쓰지 않는다.
+    # 사용자 조회는 그런 날짜를 되묻지만, 워커는 _assess를 바로 불러 그 검사를 거치지 않는다. 날짜 없이 배 상태로만 판정한다
+    if sale_due_out_of_range(sale_due):
+        sale_due = None
     request = AgentRequest(bl_no=bl_no, bl_type=bl_type, sale_due_date=sale_due, forwarder_eta=forwarder_eta,
                            voyage_no=voyage_no, resolved_mmsi=mmsi, session_id=f"watch-{now:%Y%m%d}")
-    from backend.app.routers.agent import is_released, previous_eta, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
 
     # 지켜보기 재판정도 그 사용자의 LLM 사용량이다 (docs/specs/token-quota.md).
     # user_id를 넘겨야 토큰이 그 사람 몫으로 쌓이고 Langfuse 트레이스에도 user_id가 붙는다 (SDD 5.11).
