@@ -41,17 +41,20 @@ const bases = (watchMap as {items: Base[]}).items;
 
 /** 배마다 다른 항로(육지를 가로지르지 않게 바다 경유점을 둔다)와 속도(노트). 서쪽에서 오는 배는 제주 남쪽을 돌아 들어온다 */
 const JEJU_S = {lat: 33.0, lng: 126.6}, KOREA_STRAIT = {lat: 34.55, lng: 128.75}, EAST_SEA = {lat: 36.6, lng: 130.2};
+// 일본에서 오는 배는 시코쿠·규슈 남쪽(다네가시마·야쿠시마 남쪽)을 돌아 고토 열도 서쪽으로 올라와 대한해협 서수도로 들어온다.
+// 예전 경유점은 규슈·쓰시마 위를, 타이완·샤먼발은 타이완·푸젠 해안 위를 가로질렀다 (10-09, 레포 해안선으로 점검)
+const KYUSHU_S: Pt[] = [{lat: 32.4, lng: 133.0}, {lat: 30.0, lng: 131.3}, {lat: 29.9, lng: 130.3}, {lat: 30.6, lng: 129.5}, {lat: 31.8, lng: 128.6}, {lat: 33.0, lng: 128.2}, KOREA_STRAIT];
 const ROUTES: {from: string; way: Pt[]; kn: number}[] = [
   {from: '칭다오', way: [{lat: 35.6, lng: 121.2}, {lat: 33.6, lng: 124.8}, JEJU_S, KOREA_STRAIT], kn: 14},
   {from: '상하이', way: [{lat: 31.0, lng: 122.6}, {lat: 32.2, lng: 125.0}, JEJU_S, KOREA_STRAIT], kn: 18},
   {from: '닝보', way: [{lat: 29.9, lng: 122.6}, {lat: 31.5, lng: 125.2}, JEJU_S, KOREA_STRAIT], kn: 16},
   {from: '다롄', way: [{lat: 38.6, lng: 122.0}, {lat: 36.5, lng: 123.6}, {lat: 33.8, lng: 125.0}, JEJU_S, KOREA_STRAIT], kn: 12},
-  {from: '가오슝', way: [{lat: 22.8, lng: 120.0}, {lat: 26.5, lng: 122.2}, {lat: 30.5, lng: 125.0}, JEJU_S, KOREA_STRAIT], kn: 21},
-  {from: '샤먼', way: [{lat: 24.3, lng: 118.4}, {lat: 26.8, lng: 121.0}, {lat: 30.0, lng: 124.5}, JEJU_S, KOREA_STRAIT], kn: 20},
-  {from: '오사카', way: [{lat: 33.9, lng: 135.0}, {lat: 33.1, lng: 133.0}, {lat: 32.9, lng: 130.6}, {lat: 34.0, lng: 129.6}], kn: 13},
+  {from: '가오슝', way: [{lat: 22.55, lng: 120.1}, {lat: 23.5, lng: 119.2}, {lat: 25.2, lng: 120.1}, {lat: 26.6, lng: 121.4}, {lat: 30.5, lng: 125.0}, JEJU_S, KOREA_STRAIT], kn: 21},
+  {from: '샤먼', way: [{lat: 24.2, lng: 118.6}, {lat: 25.2, lng: 120.1}, {lat: 26.6, lng: 121.4}, {lat: 30.0, lng: 124.5}, JEJU_S, KOREA_STRAIT], kn: 20},
+  {from: '오사카', way: [{lat: 34.3, lng: 135.0}, {lat: 33.0, lng: 134.3}, ...KYUSHU_S], kn: 13},
   {from: '블라디보스토크', way: [{lat: 42.6, lng: 132.0}, {lat: 39.5, lng: 131.4}, EAST_SEA], kn: 15},
   {from: '톈진', way: [{lat: 38.8, lng: 118.3}, {lat: 38.3, lng: 121.0}, {lat: 37.3, lng: 123.0}, {lat: 34.5, lng: 124.6}, JEJU_S, KOREA_STRAIT], kn: 19},
-  {from: '도쿄', way: [{lat: 34.9, lng: 139.9}, {lat: 33.6, lng: 136.5}, {lat: 32.8, lng: 132.0}, {lat: 33.9, lng: 129.8}], kn: 11},
+  {from: '도쿄', way: [{lat: 34.9, lng: 139.9}, {lat: 34.3, lng: 139.2}, {lat: 33.1, lng: 136.0}, ...KYUSHU_S], kn: 11},
 ];
 /** 부산 안에서 배마다 다른 정박 자리 (같은 점에 겹치지 않게) */
 const BERTHS: Pt[] = [{lat: 35.10, lng: 129.04}, {lat: 35.06, lng: 129.13}, {lat: 35.12, lng: 128.98}, {lat: 35.03, lng: 129.07},
@@ -73,15 +76,84 @@ function along(path: Pt[], d: number): Pt {
   return path[path.length - 1];
 }
 
+// ---------- 실제 배처럼 보이게 (10-09 사용자 지적: 배가 너무 반듯하게 일자로 온다) ----------
+// 예전에는 경유점 사이를 직선·일정 속도로만 옮겨 자로 그은 듯 보였다. 아래 셋을 더한다. 값은 배 번호(seed)로 정해져 같은 칸이면 늘 같은 위치다
+//  1) 경유점을 Catmull-Rom 곡선으로 이어 부드럽게 꺾는다
+//  2) 배마다 다른 작은 좌우 흔들림(최대 약 0.07도, 약 4해리). 출발·도착 근처에서는 0으로 줄여 항구·해안에 걸리지 않게 한다
+//  3) 칸마다 속도가 85~110% 사이로 달라진다. 진행 방향(cog)은 실제로 움직인 방향으로 계산한다
+//  4) 일부 배는 접안 전에 부산 앞 묘박지에서 몇 칸 기다린다(속력 0). 실제로 흔한 일이고, 화면의 묘박 대기 안내와도 맞는다
+
+/** 부산 앞 묘박지(남쪽 바다). 배마다 조금씩 다른 자리에 닻을 내린다 */
+const ANCHORAGE: Pt = {lat: 34.97, lng: 129.02};
+const WOBBLE_DEG = 0.07;
+
+/** 같은 입력이면 늘 같은 0~1 값 (배 번호·칸 번호로 흔들림·속도를 정한다) */
+function noise(a: number, b: number) {
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** 경유점을 Catmull-Rom 곡선으로 촘촘히 이은 점들. 경유점은 그대로 지난다 */
+function smooth(way: Pt[], per = 10): Pt[] {
+  if (way.length < 3) return way;
+  const out: Pt[] = [];
+  for (let k = 0; k < way.length - 1; k++) {
+    const p0 = way[Math.max(0, k - 1)], p1 = way[k], p2 = way[k + 1], p3 = way[Math.min(way.length - 1, k + 2)];
+    for (let s = 0; s < per; s++) {
+      const t = s / per, t2 = t * t, t3 = t2 * t;
+      const f = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push({lat: f(p0.lat, p1.lat, p2.lat, p3.lat), lng: f(p0.lng, p1.lng, p2.lng, p3.lng)});
+    }
+  }
+  out.push(way[way.length - 1]);
+  return out;
+}
+
+/** 한 번의 항해. 칸 k에서의 위치·속력·방향을 준다. leg는 묘박 대기까지 넣은 항해 칸 수 */
+function voyage(way: Pt[], berth: Pt, kn: number, seed: number, anchorTicks: number) {
+  const anchor = {lat: ANCHORAGE.lat + (noise(seed, 1) - 0.5) * 0.06, lng: ANCHORAGE.lng + (noise(seed, 2) - 0.5) * 0.1};
+  const toAnchor = smooth([...way, anchor]);
+  const path = [...toAnchor, berth];
+  const dAnchor = toAnchor.slice(1).reduce((sum, p, k) => sum + distNm(toAnchor[k], p), 0);
+  const total = dAnchor + distNm(anchor, berth);
+  // 칸마다 다른 속도로 간 누적 거리. 묘박 대기 칸은 위치를 묘박지에 묶는다
+  const speed = (k: number) => kn * (0.85 + 0.25 * noise(seed, 10 + k));
+  const run: number[] = [0];
+  while (run[run.length - 1] < total && run.length < 400) run.push(run[run.length - 1] + speed(run.length - 1) * TOUR_TICK_HOURS);
+  const sail = run.length - 1;                       // 묘박 없이 도착하는 칸
+  const kAnchor = run.findIndex(d => d >= dAnchor);  // 묘박지에 닿는 칸
+  const leg = Math.max(3, sail + anchorTicks);
+  const distAt = (k: number) => {
+    if (anchorTicks && k > kAnchor) k = k <= kAnchor + anchorTicks ? kAnchor : k - anchorTicks;
+    if (anchorTicks && k === kAnchor) return dAnchor;
+    return Math.min(total, run[Math.min(k, sail)]);
+  };
+  const point = (d: number): Pt => {
+    const p = along(path, d);
+    // 출발·도착 근처에서는 흔들림을 0으로: sin(pi * 진행률)
+    const f = Math.min(1, d / Math.max(dAnchor, 1));
+    const fade = Math.sin(Math.PI * f) * (d >= dAnchor ? 0 : 1);
+    return {lat: p.lat + WOBBLE_DEG * fade * Math.sin(f * Math.PI * 3 + seed), lng: p.lng + WOBBLE_DEG * fade * Math.cos(f * Math.PI * 2.3 + seed * 1.7)};
+  };
+  const at = (k: number) => {
+    const kk = Math.max(0, Math.min(k, leg));
+    const here = point(distAt(kk)), prev = point(distAt(Math.max(0, kk - 1)));
+    const moved = distNm(prev, here);
+    const cog = moved > 0.1 ? (Math.atan2((here.lng - prev.lng) * Math.cos(here.lat * Math.PI / 180), here.lat - prev.lat) * 180 / Math.PI + 360) % 360 : 0;
+    return {...here, sog: kk >= leg || kk === 0 ? 0 : Math.round(moved / TOUR_TICK_HOURS * 10) / 10, cog: Math.round(cog)};
+  };
+  return {leg, at};
+}
+
 /** 배마다 정해진 값: 항로·속도·항해 칸 수, 판매 여유(일), 중간에 생기는 지연(일), 처음 시작 칸 */
 function plan(i: number) {
   const r = ROUTES[i % ROUTES.length];
-  const path = [...r.way, BERTHS[i % BERTHS.length]];
-  const length = path.slice(1).reduce((sum, p, k) => sum + distNm(path[k], p), 0);
-  const leg = Math.max(3, Math.ceil(length / (r.kn * TOUR_TICK_HOURS)));
+  // 세 척에 한 척꼴로 부산 앞 묘박지에서 1~2칸(가상 6~12시간) 기다린다
+  const v = voyage(r.way, BERTHS[i % BERTHS.length], r.kn, i + 1, i % 3 === 0 ? 1 + (i % 2) : 0);
+  const leg = v.leg;
   // 도착이 몰리지 않게 배마다 주기 안의 다른 지점에서 시작한다 (i번째 배는 자기 주기의 i/전체 지점)
   const cycle = leg + DWELL + 1;
-  return {b: bases[i], from: r.from, kn: r.kn, path, leg, slack: [5, 3, 1, 4, 0, 6, 2, 3, 5, 1][i % 10], delay: i % 3 === 1 ? 2 : 0, offset: Math.round((i / bases.length) * cycle) % cycle};
+  return {b: bases[i], from: r.from, kn: r.kn, v, leg, slack: [5, 3, 1, 4, 0, 6, 2, 3, 5, 1][i % 10], delay: i % 3 === 1 ? 2 : 0, offset: Math.round((i / bases.length) * cycle) % cycle};
 }
 const PLANS = bases.map((_, i) => plan(i));
 
@@ -98,7 +170,7 @@ interface ShipState { visible: boolean; item: WatchItem; summary: CargoSummary; 
 
 /** i번 배의 tick 시점 상태. 항해(leg) → 부산 정박(DWELL) → 한 칸 쉬고(목록에서 빠짐) → 다시 출발 */
 function shipAt(i: number, tick: number): ShipState {
-  const {b, kn, path, leg, slack, delay, offset} = PLANS[i];
+  const {b, v, leg, slack, delay, offset} = PLANS[i];
   const cycle = leg + DWELL + 1;
   const t = (tick + offset) % cycle;
   const now = tourClock(tick);
@@ -109,17 +181,15 @@ function shipAt(i: number, tick: number): ShipState {
   const arrive = new Date(now.getTime() + hours(Math.max(0, leg - t)) + late * 86_400_000);
   const sale = new Date(now.getTime() + hours(Math.max(0, leg - t)) + slack * 86_400_000);
   const margin = Math.round((sale.getTime() - arrive.getTime()) / 86_400_000);
-  const total = path.slice(1).reduce((sum, p, k) => sum + distNm(path[k], p), 0);
-  const pos = (k: number) => along(path, Math.min(total, k * kn * TOUR_TICK_HOURS));
-  const here = pos(Math.min(t, leg));
+  const here = v.at(Math.min(t, leg));
   const trail = Array.from({length: 5}, (_, j) => Math.min(t, leg) - (4 - j)).filter(k => k >= 0)
-    .map(k => ({...pos(k), at: iso(new Date(now.getTime() - hours(Math.min(t, leg) - k))), sog: kn}));
+    .map(k => { const p = v.at(k); return {lat: p.lat, lng: p.lng, at: iso(new Date(now.getTime() - hours(Math.min(t, leg) - k))), sog: p.sog}; });
   const verdict: Verdict = sailing ? verdictOf(margin) : 'fine';
   const stage = sailing ? STAGES_SEA[t < leg / 2 ? 0 : 1] : STAGES_PORT[Math.min(STAGES_PORT.length - 1, t - leg)];
   const item: WatchItem = {
     bl_masked: b.bl_masked, label: b.label, ship_name: b.ship_name, status: 'active',
     verdict, stage, eta: iso(arrive), days_margin: margin,
-    lat: here.lat, lng: here.lng, cog: 60, sog: sailing ? kn : 0, position_at: iso(now), track: trail,
+    lat: here.lat, lng: here.lng, cog: here.cog, sog: sailing ? here.sog : 0, position_at: iso(now), track: trail,
     cargo_key: `tour-${i}`, goods_name: b.goods_name ?? b.label, ship_flag: b.ship_flag ?? null,
   };
   const summary: CargoSummary = {
@@ -180,14 +250,13 @@ export function tourVesselPosition(mmsi: number, tick = tourTick()) {
   if (!e) return null;
   const r = ROUTES[e.route];
   const berth = BERTHS[(mmsi + 3) % BERTHS.length];
-  const path = [...r.way, {lat: berth.lat + .02, lng: berth.lng - .03}];
-  const total = path.slice(1).reduce((sum, p, k) => sum + distNm(path[k], p), 0);
-  const leg = Math.max(3, Math.ceil(total / (e.kn * TOUR_TICK_HOURS)));
+  // 화물 배와 같은 항해 모양(곡선·흔들림·속도 변화·묘박 대기)을 쓴다 (10-09)
+  const v = voyage(r.way, {lat: berth.lat + .02, lng: berth.lng - .03}, e.kn, mmsi % 997, mmsi % 3 === 0 ? 1 : 0);
+  const leg = v.leg;
   const t = Math.max(0, tick - e.addedTick) % (leg + DWELL);
-  const pos = (k: number) => along(path, Math.min(total, k * e.kn * TOUR_TICK_HOURS));
   const now = tourClock(tick);
-  const here = pos(Math.min(t, leg));
+  const here = v.at(Math.min(t, leg));
   const track = Array.from({length: 5}, (_, j) => Math.min(t, leg) - (4 - j)).filter(k => k >= 0)
-    .map(k => ({...pos(k), at: new Date(now.getTime() - (Math.min(t, leg) - k) * TOUR_TICK_HOURS * 3600_000).toISOString(), sog: e.kn}));
-  return {lat: here.lat, lng: here.lng, sog: t < leg ? e.kn : 0, cog: 60, position_at: now.toISOString(), track, from: r.from};
+    .map(k => { const p = v.at(k); return {lat: p.lat, lng: p.lng, at: new Date(now.getTime() - (Math.min(t, leg) - k) * TOUR_TICK_HOURS * 3600_000).toISOString(), sog: p.sog}; });
+  return {lat: here.lat, lng: here.lng, sog: t < leg ? here.sog : 0, cog: here.cog, position_at: now.toISOString(), track, from: r.from};
 }
