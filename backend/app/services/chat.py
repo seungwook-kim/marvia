@@ -40,6 +40,7 @@ from backend.app.schemas.agent import VOYAGE_PATTERN, AgentRequest, AgentRespons
 from backend.app.schemas.customs import mask_bl
 from backend.app.services import bl_parse, cargo, doc_facts, guard, llm, mcp_client, memory, progress, referrals, validate
 from backend.app.services import citations as cite
+from backend.app.services.pii_patterns import MOBILE_IN_TEXT
 from backend.app.services.verdict import VERDICT_LABEL
 from backend.app.services.watch import MAX_WATCH
 from backend.app.services.rules import load_file
@@ -312,6 +313,24 @@ MEMO_RECALL_END = re.compile(r"(?:뭐|누구)\s*(?:였|이었)|였더라|이었�
 def is_memo_question(masked: str) -> bool:
     """이번 문장이 전에 저장한·말한 것을 묻는가."""
     return bool(MEMO_REF.search(masked) or (MEMO_CONTACT.search(masked) and MEMO_RECALL_END.search(masked)))
+
+
+# 저장 부탁 ("메모해 줘", "기억해 둬"). 저장은 답 뒤에 기억 뽑기(memory-write)가 하므로 답은 코드가 정한 안내 한 줄이다.
+# LLM이 저장 기능이 없다고 하거나 꺼내 보기 결과("찾지 못했어요")를 내던 것을 막는다. 물음표가 있으면 꺼내 보기 질문이다
+SAVE_REQUEST = re.compile(r"기억\s*해\s*(?:줘|주세요|둬|두|라|놔)|저장\s*해|메모\s*해|적어\s*(?:줘|둬|두|놔)|외워\s*(?:줘|둬|두)|잊지\s*말")
+MEMO_SAVE_LEAD = "알려 주신 내용은 메모장에 기억해 둘게요."
+# 메모장은 개인 휴대폰 번호를 저장하지 않는다 (memory.validate bad_phone). 휴대폰 번호를 준 저장 부탁에는 그 사실을 같이 말한다
+MEMO_MOBILE_NOTE = "개인 휴대폰 번호는 개인정보라 저장하지 않아요. 회사나 부서 번호를 알려 주시면 함께 적어 둘게요."
+
+
+def is_save_request(masked: str) -> bool:
+    """이번 문장이 새 사실을 저장해 달라는 부탁인가."""
+    return bool(SAVE_REQUEST.search(masked)) and not re.search(r"[?？]", masked)
+
+
+def save_request_reply(text: str) -> str:
+    """저장 부탁의 답. 휴대폰 번호가 있으면 저장하지 않는다는 안내를 붙인다."""
+    return f"{MEMO_SAVE_LEAD}\n{MEMO_MOBILE_NOTE}" if MOBILE_IN_TEXT.search(text) else MEMO_SAVE_LEAD
 
 
 class ChatError(Exception):
@@ -2809,6 +2828,11 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
         # 식별자가 B/L인지 배 이름인지 모른다 (배 이름 조회도 후보가 없었거나 부르지 않았다). LLM 문장 대신 코드가 되묻는다
         return clarify_out()
 
+    if user_id and not done and not any("error" not in (c["result"] or {}) for c in calls) and is_save_request(masked) and not (watch_out or kakao_out.get("msg") or docs_out.get("msg")):
+        # 저장 부탁만 한 문장이다. 저장은 답 뒤에 기억 뽑기가 한다. LLM 문장이나 꺼내 보기 결과 대신 안내 한 줄을 낸다.
+        # 로그인하지 않았으면 저장이 안 되므로 이 길을 타지 않는다
+        memo_out.clear()  # 같이 부른 꺼내 보기 결과("찾지 못했어요")를 감싸는 쪽(_agent_reply)이 뒤에 붙이지 않게
+        return ChatResult(kind="message", reply=save_request_reply(masked))  # 이번 문장만 본다 (지난 문장의 번호로 안내하지 않게)
     if not done and not calls and (kakao_out.get("msg") or kakao_out.get("refused")) and not watch_out:
         # 카카오톡 보내기만 한 문장이다. 결과나 못 보낸 이유를 코드 문장으로 낸다 (거절됐으면 안내)
         return ChatResult(kind="message", reply=kakao_out.get("msg") or KAKAO_HOW)

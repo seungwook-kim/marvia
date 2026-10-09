@@ -191,3 +191,52 @@ def test_tool_is_registered_with_schema():
 def test_prompt_has_recall_memo_lines():
     text = open("backend/app/prompts/marvia-chat-agent.md", encoding="utf-8").read()
     assert "- recall_memo:" in text and "web_search" not in text
+
+
+# ── 저장 부탁 ("메모해 줘") ──
+# 저장은 답 뒤에 기억 뽑기가 한다. 답은 코드 안내 한 줄이다. 실제 LLM이 "메모 저장 기능은 아직 없다"고 답하거나
+# 꺼내 보기 결과("찾지 못했어요")를 낸 것을 막는다
+
+def test_save_request_with_recall_call_gets_save_lead(monkeypatch):
+    r, _ = ask(monkeypatch, "우리 포워더는 테스트물류고 사무실 전화는 051-000-1234야. 기억해 줘", "", items=[])
+    assert r.reply == svc.MEMO_SAVE_LEAD and svc.MEMO_NONE not in r.reply
+
+
+def test_save_request_with_wrong_llm_text_gets_save_lead(monkeypatch):
+    memo(monkeypatch, [])
+    _agent(monkeypatch, [], [("메모를 저장하는 기능은 아직 없어서 이 내용은 남기지 못했어요.", "general", "")])
+    r = svc.handle("메모해줘: 테스트포워딩 사무실 전화 051-000-1234", "s1", None, lambda req: None, user_id=USER)
+    assert r.reply == svc.MEMO_SAVE_LEAD
+
+
+def test_save_request_with_mobile_number_says_it_is_not_stored(monkeypatch):
+    memo(monkeypatch, [])
+    _agent(monkeypatch, [], [("", "general", "")])
+    r = svc.handle("메모해줘: 테스트포워딩 담당 대리 010-0000-1234", "s1", None, lambda req: None, user_id=USER)
+    assert r.reply.startswith(svc.MEMO_SAVE_LEAD) and svc.MEMO_MOBILE_NOTE in r.reply
+
+
+def test_save_request_without_login_is_not_promised(monkeypatch):
+    r, _ = ask(monkeypatch, "우리 포워더는 테스트물류야. 기억해 줘", "", items=[], user_id=None)
+    assert svc.MEMO_SAVE_LEAD not in r.reply
+
+
+def test_recall_question_is_not_a_save_request(monkeypatch):
+    r, _ = ask(monkeypatch, "포워더 전화번호 뭐였지?", "")
+    assert r.reply != svc.MEMO_SAVE_LEAD and "051-000-0001" in r.reply
+
+
+@pytest.mark.parametrize("text,hit", [("포워더는 테스트물류야. 기억해 줘", True), ("이 번호 저장해 줘", True), ("메모해줘: 테스트", True),
+                                      ("포워더 번호 뭐였지", False), ("기억해?", False)])
+def test_is_save_request(text, hit):
+    assert svc.is_save_request(text) is hit
+
+
+def test_save_request_after_failed_lookup_tool_gets_save_lead(monkeypatch):
+    """저장 부탁에 모델이 조회 도구를 잘못 불러 실패했다. "조회하지 못했어요" 대신 저장 안내가 나간다."""
+    memo(monkeypatch, [])
+    monkeypatch.setattr(svc, "search_ship_name", lambda name: None)
+    _agent(monkeypatch, [("get_vessel_candidates", {"query": "테스트포워딩"})], [("", "tool", "")])
+    r = svc.handle("메모해줘: 테스트포워딩 사무실 전화 051-000-1234", "s1", None,
+                   lambda req: None, user_id=USER, run_tool=lambda name, args: {"error": {"code": "not_found", "message": "x", "retryable": False}})
+    assert r.reply == svc.MEMO_SAVE_LEAD
