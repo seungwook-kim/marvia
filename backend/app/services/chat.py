@@ -2559,10 +2559,13 @@ def _agent_turn(masked: str, refs: dict[str, str], mrn: str | None, session_id: 
                 return _tool_error("place_is_destination", "place means where the ships come from (previous port), not Busan or "
                                    "Korea. Use null for all arrivals, or a foreign country or port. If the message is not asking "
                                    "which ships come from somewhere, do not call search_arrivals.")
-            # 입항 목록 속 배 이름이 문장에 통째로 있으면 목록이 아니라 그 배를 찾는다 ("EVER GIVEN 위치"가 전체 목록으로 답해졌다)
+            # 입항 목록 속 배 이름이 문장에 통째로 있으면 목록이 아니라 그 배를 찾는다 ("EVER GIVEN 위치"가 전체 목록으로 답해졌다).
+            # 아래 search_vessels와 같은 기간으로 받는다. 기간이 다르면 캐시 열쇠가 달라 해수부 전체 목록을 두 번 받는다(한 번에 약 10초)
             try:
                 upper = masked.upper()
-                names = sorted({(p.ship_name or "").strip().upper() for p in _arrivals(DAYS_MAX)}, key=len, reverse=True)
+                raw_days = args.get("days") if isinstance(args.get("days"), int) and not isinstance(args.get("days"), bool) else None
+                names = sorted({(p.ship_name or "").strip().upper() for p in _arrivals(max(1, min(raw_days or DAYS_DEFAULT, DAYS_MAX)))},
+                               key=len, reverse=True)
             except MofError:
                 names, upper = [], ""
             hit = next((n for n in names if len(n) >= 3 and re.search(rf"(?<![A-Z0-9]){re.escape(n)}(?![A-Z0-9])", upper)), None)

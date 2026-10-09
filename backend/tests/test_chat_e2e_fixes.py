@@ -89,6 +89,16 @@ def test_ship_name_in_message_goes_to_name_search_not_full_list(monkeypatch):
     assert r.kind == "vessels" and [v["ship_name"] for v in r.vessels] == ["SHIP B"]
 
 
+@pytest.mark.parametrize("days,expected", [(None, svc.DAYS_DEFAULT), (3, 3), (30, svc.DAYS_MAX)])
+def test_arrivals_list_question_fetches_one_period_only(monkeypatch, days, expected):
+    """배 이름 검사와 목록 검색이 같은 기간으로 받는다. 기간이 다르면 해수부 전체 목록을 두 번 받아 답이 약 10초 늦어진다."""
+    _agent(monkeypatch, [("search_arrivals", {"place": None, "place_label": None, "days": days})])
+    asked: list[int] = []
+    monkeypatch.setattr(svc, "_arrivals", lambda d: asked.append(d) or PLANS)
+    svc.handle("이번 주 부산 입항 예정인 배 보여줘", "s3", None, lambda req: None)
+    assert set(asked) == {expected}
+
+
 def test_position_question_without_place_is_sent_to_vessel_tool(monkeypatch):
     calls = _agent(monkeypatch, [("search_arrivals", {"place": None, "place_label": None, "days": 7})], [""])
     monkeypatch.setattr(svc, "_arrivals", lambda days: PLANS)
