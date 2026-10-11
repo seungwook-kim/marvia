@@ -82,6 +82,9 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
     # 이름표마다 찾은 서로 다른 B/L. 첫 번째를 B/L 칸 값으로 쓰고, 둘 이상이면 아래에서 ambiguous를 건다 (10-08 QA D4)
     candidates = doc_ocr.take_bl_candidates(ocr.lines)
     bl = candidates[0] if candidates else None
+    # 선사 부호에서 OCR이 헷갈린 글자를 고친다 (doc_ocr.fix_carrier_prefix). 서류 글자 가리기(mask_bl)와
+    # 글자에 있는지 검사(check_fields)는 OCR이 읽은 그대로의 번호(bl)로 하고, 응답 값만 고친 번호로 바꾼다
+    fixed_bl = doc_ocr.fix_carrier_prefix(bl) if bl else None
     values: dict[str, str | None] = {"bl_no": bl, **{k: None for k in LLM_FIELDS}}
     conditions: dict[str, str | None] = {}
     evidence: dict[str, str | None] = {}
@@ -117,6 +120,7 @@ def _read_document(file: UploadFile, session_id: str | None, user_id: str | None
                 llm_error = e.kind
 
     checks = doc_ocr.check_fields(values, ocr.lines)
+    values["bl_no"] = fixed_bl
     if len(candidates) > 1:
         # 10-08 QA D4: B/L 이름표가 둘 이상이고 번호가 다르다(정정본, MASTER+HOUSE). 어느 번호가 사용자 화물인지 서류만으로 모르므로
         # ambiguous를 걸어 bl_status를 uncertain으로 만든다. 그러면 화면이 자동 조회하지 않고 조건·거래처도 저장하지 않는다

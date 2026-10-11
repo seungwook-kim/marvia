@@ -21,6 +21,12 @@ customs_done_except_words: [되면, 하면, 나면, 될 때, 할 때, 되어야,
 # 통관이 끝났다고 말해도 되는 단계. customs_stages의 "수입신고수리"(meaning: 통관이 끝났다)와 그 뒤 단계
 customs_done_stages: [수입신고수리, 반출신고]
 
+# B/L 앞 4글자로 쓰이는 선사 부호(SCAC). 서류 사진 OCR이 이 4글자에서 I·L·1, O·0을 헷갈린다
+# (팩스로 받은 도착 통지서 사진에서 PCLU를 PCIU로 읽었다). 읽은 앞 4글자가 목록에 없고, 헷갈리는 글자를 바꿔 목록과 맞는 것이
+# 정확히 하나일 때만 그것으로 고친다 (services/doc_ocr.fix_carrier_prefix). 목록에 없는 포워더 하우스 B/L은 그대로 둔다.
+# 부산항 정기선 주요 선사만 넣었다. 실제 서류에서 새 부호를 보면 더한다
+bl_carrier_prefixes: [MAEU, MSCU, MEDU, CMDU, COSU, OOLU, EGLV, ONEY, HLCU, HDMU, YMLU, ZIMU, SMLM, PCLU, SNKO, HASL, NSSL, WHLC, APLU, ANNU]
+
 # 정상 단계 목록 (해상 수입 일반화물). name은 UNI-PASS 이력의 처리구분 이름 그대로다.
 # 코드는 name만 읽어 "목록에 없는 단계"를 가린다 (띄어쓰기는 무시, rules.stage_key). meaning·next·todo는 LLM 설명용이다.
 # next가 null이면 다음 단계가 없다(통관 끝, 또는 앞 단계에 따라 다음이 달라짐. 이유는 meaning).

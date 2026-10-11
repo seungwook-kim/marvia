@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import functools
+import itertools
 import logging
 import os
 import re
@@ -28,11 +29,12 @@ from dataclasses import dataclass
 from io import BytesIO
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from backend.app.observability.langfuse import tool_span
 from backend.app.schemas.agent import _BL_PATTERN  # B/L 형식은 계약 C2 한 곳에만 둔다 (SDD 3.1)
 from backend.app.services import guard  # 지시문 줄 판별 (_only_in_instruction)
+from backend.app.services.rules import rule  # 선사 부호 목록 (skills/customs-stages/rules.md bl_carrier_prefixes)
 # 전화·이메일 모양, 역할 목록, 회사 이름 상한은 메모장 검사와 한 곳 (docs/specs/memory.md). 메모장 모듈 전체는 불러오지 않는다
 from backend.app.services.pii_patterns import COMPANY_MAX, EMAIL, MOBILE, MOBILE_IN_TEXT, PHONE, ROLES
 
@@ -223,6 +225,9 @@ def open_image(data: bytes) -> Image.Image:
             w, h = img.size
         if w * h > IMAGE_MAX_PIXELS:
             raise ImageTooLarge(f"{w}x{h}")
+        # 폰 사진은 픽셀을 누운 채로 저장하고 "세워서 보라"는 방향 표시(EXIF Orientation)만 붙이는 경우가 많다.
+        # 표시를 무시하면 누운 사진으로 읽어 확신도가 낮아지고 OCR을 3번(0·180·270°) 돌린다. 먼저 세워 둔다
+        img = ImageOps.exif_transpose(img)
         if w * h > OCR_MAX_PIXELS:
             k = (OCR_MAX_PIXELS / (w * h)) ** 0.5
             img = img.resize((max(1, int(w * k)), max(1, int(h * k))))
@@ -341,7 +346,7 @@ def take_bl_candidates(lines: list[str]) -> list[str]:
         if value and value not in out:
             out.append(value)
     if not out:
-        carrier = _take_carrier_bl(lines)
+        carrier = _take_carrier_bl(lines) or _take_known_prefix_bl(lines)
         if carrier:
             out.append(carrier)
     return out
@@ -363,6 +368,39 @@ def _take_carrier_bl(lines: list[str]) -> str | None:
         for tok in re.findall(r"[A-Za-z0-9]+", line):
             t = tok.upper()
             if _CARRIER_BL.fullmatch(t) and not _CONTAINER_NO.fullmatch(t) and _BL_PATTERN.fullmatch(t):
+                found.add(t)
+    return found.pop() if len(found) == 1 else None
+
+
+# OCR이 선사 부호 4글자에서 서로 헷갈리는 글자. 실제 팩스 사진 실험에서 L을 I로, I를 1로 읽었다. O·0은 흔한 혼동이다
+_PREFIX_CONFUSABLE = {"I": "L1", "L": "I1", "1": "IL", "O": "0", "0": "O"}
+
+
+def fix_carrier_prefix(bl: str) -> str:
+    """B/L 앞 4글자가 선사 부호 목록(rules.md bl_carrier_prefixes)에 없으면, 헷갈리는 글자를 바꿔 맞는 부호가 정확히 하나일 때 고친다.
+
+    UNI-PASS로 확인하지 않는 이유: 적하목록이 아직 세관에 없는 시점의 도착 통지서가 흔해서 맞는 번호도 0건이다.
+    둘 이상 맞거나 하나도 없으면 그대로 둔다 (포워더 하우스 B/L은 부호가 목록에 없다).
+    """
+    head, tail = bl[:4], bl[4:]
+    known = set(rule("bl_carrier_prefixes"))
+    if len(head) < 4 or head in known:
+        return bl
+    options = [ch + _PREFIX_CONFUSABLE.get(ch, "") for ch in head]
+    hits = {"".join(p) for p in itertools.product(*options)} & known
+    return hits.pop() + tail if len(hits) == 1 else bl
+
+
+def _take_known_prefix_bl(lines: list[str]) -> str | None:
+    """이름표도 선사형 모양(_CARRIER_BL)도 없을 때의 마지막 대안. 앞 4글자가 선사 부호 목록과 맞는(헷갈린 글자를 고쳐서라도) B/L 모양
+    번호가 정확히 하나일 때만 OCR이 읽은 그대로 돌려준다. 흐리거나 기운 팩스 사진은 작은 "B/L No." 이름표를 못 읽고,
+    값은 "PCI.UQPV…"처럼 점이 끼거나 앞 글자가 틀려 다른 대안에도 안 걸렸다. 컨테이너 번호는 뺀다."""
+    found: set[str] = set()
+    for line in lines:
+        for tok in re.findall(r"[A-Za-z0-9.]+", line):
+            t = _clean(tok)
+            if (_BL_PATTERN.fullmatch(t) and any(c.isdigit() for c in t) and not _CONTAINER_NO.fullmatch(t)
+                    and fix_carrier_prefix(t)[:4] in set(rule("bl_carrier_prefixes"))):
                 found.add(t)
     return found.pop() if len(found) == 1 else None
 

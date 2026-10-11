@@ -36,7 +36,8 @@ def test_each_rules_file_has_its_own_keys():
                             "vessel_detail_daily_limit", "eta_change_alert_hours",
                             "vessel_candidate_lookups", "vessel_detail_lookups"},
         "customs-stages": {"customs_hold_words", "customs_stages", "customs_subject_words", "customs_assessment_words",
-                           "customs_done_words", "customs_done_stages", "customs_done_except_words"},
+                           "customs_done_words", "customs_done_stages", "customs_done_except_words",
+                           "bl_carrier_prefixes"},  # 서류 사진 B/L 앞 4글자 바로잡기 (services/doc_ocr.py)
         "port-busan": {"busan_ref", "busan_radius_nm", "busan_port_code", "port_schedule_lookback_days",
                        "port_schedule_lookahead_days", "port_schedule_name_match_ratio",
                        "anchor_event_kinds", "weigh_anchor_event_kinds", "berth_event_kinds",

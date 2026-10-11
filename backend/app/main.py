@@ -71,9 +71,28 @@ def _refresh_demo_forever(stop: threading.Event) -> None:
             log_failure("demo_refresh", type(e).__name__)
 
 
+def _warm_document() -> None:
+    """서류 판독의 첫 요청이 느리지 않게 OCR 엔진과 서류 추출 프롬프트를 미리 올린다 (서버가 켜질 때 한 번, 뒤 스레드).
+
+    둘 다 처음 한 번만 드는 시간이다: OCR 모델 로드 약 1초, Langfuse 프롬프트 첫 조회 약 1초 (로컬 실측).
+    rapidocr가 없는 이미지·테스트에서는 아무것도 안 한다. 실패해도 서버는 그대로 뜨고, 첫 요청이 지금처럼 그때 올린다.
+    """
+    try:
+        from backend.app.observability.langfuse import get_prompt
+        from backend.app.services import doc_ocr, llm
+
+        doc_ocr._get_engine()
+        get_prompt(llm.DOC_EXTRACT_PROMPT)
+    except Exception as e:  # noqa: BLE001 - 미리 올리기 실패가 서버를 멈추면 안 된다
+        log_failure("warm_document", type(e).__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _migrate()
+    # 테스트(pytest)에서는 끈다. 엔진을 가짜로 바꿔 끼우는 테스트와 겹치지 않게 한다
+    if "PYTEST_CURRENT_TEST" not in os.environ and os.environ.get("DOC_WARMUP", "on").strip().lower() not in ("0", "off", "false", "no"):
+        threading.Thread(target=_warm_document, daemon=True, name="warm-document").start()
     stop_demo = threading.Event()
     if replay_enabled() and os.environ.get("DEMO_REFRESH", "on").strip().lower() not in ("0", "off", "false", "no"):
         threading.Thread(target=_refresh_demo_forever, args=(stop_demo,), daemon=True, name="demo-refresh").start()
