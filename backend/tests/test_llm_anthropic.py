@@ -98,7 +98,20 @@ def test_errors_map_to_llm_error_kinds(monkeypatch, status, kind, retry):
     with pytest.raises(llm.LLMError) as e:
         llm.chat([{"role": "user", "content": "q"}], model=MODEL)
     assert e.value.kind == kind and e.value.code == status
-    assert len(calls) == (llm.MAX_ATTEMPTS if retry else 1)  # 과부하·한도만 한 번 더 부른다
+    # 과부하는 MAX_ATTEMPTS번, 한도(429)는 늘려 가며 RATE_LIMIT_ATTEMPTS번까지 부른다. 나머지는 한 번
+    expected = (llm.RATE_LIMIT_ATTEMPTS if status == 429 else llm.MAX_ATTEMPTS) if retry else 1
+    assert len(calls) == expected
+
+
+def test_429_reads_retry_after_header(monkeypatch):
+    """Anthropic 429의 Retry-After 헤더를 LLMError.retry_after로 넘긴다 (chat()이 그만큼 기다린다)."""
+    _use(monkeypatch, lambda r: httpx.Response(429, headers={"retry-after": "3"},
+                                               json={"type": "error", "error": {"type": "rate_limit_error", "message": "m"}}))
+    sleeps = []
+    monkeypatch.setattr(llm.time, "sleep", lambda sec: sleeps.append(sec))
+    with pytest.raises(llm.LLMError) as e:
+        llm.chat([{"role": "user", "content": "q"}], model=MODEL)
+    assert e.value.retry_after == 3.0 and sleeps == [3.0, 3.0]
 
 
 def test_missing_key_is_auth_error_without_network(monkeypatch):

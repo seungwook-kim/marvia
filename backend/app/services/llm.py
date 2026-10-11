@@ -8,7 +8,7 @@
   - Langfuse 트레이스 남기기            ← _ask_json()이 호출마다 generation 하나 (observability/langfuse.py, SDD 5.11)
 
 주요 함수:
-  chat()   OpenRouter(또는 Vertex AI)에 한 번 묻는다. 과부하·한도(503·429)면 한 번 더 묻는다
+  chat()   OpenRouter(또는 Vertex AI)에 한 번 묻는다. 과부하(5xx)면 한 번 더, 한도(429)면 늘려 기다리고 대체 모델로
   judge()            2층 판정. 프롬프트(Langfuse) + skills/ 문서 + 코드가 모은 자료를 주고 판정 JSON을 받는다 (SDD 4.1 7단계, 5.6)
   pick_vessel()      이름 같은 후보가 여럿일 때 어느 배인지 고른다 (SDD 5.5)
   answer_follow_up() 판정 뒤 후속 질문에 근거 안에서만 답한다
@@ -54,6 +54,7 @@ from pydantic import BaseModel, ValidationError
 from backend.app.clients import replay  # REPLAY_MODE 녹화 답 재생 (_replay_answer)
 from backend.app.services import quota  # 1명당 하루 토큰 한도 (docs/specs/token-quota.md)
 from backend.app.observability.langfuse import end_generation, get_prompt, start_generation
+from backend.app.observability.logging import llm_usage_var, request_id_var  # 요청당 토큰 상한을 요청 안에서만 센다
 from backend.app.schemas.agent import AgentResponse, Conflict, Evidence, Reason, VesselCandidate, Verdict
 from backend.app.schemas.customs import CustomsRecord
 from backend.app.schemas.signals import SignalSet
@@ -92,6 +93,15 @@ RETRY_WAIT_SEC = 2.0  # 과부하는 잠깐 뒤 풀리는 경우가 많다
 # 타임아웃은 넣지 않는다. 60초를 한 번 더 기다리면 시간 예산을 넘는다.
 # 529는 Anthropic의 과부하 코드다 (claude/ 모델)
 RETRYABLE_CODES = {429, 500, 502, 503, 529}
+# 레이트 리밋(429)은 다른 실패보다 더 기다려 볼 만하다. 제공사가 "잠깐 뒤에 다시"라고 알려 주는 경우라서다.
+# 429면 RETRY_WAIT_SEC부터 두 배씩(2초 → 4초) 기다리며 최초 포함 RATE_LIMIT_ATTEMPTS번까지 부른다.
+# 응답에 Retry-After 헤더가 있으면 그 값을 따르되 RATE_LIMIT_MAX_WAIT_SEC를 넘기지 않는다 (사용자가 너무 오래 기다리지 않게).
+# 그래도 429면 LLM_FALLBACK_MODEL(.env)이 있을 때 그 모델로 한 번만 더 부른다
+RATE_LIMIT_ATTEMPTS = 3
+RATE_LIMIT_MAX_WAIT_SEC = 8.0
+# 서버 전체에서 동시에 나가는 LLM 호출 수의 상한(LLM_MAX_CONCURRENCY, .env). 넘으면 자리가 날 때까지 줄을 선다.
+# 줄에서 QUEUE_WAIT_SEC초를 넘게 기다리면 queue_full로 실패시켜 부르는 쪽의 부분 응답 경로를 탄다. 값이 없거나 0이면 줄을 세우지 않는다
+QUEUE_WAIT_SEC = 20.0
 # 끝까지 못 쓰고 끊긴 답의 finish_reason. JSON이 깨졌고 이 값이면 _ask_json이 같은 대화로 한 번 더 묻는다.
 # None: 끝 신호 없이 스트림이 끊김. "error": 제공사가 생성 중 오류로 멈춤
 # length(토큰 한도)와 stop(정상 종료)은 넣지 않는다. 다시 물어도 같은 한도에 닿거나, 형식 문제라 프롬프트로 고쳐야 한다
@@ -129,14 +139,19 @@ class LLMError(Exception):
       connection    연결 실패                   no_choices  200인데 답 없이 error만 옴
       timeout       TIMEOUT_SEC 안에 답이 없음 (전체 시간 상한, _create_with_deadline)
       not_configured 모델 이름이 설정에 없음
+      queue_full    동시 호출 상한(LLM_MAX_CONCURRENCY)에 줄을 섰는데 QUEUE_WAIT_SEC 안에 자리가 안 남
+      request_budget 이 요청이 쓴 토큰이 요청당 상한(MAX_TOKENS_PER_REQUEST)에 닿음. 더 부르지 않는다
       truncated·bad_format은 LLMFormatError 쪽 (답은 왔는데 쓸 수 없음)
+    retry_after: 429 응답의 Retry-After 헤더(초). 있으면 chat()이 그만큼 기다린다
     """
 
-    def __init__(self, message: str, code: int | None = None, latency_ms: int = 0, kind: str = "unknown"):
+    def __init__(self, message: str, code: int | None = None, latency_ms: int = 0, kind: str = "unknown",
+                 retry_after: float | None = None):
         super().__init__(message)
         self.code = code
         self.latency_ms = latency_ms
         self.kind = kind
+        self.retry_after = retry_after
 
     @property
     def retryable(self) -> bool:
@@ -408,7 +423,8 @@ def _anthropic_call(kwargs: dict) -> LLMResult:
                 err = {}
             # 오류 본문의 message는 요청 내용을 되풀이하지 않는 짧은 설명이다. 키나 사용자 글은 담기지 않는다
             raise LLMError(f"{model}: HTTP {resp.status_code} {err.get('type', '')} {err.get('message', '')[:200]}",
-                           code=resp.status_code, latency_ms=latency_ms, kind=_status_kind(resp.status_code))
+                           code=resp.status_code, latency_ms=latency_ms, kind=_status_kind(resp.status_code),
+                           retry_after=_retry_after(resp.headers))
         return _anthropic_result(resp.json(), latency_ms)
     finally:
         if not worker.is_alive():
@@ -441,7 +457,8 @@ def _call_once(kwargs: dict) -> LLMResult:
                        latency_ms=int((time.monotonic() - start) * 1000), kind="timeout") from None
     except openai.APIStatusError as e:  # HTTP 4xx·5xx로 온 실패
         raise LLMError(f"{model}: HTTP {e.status_code} {e.message}", code=e.status_code,
-                       latency_ms=int((time.monotonic() - start) * 1000), kind=_status_kind(e.status_code)) from e
+                       latency_ms=int((time.monotonic() - start) * 1000), kind=_status_kind(e.status_code),
+                       retry_after=_retry_after(e.response.headers if e.response is not None else None)) from e
     except openai.APIConnectionError as e:  # 연결 실패·타임아웃. 다시 부르지 않는다 (위 RETRYABLE_CODES 주석)
         raise LLMError(f"{model}: 연결 실패 {type(e).__name__}",
                        latency_ms=int((time.monotonic() - start) * 1000), kind="connection") from e
@@ -511,6 +528,65 @@ def quota_tokens(result: LLMResult) -> int:
     return max(prompt - (result.cached_tokens or 0), 0) + (result.completion_tokens or 0)
 
 
+def _retry_after(headers) -> float | None:
+    """429 응답의 Retry-After 헤더를 초로 읽는다. 없거나 숫자가 아니면 None (HTTP 날짜 형식은 쓰지 않는다)."""
+    try:
+        value = headers.get("retry-after") if headers is not None else None
+        return float(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+# 서버 전체 동시 호출 상한(큐잉). LLM_MAX_CONCURRENCY가 처음 읽힐 때 한 번 만든다. 값이 없거나 0이면 None(줄 없음)
+_queue: threading.BoundedSemaphore | None = None
+_queue_size: int | None = None
+_queue_lock = threading.Lock()
+
+
+def _llm_queue() -> threading.BoundedSemaphore | None:
+    """LLM_MAX_CONCURRENCY만큼 자리가 있는 줄을 돌려준다. 설정이 바뀌면(테스트) 새로 만든다."""
+    global _queue, _queue_size
+    try:
+        size = int(os.environ.get("LLM_MAX_CONCURRENCY") or 0)
+    except ValueError:
+        size = 0
+    with _queue_lock:
+        if size != _queue_size:
+            _queue, _queue_size = (threading.BoundedSemaphore(size) if size > 0 else None), size
+        return _queue
+
+
+def _request_token_cap() -> int | None:
+    """요청당 토큰 상한(MAX_TOKENS_PER_REQUEST, .env). 비우거나 0이면 None(상한 없음)."""
+    try:
+        cap = int(os.environ.get("MAX_TOKENS_PER_REQUEST") or 0)
+    except ValueError:
+        return None
+    return cap if cap > 0 else None
+
+
+def _request_usage() -> dict | None:
+    """지금 처리 중인 HTTP 요청의 사용량 dict(미들웨어가 요청마다 새로 만든다). 요청 밖(스크립트·평가·테스트)은 None.
+
+    요청 밖에서도 기본값 dict가 있지만 모든 호출이 함께 쓰는 하나라서, 거기에 쌓으면 평가 실행기가 상한에 걸린다.
+    그래서 request_id가 있는 요청 안에서만 센다.
+    """
+    return llm_usage_var.get() if request_id_var.get() else None
+
+
+def _call_queued(kwargs: dict) -> LLMResult:
+    """줄(LLM_MAX_CONCURRENCY)에 서서 자리를 얻은 뒤 _call_once를 부른다. QUEUE_WAIT_SEC 안에 자리가 안 나면 queue_full."""
+    queue = _llm_queue()
+    if queue is None:
+        return _call_once(kwargs)
+    if not queue.acquire(timeout=QUEUE_WAIT_SEC):
+        raise LLMError(f"{kwargs['model']}: 동시 호출 상한에서 {QUEUE_WAIT_SEC:g}초 넘게 기다림", kind="queue_full")
+    try:
+        return _call_once(kwargs)
+    finally:
+        queue.release()
+
+
 def chat(
     messages: list[dict],
     *,
@@ -520,7 +596,14 @@ def chat(
     tool_choice: str | None = None,
     max_tokens: int | None = None,
 ) -> LLMResult:
-    """OpenRouter에 묻고 답을 돌려준다. RETRYABLE_CODES면 잠깐 쉬고 한 번 더 묻는다. 출력 검증은 하지 않는다.
+    """OpenRouter에 묻고 답을 돌려준다. 출력 검증은 하지 않는다.
+
+    실패 처리:
+      500·502·503·529  RETRY_WAIT_SEC 쉬고 한 번 더 (최초 포함 MAX_ATTEMPTS번)
+      429           2초 → 4초처럼 늘려 가며(Retry-After가 있으면 그 값, 상한 RATE_LIMIT_MAX_WAIT_SEC) RATE_LIMIT_ATTEMPTS번까지.
+                    그래도 429면 LLM_FALLBACK_MODEL로 한 번 더
+      동시 호출      LLM_MAX_CONCURRENCY 자리만큼만 나가고 나머지는 줄을 선다 (_call_queued)
+      요청당 비용    이 요청이 쓴 토큰이 MAX_TOKENS_PER_REQUEST에 닿았으면 부르지 않고 request_budget으로 올린다
 
     Args:
         messages: [{"role": "system"|"user"|..., "content": ...}]
@@ -546,20 +629,45 @@ def chat(
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    # 요청당 비용 상한: 이 요청이 이미 상한만큼 썼으면 더 부르지 않는다. 부르는 쪽은 LLMError를 받아
+    # 판정 표 폴백·규칙 답 같은 기존 부분 응답 경로로 간다 (판정은 코드 표가 정하므로 등급은 나간다)
+    usage, cap = _request_usage(), _request_token_cap()
+    if usage is not None and cap and usage.get("request_tokens", 0) >= cap:
+        raise LLMError(f"{model}: 이 요청의 토큰 {usage.get('request_tokens', 0)}개가 요청당 상한 {cap}개에 닿음",
+                       kind="request_budget")
+
+    attempt = 0
+    wait = RETRY_WAIT_SEC
+    while True:
+        attempt += 1
         try:
-            result = _call_once(kwargs)
+            result = _call_queued(kwargs)
             result.attempts = attempt
+            tokens = quota_tokens(result)
             # 1명당 하루 토큰 한도에 쌓는다 (services/quota.py, docs/specs/token-quota.md). 이 요청은 끝까지 답하고 다음 요청부터 막는다
-            quota.add(quota_tokens(result))
+            quota.add(tokens)
+            if usage is not None:
+                usage["request_tokens"] = usage.get("request_tokens", 0) + tokens  # 요청당 상한용 누계
             return result
         except LLMError as e:
-            if not e.retryable or attempt == MAX_ATTEMPTS:
-                raise
-            logger.warning("llm %s 실패(code %s), %.1f초 뒤 재시도 %d/%d",
-                           kwargs["model"], e.code, RETRY_WAIT_SEC, attempt + 1, MAX_ATTEMPTS)
-            time.sleep(RETRY_WAIT_SEC)
-    raise AssertionError("unreachable")  # 마지막 시도는 위에서 return 또는 raise된다
+            rate_limited = e.code == 429
+            limit = RATE_LIMIT_ATTEMPTS if rate_limited else MAX_ATTEMPTS
+            if e.retryable and attempt < limit:
+                # 429는 제공사가 알려 준 시간을 따르고, 없으면 기다리는 시간을 두 배씩 늘린다. 둘 다 상한을 둔다
+                delay = min(e.retry_after or wait, RATE_LIMIT_MAX_WAIT_SEC) if rate_limited else RETRY_WAIT_SEC
+                logger.warning("llm %s 실패(code %s), %.1f초 뒤 재시도 %d/%d",
+                               kwargs["model"], e.code, delay, attempt + 1, limit)
+                time.sleep(delay)
+                if rate_limited:
+                    wait *= 2
+                continue
+            fallback = os.environ.get("LLM_FALLBACK_MODEL")
+            if rate_limited and fallback and fallback != kwargs["model"]:
+                # 같은 모델이 계속 한도에 막히면 다른 모델로 한 번만 돌린다. 결과의 model 칸과 Langfuse에 바뀐 모델이 남는다
+                logger.warning("llm %s 레이트 리밋 계속, 대체 모델 %s로 한 번 더", kwargs["model"], fallback)
+                kwargs = {**kwargs, "model": fallback}
+                continue
+            raise
 
 
 # ── 2층 판정 judge() ─────────────────────────────────────────────

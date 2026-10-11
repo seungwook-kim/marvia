@@ -57,7 +57,8 @@ def test_does_not_retry_bad_request(monkeypatch):
 
 
 def test_gives_up_after_max_attempts(monkeypatch):
-    calls = _fake(monkeypatch, [llm.LLMError("rate", code=429), llm.LLMError("rate", code=429)])
+    # 429는 늘려 가며 더 기다린다 (test_llm_rate_limit.py). 여기서는 과부하(503)로 MAX_ATTEMPTS를 본다
+    calls = _fake(monkeypatch, [llm.LLMError("busy", code=503), llm.LLMError("busy", code=503)])
     with pytest.raises(llm.LLMError):
         llm.chat([{"role": "user", "content": "hi"}])
     assert len(calls) == llm.MAX_ATTEMPTS == 2
