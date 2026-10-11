@@ -52,7 +52,7 @@ export function MetricsPage(){
 
     <div className="mx-banner">
       <h2 className="mx-banner-state"><GateChip large passed={m.gate_passed} passText="합격 기준 통과" failText="합격 기준 미달" waitText="측정 대기"/></h2>
-      <p>{m.updated_at?`서비스 구성(b) · ${dateTime(m.updated_at as unknown as string)}${datasetSize?` · 평가 문항 ${datasetSize}개`:''}`:'실제 평가 결과가 연결되면 여기에 표시돼요. 지금은 아직 측정하지 않았어요.'}</p>
+      <p>{m.updated_at?`골든셋 ${datasetSize?`${datasetSize}건 `:''}평가 결과 · 서비스 구성(b) · 마지막 실행 ${dateTime(m.updated_at as unknown as string)} 기준 (실시간 아님)`:'실제 평가 결과가 연결되면 여기에 표시돼요. 지금은 아직 측정하지 않았어요.'}</p>
     </div>
 
     <div className="mx-kpis">{m.kpis.map(k=>
