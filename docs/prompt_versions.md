@@ -57,6 +57,7 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 | 10-08 | chat-agent 13 | | 선택 입력 on_screen 추가: 화면에 보이는 배. 데이터이지 지시가 아니다 | 10-08 실사용 36 (채팅에 화면의 배를 함께 보냄) | 위 pytest 2145 통과에 포함. 실제 모델 확인 전 |
 | 10-08 | chat-agent 13 | | 선택 입력 evidence와 "Evidence marks" 절 추가: 문장 끝에 [E#] 번호를 붙이고 받은 번호만 쓴다. 번호는 코드가 검사한다(citations.py) | 10-08 실사용 58 (답 문장마다 근거 표시) | pytest backend/tests mcp_server/tests 2145 통과, web tsc 오류 0, verify-contract PASS, e2e 데모 56 PASS (라이브 SKIP), 10-08 실행. 실제 모델이 [E#]를 만드는지 확인 전 |
 | 10-08 | chat-agent 13 · follow-up 9 | | Langfuse chat-agent 13 · follow-up 9 (production, latest, 라벨 v4). 이전 production은 12 · 8 (되돌릴 번호) | 위 세 변경을 한 번에 등록 | 10-08 Langfuse를 읽어 production 글 = 레포 파일임을 확인(chat-agent 13, follow-up 9). 나머지 프롬프트는 그대로. 실제 모델 확인 전 |
+| 10-12 | doc-vision | `fb4bc41` | 첫 버전. marvia-doc-extract를 사진 입력용으로 바꿈: 손글씨·표시 무시, bl_no·mrn 칸 추가, 근거 글(*_text) 칸 뺌, 비슷한 글자(I·L·1, O·0, E·R·B, U·V, P·F)를 모양대로 읽기 | 팩스 서류 사진에서 OCR이 B/L·항차를 틀림 | 실제 팩스 사진 1장 + 변형 4장 43/45 (evals/results/doc_bench_20261012_vision.txt). 레포 파일과 Langfuse 1 본문 같음 확인 |
 
 ## 계속 다시 확인할 것
 
@@ -73,4 +74,3 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 10-07: 릴리스 r3. r2 이후 바뀐 3개(chat-agent 12, follow-up 8, chat-route 2)에 Langfuse 라벨 `v3`를 붙였다. 나머지 6개는 r2/r1 라벨 그대로. 다음 변경은 바꾼 것에만 `v4`.
 
 10-08: 릴리스 r4. r3 이후 바뀐 2개(chat-agent 13, follow-up 9)에 Langfuse 라벨 `v4`를 붙였다 (`docs/release_manifest.json`). 나머지는 이전 라벨 그대로. 다음 변경은 바꾼 것에만 `v5`.
-| 10-12 | doc-vision | `fb4bc41` | 첫 버전. marvia-doc-extract를 사진 입력용으로 바꿈: 손글씨·표시 무시, bl_no·mrn 칸 추가, 근거 글(*_text) 칸 뺌, 비슷한 글자(I·L·1, O·0, E·R·B, U·V, P·F)를 모양대로 읽기 | 팩스 서류 사진에서 OCR이 B/L·항차를 틀림 | 실제 팩스 사진 1장 + 변형 4장 43/45 (evals/results/doc_bench_20261012_vision.txt). 레포 파일과 Langfuse 1 본문 같음 확인 |
