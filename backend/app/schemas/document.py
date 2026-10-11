@@ -99,3 +99,9 @@ class DocumentResponse(BaseModel):
     # 선택: 서류에 서로 다른 B/L 번호가 둘 이상 있을 때(정정본, MASTER+HOUSE) 그 번호들의 가린 값 (SDD 3.5, 예 QA****02).
     # 이때 bl_no 칸에는 ambiguous가 걸리고 bl_status는 uncertain이다. 화면은 자동 조회하지 않고 직접 입력을 부탁한다 (10-08 QA)
     bl_candidates: list[str] = Field(default_factory=list)
+    # 선택: 칸 값을 어디서 가져왔나 (routers/document.py 흐름).
+    #   unipass: OCR로 읽은 B/L이 UNI-PASS에 있어 선명·항차·입항일·항구·품명을 세관 값으로 채웠다 (서류를 읽은 값이 아니다)
+    #   vision: 서류 사진을 모델이 직접 읽었다 (llm.read_doc_image)
+    #   ocr: OCR 글자를 모델이 정리했다 (llm.extract_doc_fields, 사진 직접 읽기가 꺼졌거나 실패했을 때)
+    # 옛 모양의 응답도 읽히도록 기본값을 둔다
+    read_by: Literal["unipass", "vision", "ocr"] = "ocr"

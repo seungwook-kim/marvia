@@ -139,6 +139,8 @@ export interface DocumentResponse {
   flagged?: (Exclude<DocumentFieldKey, 'bl_no'> | 'etd')[];
   /** 서로 다른 B/L 번호가 둘 이상일 때 그 번호들의 가린 값. 이때 bl_status는 uncertain이다. 옛 서버 응답에는 없다 */
   bl_candidates?: string[];
+  /** 칸 값을 어디서 가져왔나: unipass(세관 값), vision(사진을 모델이 직접 읽음), ocr(OCR 글자 정리). 옛 서버 응답에는 없다 */
+  read_by?: 'unipass' | 'vision' | 'ocr';
 }
 
 /** 화물 비서 기억 (backend/app/schemas/memory.py, docs/specs/memory.md). 원본 B/L은 오지 않는다 */

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import statistics
 import time
 from pathlib import Path
@@ -50,8 +51,12 @@ def main() -> None:
     ap.add_argument("--truth", required=True)
     ap.add_argument("--variants", action="store_true")
     ap.add_argument("--repeat", type=int, default=2)
+    ap.add_argument("--no-vision", action="store_true", help="사진 직접 읽기를 끄고 OCR 정리 길만 잰다 (비교용)")
+    ap.add_argument("--show-values", action="store_true", help="틀린 칸의 읽은 값도 출력 (B/L 제외). 기록 파일로 남기지 않는다")
     args = ap.parse_args()
     load_dotenv(".env", override=True)
+    if args.no_vision:
+        os.environ["DOC_VISION_MODEL"] = ""
     from backend.app.main import app  # .env를 읽은 뒤 불러온다
     from backend.app.auth import current_user_id
 
@@ -79,13 +84,15 @@ def main() -> None:
                 got = (fields.get(key) or {}).get("value")
                 ok = _norm(got) == _norm(want)
                 total_ok += ok; total_n += 1
-                marks.append(f"{key}={'OK' if ok else 'BAD'}" + ("" if ok or key in SECRET_FIELDS else f"({got})"))
+                # 틀린 값도 적지 않는다: 실제 서류의 항차·선명이 기록 파일에 남지 않게 (--show-values로만 본다)
+                shown = "" if ok or key in SECRET_FIELDS or not args.show_values else f"({got})"
+                marks.append(f"{key}={'OK' if ok else 'BAD'}" + shown)
             if case.get("mrn"):
                 ok = body.get("mrn") == case["mrn"]
                 total_ok += ok; total_n += 1
                 marks.append(f"mrn={'OK' if ok else 'BAD'}")
-            print(f"{Path(case['image']).name[:12]} {name:8} total {statistics.median(times)}ms "
-                  f"ocr {statistics.median(ocr_times)}ms bl_status={body.get('bl_status')} | " + " ".join(marks))
+            print(f"case{cases.index(case) + 1} {name:8} total {statistics.median(times)}ms "
+                  f"ocr {statistics.median(ocr_times)}ms read_by={body.get('read_by')} bl_status={body.get('bl_status')} | " + " ".join(marks))
     print(f"정확도 {total_ok}/{total_n}")
 
 

@@ -146,7 +146,7 @@ LINES = ["BILL OF LADING", f"B/L NO: {DOC_BL}", "FREIGHT COLLECT", "FOB BUSAN"]
 def _document(monkeypatch, lines=LINES):
     """OCR·LLM을 가짜로 바꾸고 저장 호출을 모은다."""
     monkeypatch.setattr(document_router.doc_ocr, "read_lines",
-                        lambda data: SimpleNamespace(lines=lines, rotation=0, runs=1, ocr_ms=1))
+                        lambda data, **kw: SimpleNamespace(lines=lines, rotation=0, runs=1, ocr_ms=1))
     out = llm.DocFieldsOutput(vessel=None, voyage=None, eta=None, pol=None, pod=None, item=None, doc_kind="bl",
                               freight_term="collect", freight_term_text="FREIGHT COLLECT", incoterm="FOB")
     monkeypatch.setattr(llm, "extract_doc_fields", lambda masked, **k: SimpleNamespace(output=out))

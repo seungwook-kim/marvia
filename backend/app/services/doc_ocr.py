@@ -178,7 +178,7 @@ def _ocr_span(kind: str):
 
 
 @_ocr_span("image")
-def read_lines(image_bytes: bytes, engine=None) -> OcrResult:
+def read_lines(image_bytes: bytes, engine=None, quick: bool = False) -> OcrResult:
     """사진 바이트를 OCR 글자 줄로 바꾼다. 0°를 먼저 읽고, 확신이 낮으면 180°·270°도 읽어 가장 나은 방향을 쓴다.
 
     90°를 안 읽는 이유: OCR이 세로로 긴 글자 상자를 스스로 돌려 읽어서, 한쪽으로 누운 사진은 0°에서 이미 읽힌다.
@@ -186,8 +186,10 @@ def read_lines(image_bytes: bytes, engine=None) -> OcrResult:
     Raises:
         PIL.UnidentifiedImageError: 이미지가 아닐 때. 라우터가 400으로 바꾼다
         ImageTooLarge: 픽셀이 IMAGE_MAX_PIXELS를 넘을 때 (압축 폭탄). 라우터가 400 too_large로 바꾼다
+    quick: 0°만 한 번 읽는다. 사진 직접 읽기와 동시에 돌 때 OCR은 B/L 확인(UNI-PASS)에만 쓰여서, 누운 사진을 3번 읽어
+    기다리게 하지 않는다. 누운 사진은 B/L을 못 찾고, 사진 직접 읽기가 맡는다 (routers/document.py)
     """
-    return _ocr_image(open_image(image_bytes), engine)
+    return _ocr_image(open_image(image_bytes), engine, quick=quick)
 
 
 # ── 그림 크기 상한 (10-08 QA: 225M픽셀 압축 폭탄 PNG가 500을 냈다) ──
@@ -234,14 +236,31 @@ def open_image(data: bytes) -> Image.Image:
     return img
 
 
-def _ocr_image(image: Image.Image, engine=None) -> OcrResult:
+# 사진 직접 읽기(llm.read_doc_image)에 보내는 사진의 긴 변 상한. Anthropic 권장 상한(1568px)이고,
+# 이보다 크면 제공사가 어차피 줄인다. 실제 팩스 사진 실험에서 1600px이 1100px보다 정확했다 (scripts/bench_document.py)
+VISION_LONG_SIDE = 1568
+
+
+def vision_jpeg(data: bytes) -> bytes:
+    """사진 바이트를 사진 직접 읽기용 JPEG로 바꾼다. open_image와 같은 크기 검사·EXIF 방향 맞추기를 거친다.
+    빨간 도장은 지우지 않는다: 모델은 도장 아래 글자를 OCR보다 잘 가려 읽는다."""
+    img = open_image(data).convert("RGB")
+    if max(img.size) > VISION_LONG_SIDE:
+        k = VISION_LONG_SIDE / max(img.size)
+        img = img.resize((max(1, int(img.width * k)), max(1, int(img.height * k))), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=90)
+    return buf.getvalue()
+
+
+def _ocr_image(image: Image.Image, engine=None, quick: bool = False) -> OcrResult:
     """PIL 이미지 한 장을 읽는다. 사진 바이트(read_lines)와 PDF 페이지 그림(read_pdf)이 같은 길을 쓰게 한 곳으로 뺐다."""
     engine = engine or _get_engine()
     img = remove_red(image)
     start = time.monotonic()
     best: tuple[float, int, list[str]] | None = None
     runs = 0
-    for deg in (0, 180, 270):
+    for deg in (0,) if quick else (0, 180, 270):
         out = engine(np.asarray(img.rotate(deg, expand=True)))
         runs += 1
         scores = list(out.scores or [])

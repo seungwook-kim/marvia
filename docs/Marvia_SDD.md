@@ -742,6 +742,8 @@ multipart 업로드(10MB 상한). 앞 4바이트로 PDF 여부를 가른다(파�
 
 서류 속 지시문 줄에서만 나온 칸 값은 ambiguous로 표시한다(8절).
 
+사진 직접 읽기(DOC_VISION_MODEL을 채웠을 때, 사진만): 위 흐름 대신 A(OCR 0° 한 번 → B/L → UNI-PASS)와 B(llm.read_doc_image, marvia-doc-vision, 사진을 모델이 직접 읽음)를 동시에 돌린다. A가 UNI-PASS에서 찾으면 세관 값으로 답하고 B를 끊는다. 못 찾으면 B 값, B가 실패하면 위 1~6단계다. 응답 `read_by`(unipass / vision / ocr)가 어느 길인지 알린다. 자세한 규칙은 docs/specs/document-extract.md "사진 직접 읽기".
+
 ## 5. 컴포넌트 명세
 
 ### 5.1 services/customs.py

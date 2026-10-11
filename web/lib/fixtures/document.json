@@ -90,5 +90,6 @@
     "eta",
     "contact_phone"
   ],
-  "bl_candidates": []
+  "bl_candidates": [],
+  "read_by": "ocr"
 }

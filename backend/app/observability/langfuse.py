@@ -37,16 +37,27 @@ class Prompt:
     source: Any = None  # Langfuse에서 왔으면 그 PromptClient. 트레이스에 프롬프트를 연결할 때 쓴다 (start_generation)
 
 
+# Langfuse에 없다고 확인된 프롬프트 이름 → 확인한 시각(monotonic). 이 시간 동안은 다시 묻지 않고 바로 로컬 파일을 쓴다.
+# 등록 안 된 프롬프트는 SDK가 캐시하지 않아 요청마다 조회가 실패하며 3초 넘게 걸렸다 (marvia-doc-vision 로컬 실측)
+_MISSING: dict[str, float] = {}
+MISSING_RECHECK_SEC = 600.0
+
+
 def get_prompt(name: str, label: str = "production") -> Prompt:
     """이름으로 프롬프트를 가져온다. Langfuse가 안 되면 로컬 파일로 간다. 판정을 막지 않기 위해서다."""
-    if os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY"):
+    missing_at = _MISSING.get(name)
+    recently_missing = missing_at is not None and time.monotonic() - missing_at < MISSING_RECHECK_SEC
+    if os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY") and not recently_missing:
         try:
             # 키 없는 테스트 환경에는 langfuse가 설치돼 있지 않을 수 있어 여기서 import한다
             from langfuse import Langfuse
 
             remote = Langfuse().get_prompt(name, label=label)
+            _MISSING.pop(name, None)
             return Prompt(name=name, text=remote.prompt, version=str(remote.version), source=remote)
         except Exception as e:  # 미설치·연결 실패·미등록 모두 같은 처리: 로컬 파일
+            if type(e).__name__ == "NotFoundError":
+                _MISSING[name] = time.monotonic()  # 미등록만 기억한다. 연결 실패는 다음 요청에서 다시 묻는다
             log_failure("langfuse_prompt", f"{type(e).__name__} fallback=local_file")
 
     path = PROMPT_DIR / f"{name}.md"

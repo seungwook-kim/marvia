@@ -1291,7 +1291,7 @@ def test_document_needs_login(monkeypatch):
     from backend.app.routers import document as document_router
 
     _login(monkeypatch)
-    monkeypatch.setattr(document_router.doc_ocr, "read_lines", lambda data: pytest.fail("로그인 없이 OCR까지 가면 안 된다"))
+    monkeypatch.setattr(document_router.doc_ocr, "read_lines", lambda data, **kw: pytest.fail("로그인 없이 OCR까지 가면 안 된다"))
     with TestClient(app) as client:
         resp = client.post("/api/document", files={"file": ("a.png", b"not-an-image", "image/png")})
     assert resp.status_code == 401

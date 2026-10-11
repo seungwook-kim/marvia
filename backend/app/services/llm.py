@@ -34,6 +34,7 @@
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -80,6 +81,8 @@ ANTHROPIC_MAX_TOKENS = 8192
 # 구조화 출력(response_format json_schema)을 Claude에서 받는 방법: 이 이름의 도구 하나를 스키마 그대로 만들고 그 도구를
 # 반드시 부르게(tool_choice) 한다. 도구 입력이 곧 스키마에 맞는 JSON이다. 결과는 본문(content)으로 돌려줘 _ask_json이 그대로 읽는다
 STRUCTURED_TOOL = "structured_output"
+# 위 강제 도구 호출(tool_choice type tool)을 받는 모델 이름 앞머리. 나머지(Sonnet·Opus 5.5)는 output_config.format을 쓴다
+FORCED_TOOL_MODELS = ("claude-haiku",)
 TIMEOUT_SEC = 60.0  # 호출 하나가 요청 전체 시간을 다 먹지 않게 하는 상한
 
 # 최초 1회 + 재시도 1회만 한다. 3회씩 돌리면 사용자가 너무 오래 기다린다.
@@ -260,13 +263,27 @@ def _create_with_deadline(client: OpenAI, kwargs: dict, extra_body: dict | None)
 
 # ── Anthropic(Claude) 직접 호출 (10-08) ──────────────────────────────
 
+_ssl_ctx = None
+_ssl_lock = threading.Lock()
+
+
+def _ssl_context():
+    """HTTPS 인증서 묶음을 한 번만 읽어 둔 SSL 설정. httpx.Client를 만들 때마다 새로 읽으면 호출마다 약 0.76초가 더 들었다
+    (Windows 로컬 프로파일, load_verify_locations). 클라이언트는 호출마다 새로 만들되(끊을 때 닫는다) 이 설정은 같이 쓴다."""
+    global _ssl_ctx
+    with _ssl_lock:
+        if _ssl_ctx is None:
+            _ssl_ctx = httpx.create_ssl_context()
+        return _ssl_ctx
+
+
 def _anthropic_http() -> httpx.Client:
     """Anthropic Messages API로 가는 HTTP 클라이언트. 키가 없으면 LLMError(auth)로 올려 라우터가 partial로 돌려준다.
     테스트는 이 함수를 가짜 transport를 쓰는 클라이언트로 바꿔 끼운다."""
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not key:
         raise LLMError("ANTHROPIC_API_KEY가 없습니다", kind="auth")
-    return httpx.Client(timeout=TIMEOUT_SEC, headers={
+    return httpx.Client(timeout=TIMEOUT_SEC, verify=_ssl_context(), headers={
         "x-api-key": key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"})
 
 
@@ -320,7 +337,13 @@ def _to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
             push("user", [{"type": "tool_result", "tool_use_id": m.get("tool_call_id"),
                            "content": _text_of(m.get("content"))}])
         else:  # user
-            text = _text_of(m.get("content"))
+            content = m.get("content")
+            if isinstance(content, list) and any(isinstance(p, dict) and p.get("type") == "image" for p in content):
+                # 서류 사진(read_doc_image): Messages API 사진 블록과 글 블록을 그대로 넘긴다
+                push("user", [p if p.get("type") == "image" else {"type": "text", "text": p.get("text", "")}
+                              for p in content if isinstance(p, dict)])
+                continue
+            text = _text_of(content)
             push("user", [{"type": "text", "text": text or " "}])
     return "\n\n".join(system_parts), out
 
@@ -339,7 +362,14 @@ def _anthropic_request(kwargs: dict) -> dict:
     response_format = kwargs.get("response_format") or {}
     schema = (response_format.get("json_schema") or {}).get("schema") if response_format.get("type") == "json_schema" else None
     choice = kwargs.get("tool_choice")
-    if schema is not None:
+    if schema is not None and not body["model"].startswith(FORCED_TOOL_MODELS):
+        # Sonnet·Opus 5.5는 tool_choice로 도구를 강제하지 못하고(400), 구조화 출력(output_config.format)은 null을 허용하는
+        # 칸이 많은 스키마(서류 칸 20개)를 "union 칸이 너무 많다"며 거절한다. 그래서 스키마를 지시로 붙여 JSON 본문만 받는다.
+        # 답은 본문 글로 오고 부르는 쪽이 _loose_json으로 코드 울타리를 벗겨 스키마 모델로 검사한다 (read_doc_image)
+        rule = ("Answer with only one compact JSON object (no indentation, no code fence) that matches this JSON schema, "
+                "and nothing else:\n" + json.dumps(schema, ensure_ascii=False))
+        body["system"] = (body.get("system") or []) + [{"type": "text", "text": rule}]
+    elif schema is not None:
         # 구조화 출력: 스키마 도구를 더하고 그것만 부르게 한다. 다른 도구가 있어도 이번 답은 JSON으로 끝난다(tool_choice="none" 뜻과 같다)
         tools.append({"name": STRUCTURED_TOOL, "description": "Return the final answer in this exact shape.",
                       "input_schema": schema})
@@ -348,6 +378,10 @@ def _anthropic_request(kwargs: dict) -> dict:
         body["tool_choice"] = {"type": "none"}
     if tools:
         body["tools"] = tools
+    if kwargs.get("_no_thinking") and kwargs["model"].startswith(CLAUDE_PREFIX):
+        # Sonnet 5.5는 기본으로 답 전에 생각을 쓴다. 서류 사진 읽기에서는 같은 정확도에 출력이 약 500 → 220토큰,
+        # 시간이 약 4.8초 → 3.3초였다(로컬 실측). "disabled"는 이 모델이 거절해 between_tools로 끈다
+        body["thinking"] = {"type": "between_tools"}
     return body
 
 
@@ -393,20 +427,31 @@ def _anthropic_call(kwargs: dict) -> LLMResult:
     """claude/ 모델을 Anthropic Messages API로 한 번 부른다. 실패는 _call_once와 같은 LLMError 종류로 올린다.
     전체 시간 상한(TIMEOUT_SEC)은 httpx timeout과 별도 스레드 대기로 함께 지킨다 (_create_with_deadline과 같은 이유)."""
     model = kwargs["model"]
+    cancel: threading.Event | None = kwargs.get("_cancel")
     body = _anthropic_request(kwargs)
     client = _anthropic_http()
     box: dict = {}
 
     def run():
         try:
-            box["resp"] = client.post(ANTHROPIC_URL, json=body)
+            box["resp"] = _anthropic_stream(client, body) if cancel is not None else client.post(ANTHROPIC_URL, json=body)
         except BaseException as e:  # 스레드 밖에서 다시 올린다
             box["error"] = e
 
     start = time.monotonic()
     worker = threading.Thread(target=run, daemon=True)
     worker.start()
-    worker.join(TIMEOUT_SEC)
+    if cancel is None:
+        worker.join(TIMEOUT_SEC)
+    else:
+        # 끊을 수 있는 호출: 기다리는 동안 cancel을 본다. 켜지면 연결을 닫아 제공사가 답 쓰기를 멈추게 한다(출력 토큰 절약)
+        deadline = start + TIMEOUT_SEC
+        while worker.is_alive() and time.monotonic() < deadline:
+            if cancel.wait(0.05):
+                client.close()
+                worker.join(1.0)
+                raise LLMError(f"{model}: 호출을 끊음", latency_ms=int((time.monotonic() - start) * 1000),
+                               kind="cancelled")
     latency_ms = int((time.monotonic() - start) * 1000)
     try:
         if worker.is_alive():
@@ -415,8 +460,8 @@ def _anthropic_call(kwargs: dict) -> LLMResult:
             e = box["error"]
             kind = "timeout" if isinstance(e, httpx.TimeoutException) else "connection"
             raise LLMError(f"{model}: 연결 실패 {type(e).__name__}", latency_ms=latency_ms, kind=kind) from e
-        resp = box["resp"]
-        if resp.status_code >= 400:
+        resp = box["resp"]  # 보통 응답(httpx.Response), stream으로 모은 dict, stream 실패(_StreamError) 중 하나
+        if not isinstance(resp, dict) and resp.status_code >= 400:
             try:
                 err = (resp.json() or {}).get("error") or {}
             except ValueError:
@@ -425,10 +470,63 @@ def _anthropic_call(kwargs: dict) -> LLMResult:
             raise LLMError(f"{model}: HTTP {resp.status_code} {err.get('type', '')} {err.get('message', '')[:200]}",
                            code=resp.status_code, latency_ms=latency_ms, kind=_status_kind(resp.status_code),
                            retry_after=_retry_after(resp.headers))
-        return _anthropic_result(resp.json(), latency_ms)
+        return _anthropic_result(resp if isinstance(resp, dict) else resp.json(), latency_ms)
     finally:
         if not worker.is_alive():
             client.close()
+
+
+class _StreamError:
+    """stream 응답이 4xx·5xx일 때 _anthropic_call이 보통 응답처럼 다루게 하는 얇은 껍데기 (status_code, headers, json())."""
+
+    def __init__(self, status_code: int, headers, body: bytes):
+        self.status_code, self.headers, self._body = status_code, headers, body
+
+    def json(self):
+        return json.loads(self._body or b"{}")
+
+
+def _anthropic_stream(client: httpx.Client, body: dict):
+    """Messages API를 stream(SSE)으로 불러 끝까지 모은 응답을 보통 응답과 같은 dict로 돌려준다. 실패 응답은 _StreamError.
+
+    끊을 수 있는 호출(_anthropic_call의 cancel)에만 쓴다. stream이어야 연결을 닫았을 때 제공사가 답 쓰기를 멈춘다.
+    """
+    msg: dict = {"content": [], "usage": {}}
+    blocks: dict[int, dict] = {}
+    with client.stream("POST", ANTHROPIC_URL, json={**body, "stream": True}) as resp:
+        if resp.status_code >= 400:
+            return _StreamError(resp.status_code, resp.headers, resp.read())
+        for line in resp.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            ev = json.loads(line[5:])
+            kind = ev.get("type")
+            if kind == "message_start":
+                m = ev.get("message") or {}
+                msg.update(id=m.get("id"), model=m.get("model"))
+                msg["usage"].update(m.get("usage") or {})
+            elif kind == "content_block_start":
+                blocks[ev["index"]] = {**ev.get("content_block", {}), "_json": ""}
+            elif kind == "content_block_delta":
+                block, delta = blocks[ev["index"]], ev.get("delta") or {}
+                if delta.get("type") == "text_delta":
+                    block["text"] = block.get("text", "") + delta.get("text", "")
+                elif delta.get("type") == "input_json_delta":
+                    block["_json"] += delta.get("partial_json", "")
+            elif kind == "message_delta":
+                msg["stop_reason"] = (ev.get("delta") or {}).get("stop_reason")
+                msg["usage"].update(ev.get("usage") or {})
+            elif kind == "error":
+                err = ev.get("error") or {}
+                return _StreamError(529 if err.get("type") == "overloaded_error" else 500, resp.headers,
+                                    json.dumps({"error": err}).encode())
+    for i in sorted(blocks):
+        block = blocks[i]
+        raw = block.pop("_json")
+        if block.get("type") == "tool_use":
+            block["input"] = json.loads(raw or "{}")
+        msg["content"].append(block)
+    return msg
 
 
 def _call_once(kwargs: dict) -> LLMResult:
@@ -595,8 +693,12 @@ def chat(
     tools: list[dict] | None = None,
     tool_choice: str | None = None,
     max_tokens: int | None = None,
+    cancel: threading.Event | None = None,
+    no_thinking: bool = False,
 ) -> LLMResult:
     """OpenRouter에 묻고 답을 돌려준다. 출력 검증은 하지 않는다.
+    cancel: 켜지면 진행 중인 호출을 끊고 LLMError(cancelled)를 올린다. claude/ 모델만 받는다 (서류 사진 읽기, read_doc_image).
+    no_thinking: claude/ 모델의 생각(thinking) 단계를 끈다. 칸을 옮겨 적는 일처럼 추론이 필요 없는 호출용 (read_doc_image).
 
     실패 처리:
       500·502·503·529  RETRY_WAIT_SEC 쉬고 한 번 더 (최초 포함 MAX_ATTEMPTS번)
@@ -628,6 +730,12 @@ def chat(
         kwargs["tool_choice"] = tool_choice
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
+    if cancel is not None:
+        if not model.startswith(CLAUDE_PREFIX):
+            raise LLMError(f"{model}: 끊을 수 있는 호출은 claude/ 모델만 됩니다", kind="not_configured")
+        kwargs["_cancel"] = cancel  # _anthropic_call이 꺼낸다
+    if no_thinking:
+        kwargs["_no_thinking"] = True  # _anthropic_request가 꺼낸다. 다른 제공사에는 보내지 않는다
 
     # 요청당 비용 상한: 이 요청이 이미 상한만큼 썼으면 더 부르지 않는다. 부르는 쪽은 LLMError를 받아
     # 판정 표 폴백·규칙 답 같은 기존 부분 응답 경로로 간다 (판정은 코드 표가 정하므로 등급은 나간다)
@@ -1367,6 +1475,73 @@ def extract_doc_fields(masked_text: str, *, model: str | None = None) -> LLMAnsw
     """
     return _ask_json(DOC_EXTRACT_PROMPT, masked_text, "doc_extract", DOC_EXTRACT_SCHEMA, DocFieldsOutput, model,
                      skills=())
+
+
+# ── 서류 사진 직접 읽기 read_doc_image() (docs/specs/document-extract.md "사진 직접 읽기") ──
+# OCR 글자가 아니라 사진을 모델에 보여 주고 칸을 옮겨 적게 한다. 팩스로 받은 서류를 다시 찍은 사진은 로컬 OCR이
+# B/L·항차의 비슷한 글자(I·L, E·R)를 틀려, 사진을 직접 읽는 모델(Sonnet)이 훨씬 정확했다 (scripts/bench_document.py).
+# 이 경로는 B/L·연락처가 든 사진이 제공사로 간다. 그래서 DOC_VISION_MODEL을 채운 경우에만 켜지고 (CLAUDE.md 서류 사진 예외),
+# 라우터는 OCR+UNI-PASS로 B/L이 확인되면 이 호출을 끊는다 (routers/document.py).
+DOC_VISION_PROMPT = "marvia-doc-vision"
+# 사진 직접 읽기 출력. 서류 칸 추출(DOC_EXTRACT_SCHEMA)에 B/L 번호와 MRN을 더하고, 근거 글(*_text) 세 칸은 뺐다.
+# 근거 글은 OCR 글자에 있는지(not_in_text) 대조하는 데만 쓰는데, 사진 직접 읽기 값은 그 대조를 하지 않는다(routers/document.py).
+# 답 쓰는 시간이 지연의 대부분이라(출력 약 580토큰에 약 4.5초) 쓰지 않는 칸을 줄인다
+_NO_EVIDENCE = [k for k in DOC_EXTRACT_SCHEMA["required"] if not k.endswith("_text")]
+DOC_VISION_SCHEMA = {
+    **DOC_EXTRACT_SCHEMA,
+    "required": ["bl_no", "mrn", *_NO_EVIDENCE],
+    "properties": {"bl_no": {"type": ["string", "null"]}, "mrn": {"type": ["string", "null"]},
+                   **{k: DOC_EXTRACT_SCHEMA["properties"][k] for k in _NO_EVIDENCE}},
+}
+# 출력 상한. 칸 20개 JSON은 300토큰 안팎이지만, 생각(thinking)을 쓰는 모델은 그만큼 더 쓴다. 600에서 답이 잘린 적이 있다
+DOC_VISION_MAX_TOKENS = 4000
+
+
+class DocVisionOutput(DocFieldsOutput):
+    bl_no: str | None = None  # 코드가 문장부호를 빼고 선사 부호를 고친다 (doc_ocr.fix_carrier_prefix)
+    mrn: str | None = None    # 코드가 끝 글자(1·I)를 고친다 (doc_ocr.take_mrn)
+
+
+def doc_vision_model() -> str | None:
+    """서류 사진을 직접 읽을 모델(DOC_VISION_MODEL). 비었거나 claude/ 모델이 아니면 None(사진 직접 읽기 끔).
+    claude/만 받는 이유: 진행 중에 끊는 호출(chat의 cancel)이 Anthropic stream에만 있다."""
+    model = os.environ.get("DOC_VISION_MODEL", "").strip()
+    return model if model.startswith(CLAUDE_PREFIX) else None
+
+
+def read_doc_image(image_jpeg: bytes, *, cancel: threading.Event | None = None, model: str | None = None) -> LLMAnswer:
+    """서류 사진(JPEG)을 보여 주고 B/L·선명·항차·날짜·항구·품명·MRN과 B/L 조건·연락처를 옮겨 적게 한다. output은 DocVisionOutput.
+
+    cancel이 켜지면 호출을 끊고 LLMError(cancelled)를 올린다. 트레이스에는 사진과 읽은 값을 남기지 않는다(B/L·연락처, SDD 3.5).
+    """
+    model = model or doc_vision_model()
+    if not model:
+        raise LLMError("DOC_VISION_MODEL이 없습니다", kind="not_configured")
+    prompt = get_prompt(DOC_VISION_PROMPT)
+    messages = [{"role": "system", "content": prompt.text},
+                {"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.b64encode(image_jpeg).decode()}},
+                    {"type": "text", "text": "Copy the fields from this document photo."}]}]
+    generation = start_generation(DOC_VISION_PROMPT, f"[document photo, {len(image_jpeg)} bytes]", prompt.source)
+    response_format = {"type": "json_schema", "json_schema": {"name": "doc_vision", "strict": True, "schema": DOC_VISION_SCHEMA}}
+    try:
+        result = chat(messages, model=model, response_format=response_format, max_tokens=DOC_VISION_MAX_TOKENS,
+                      cancel=cancel, no_thinking=True)
+    except LLMError as e:
+        end_generation(generation, None, prompt.version, error=str(e))
+        raise
+    try:
+        output = DocVisionOutput.model_validate_json(_loose_json(result.content, DocVisionOutput) or result.content or "")
+    except ValidationError as e:
+        kind = "truncated" if result.finish_reason == "length" else "bad_format"
+        end_generation(generation, result, prompt.version, error=kind)
+        raise LLMFormatError(f"{result.model}: doc_vision JSON 모양이 다름 ({e.error_count()}건, {kind})",
+                             "Your answer did not match the JSON format.", kind=kind) from e
+    # 읽은 값에는 B/L·연락처가 있어 트레이스에는 채운 칸 이름만 남긴다
+    end_generation(generation, result, prompt.version,
+                   output={"filled": sorted(k for k, v in output.model_dump().items() if v not in (None, ""))})
+    return LLMAnswer(output=output, llm=result, prompt_version=prompt.version)
 
 
 # ── 기억 뽑기 write_memory() ─────────────────────────────────

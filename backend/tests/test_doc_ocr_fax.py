@@ -51,7 +51,7 @@ def test_exif_orientation_is_applied():
 def test_router_masks_raw_read_and_returns_fixed_bl(monkeypatch):
     raw_lines = ["ARRIVAL NOTICE", "H.B/1.N1.", ":PCI.UTEST000001", "Vessel & Voy: SEA STAR / 0925W"]
     monkeypatch.setattr(doc_ocr, "read_lines",
-                        lambda data: doc_ocr.OcrResult(lines=raw_lines, rotation=0, runs=1, ocr_ms=1))
+                        lambda data, **kw: doc_ocr.OcrResult(lines=raw_lines, rotation=0, runs=1, ocr_ms=1))
     sent = []
 
     def fake(masked_text, **kwargs):

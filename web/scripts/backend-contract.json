@@ -1189,6 +1189,13 @@
      "items": {
       "type": "string"
      }
+    },
+    "read_by": {
+     "enum": [
+      "unipass",
+      "vision",
+      "ocr"
+     ]
     }
    },
    "required": [
@@ -1204,7 +1211,8 @@
     "important",
     "facts_saved",
     "flagged",
-    "bl_candidates"
+    "bl_candidates",
+    "read_by"
    ]
   },
   "EtaChange": {

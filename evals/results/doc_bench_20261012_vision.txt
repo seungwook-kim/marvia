@@ -1,0 +1,9 @@
+# scripts/bench_document.py --variants --repeat 3  (2026-10-12, Windows 로컬 CPU, 시간은 3회 중앙값)
+# 입력: 실제 팩스 도착 통지서 사진 1장(레포 밖) + 같은 사진의 변형 4장(흐림, JPEG 30, 75% 축소, 2도 기울임). 칸 9개 x 5장
+# 값은 적지 않고 맞음/틀림만 적는다. 사진 직접 읽기 모델 claude-sonnet-5-5 (thinking 끔)
+case1 orig     total 3890ms ocr 2765ms read_by=vision bl_status=ok | bl_no=OK vessel=OK voyage=OK eta=OK etd=OK pol=OK pod=OK item=OK mrn=OK
+case1 blur     total 2827ms ocr 2422ms read_by=vision bl_status=ok | bl_no=OK vessel=OK voyage=OK eta=OK etd=OK pol=OK pod=OK item=OK mrn=OK
+case1 jpeg30   total 3812ms ocr 2765ms read_by=vision bl_status=ok | bl_no=OK vessel=OK voyage=BAD eta=OK etd=OK pol=OK pod=OK item=OK mrn=OK
+case1 small75  total 3875ms ocr 2343ms read_by=vision bl_status=ok | bl_no=OK vessel=OK voyage=OK eta=OK etd=OK pol=OK pod=OK item=OK mrn=OK
+case1 rot2     total 3045ms ocr 2532ms read_by=vision bl_status=ok | bl_no=BAD vessel=OK voyage=OK eta=OK etd=OK pol=OK pod=OK item=OK mrn=OK
+정확도 43/45
