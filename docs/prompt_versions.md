@@ -20,6 +20,7 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 | marvia-chat-agent | 채팅 에이전트. 가린 문장과 최근 대화를 받아 도구(화물 조회·화물 질문·입항 선박 검색·읽기 전용 MCP 도구)를 골라 쓰고, 도구가 필요 없는 실무 질문은 Skill 문서 안에서 답한다. 안 되면 marvia-chat-route 방식으로 간다 (services/chat.py) | Langfuse 13 (라벨 v4: 해요체 · on_screen 입력 · 근거 번호 [E#]). 레포 사본은 웹 검색 단계를 뺐고 회사 연락처는 포워더·선사 확인 안내로 바꿨다 (운영 Langfuse에는 아직 반영 전). 처음 1~10 이력: 3 웹 검색 규칙, 4 답 출처 3단계, 5 출발지에 부산 안 넣기·애매한 번호, 6 묻지 않은 날짜 안 말하기·존댓말, 7 인사·사용 안내·상황 질문·통관 시기는 ask_cargo·여러 화물 비교 한 문장, 8 근거 조각 짧은 한 문장·구체적 검색어, 9 set_watch 도구·watch_cue, 10 send_kakao 도구 |
 | marvia-memory-write | 조회·대화 뒤 사용자 말에서 메모장 줄 단위 명령(add·update·delete·set_cargo·noop)만 내기. 적용은 코드 (docs/specs/memory.md) | Langfuse 미등록, 레포 파일로 동작 |
 | marvia-chat-title | 대화 목록의 제목 짓기. 첫 사용자 말(B/L은 [BL1]로 가림)에서 한국어 20자 이내 한 줄 제목만 낸다. 검사와 대체 제목은 코드 (services/conversations.py) | Langfuse 1 |
+| marvia-doc-vision | 서류 사진을 직접 보고 칸(B/L·MRN·선명·항차·ETA·적재항·양륙항·품명·출항일, B/L 조건·연락처) 옮겨 적기. 사진 직접 읽기(DOC_VISION_MODEL)일 때만 (docs/specs/document-extract.md "사진 직접 읽기") | Langfuse 1 |
 
 ## 수정 이력
 
@@ -72,3 +73,4 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 10-07: 릴리스 r3. r2 이후 바뀐 3개(chat-agent 12, follow-up 8, chat-route 2)에 Langfuse 라벨 `v3`를 붙였다. 나머지 6개는 r2/r1 라벨 그대로. 다음 변경은 바꾼 것에만 `v4`.
 
 10-08: 릴리스 r4. r3 이후 바뀐 2개(chat-agent 13, follow-up 9)에 Langfuse 라벨 `v4`를 붙였다 (`docs/release_manifest.json`). 나머지는 이전 라벨 그대로. 다음 변경은 바꾼 것에만 `v5`.
+| 10-12 | doc-vision | `fb4bc41` | 첫 버전. marvia-doc-extract를 사진 입력용으로 바꿈: 손글씨·표시 무시, bl_no·mrn 칸 추가, 근거 글(*_text) 칸 뺌, 비슷한 글자(I·L·1, O·0, E·R·B, U·V, P·F)를 모양대로 읽기 | 팩스 서류 사진에서 OCR이 B/L·항차를 틀림 | 실제 팩스 사진 1장 + 변형 4장 43/45 (evals/results/doc_bench_20261012_vision.txt). 레포 파일과 Langfuse 1 본문 같음 확인 |
