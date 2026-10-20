@@ -10,6 +10,19 @@
 
 재생 모드(`REPLAY_MODE=true`)로 돌아서 외부 API 키와 LLM 키가 필요 없다. 녹화 답은 `TESTBL01` 입력에만 맞고, 나머지 데모는 판정 표 등급과 "설명 문장은 만들지 못했습니다" 안내로 끝난다(README 4절). `LLM_MODEL`과 키를 넣으면 진짜 LLM이 설명하지만 그 호출 비용은 따로 든다.
 
+## 0. 한 번에 하기 (`deploy/setup.sh`)
+
+아래 2~5절을 스크립트가 대신한다. 사람이 할 일은 로그인 셋과 Supabase 주소뿐이다.
+
+```
+gh auth login                    # repo 권한
+hf auth login                    # Hugging Face Write 토큰 (https://huggingface.co/settings/tokens)
+vercel login && vercel link --project marvia   # 레포 루트에서
+bash deploy/setup.sh             # Supabase 세션 풀러 주소를 물어본다. ENV_FILE=경로 로 .env에서 읽게 할 수도 있다
+```
+
+Vercel 화면에서 GitHub 연결(Settings > Git)을 하면 그 뒤로는 `main` push마다 Vercel도 자동 배포된다. 연결 전에는 `vercel deploy --prod`로 올린다.
+
 ## 1. Supabase
 
 1. 기존 프로젝트를 쓴다(구글 로그인용). 없으면 Free로 새로 만든다.
@@ -18,13 +31,15 @@
    - Transaction pooler(6543)는 psycopg의 prepared statement와 부딪힐 수 있어 쓰지 않는다.
 3. 표는 api가 켜질 때 마이그레이션으로 자동 생성된다.
 
-## 2. GitHub 토큰 (Space가 코드를 받을 때)
+## 2. GitHub deploy key (Space가 코드를 받을 때)
 
-GitHub > Settings > Developer settings > Fine-grained tokens에서 새 토큰을 만든다.
+이 레포 하나만 읽는 SSH 키다. 사람 계정 토큰보다 범위가 좁고 만료가 없다.
 
-- Repository access: `seungwook-kim/marvia`만
-- Permissions: Contents **Read-only** (나머지는 없음)
-- 만료일을 두면 만료 뒤 Space 빌드가 실패한다. 그때 새 토큰으로 바꾼다.
+```
+ssh-keygen -t ed25519 -N "" -f key
+gh repo deploy-key add key.pub -R seungwook-kim/marvia --title hf-space   # 기본이 읽기 전용
+base64 -w0 < key                 # 이 한 줄을 Space 시크릿 GITHUB_DEPLOY_KEY에 넣고 key 파일은 지운다
+```
 
 ## 3. Hugging Face Space
 
@@ -34,7 +49,7 @@ GitHub > Settings > Developer settings > Fine-grained tokens에서 새 토큰을
 
 | 이름 | 종류 | 값 |
 |---|---|---|
-| `GITHUB_TOKEN` | Secret | 2번 토큰 |
+| `GITHUB_DEPLOY_KEY` | Secret | 2번 개인키를 base64 한 줄로 |
 | `DATABASE_URL` | Secret | 1번 세션 풀러 주소 |
 | `MCP_TOKEN` | Secret | 아무 긴 임의 문자열. 비워도 재생 모드는 돌지만 `/mcp`가 밖에 열린다 |
 | `REPLAY_MODE` | Variable | `true` |

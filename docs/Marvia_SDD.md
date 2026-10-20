@@ -1041,12 +1041,13 @@ open http://localhost:8000/docs
 
 | 대상 | 어디 | 빌드 |
 |---|---|---|
-| api + worker | Hugging Face Space(Docker, CPU basic) | `deploy/hf-space/Dockerfile`. 코드는 빌드 때 이 레포에서 받는다(Space 시크릿 `GITHUB_TOKEN`, 읽기 전용) |
+| api + worker | Hugging Face Space(Docker, CPU basic) | `deploy/hf-space/Dockerfile`. 코드는 빌드 때 이 레포에서 받는다(Space 시크릿 `GITHUB_DEPLOY_KEY`: 이 레포만 읽는 deploy key. 사람 계정 토큰보다 범위가 좁고 만료가 없다) |
 | web | Vercel Hobby, Root Directory `web` | Vercel이 Next.js를 빌드 |
 | DB | Supabase Free | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 Space · GitHub 러너에서 안 붙는다 |
 
 - 재생 모드(`REPLAY_MODE=true`)로 돈다. 외부 API 키와 `LLM_MODEL`을 비워 두면 판정 LLM은 녹화 답을 쓴다(README 4절). 해수부를 부르지 않으므로 릴레이(6.7)가 필요 없다.
 - worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 따로 두면 HTTP 포트가 없어 Space가 시작 단계에서 실패한다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 주기마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
+- 첫 설정: `deploy/setup.sh`가 deploy key 등록, Space 생성과 시크릿 · 변수, GitHub 레포 시크릿 · 변수, Vercel 환경변수와 운영 배포, Space 첫 빌드를 한 번에 한다. 사람은 gh · hf · vercel 로그인과 Supabase 주소만 준비한다.
 - 배포: `main` push마다 `.github/workflows/deploy-hf.yml`이 `deploy/hf-space/`를 Space에 올리고, Dockerfile의 `MARVIA_REF`를 그 커밋 SHA로 바꿔 Space가 다시 빌드한다. 레포 변수 `HF_SPACE`가 없으면 건너뛴다.
 - 깨워 두기(`.github/workflows/keepalive.yml`): Space는 48시간 접속이 없으면 잠들어 12시간마다 `/health`를 부른다. Supabase 무료 DB는 7일 안 쓰면 일시정지되어 4일마다 `select 1`을 직접 보낸다.
 - 한계: GitHub 예약 실행이 빠지거나 Space가 재시작되면 첫 접속에 깨어나는 데 시간이 걸린다. Space는 미국, 기존 Supabase는 서울이라 DB 왕복마다 지연이 붙는다. 공개 Space여야 화면이 부를 수 있다(Files 탭에는 Dockerfile과 README만 보인다).
