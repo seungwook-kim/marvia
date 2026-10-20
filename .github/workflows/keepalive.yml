@@ -1,0 +1,48 @@
+# 무료 배포(SDD 6.8)가 멈추지 않게 깨워 둔다. 일정이 둘이다.
+#
+# - 12시간마다: Space /health. Space는 48시간 접속이 없으면 잠든다. GitHub 예약 실행은 늦거나 빠질 수 있어 4배 여유를 둔다.
+#   /health는 DB도 한 번 부르므로 Space가 깨어 있으면 DB도 같이 깨어 있다.
+# - 4일마다: Supabase DB에 직접 select 1. Space가 죽어 있어도 DB가 일시정지(무료 요금제 7일)되지 않게 따로 둔다.
+#   "*/4"는 매달 1 · 5 · 9 … 29일이라 29일에서 다음 달 1일은 2~3일 간격이다. 어느 경우든 7일 안이다.
+#
+# SUPABASE_DB_URL은 세션 풀러 주소(postgresql://..., 포트 5432)를 쓴다. GitHub 러너는 IPv4만 되어 IPv6 전용인 직접 연결 주소로는 안 붙는다.
+# 수동 실행(workflow_dispatch)은 둘 다 돈다.
+name: Keepalive
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"
+    - cron: "30 0 */4 * *"
+  workflow_dispatch:
+
+jobs:
+  space:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 */12 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # 잠들어 있으면 첫 요청이 깨우기만 하고 실패할 수 있어 30초 간격으로 다시 부른다. 끝내 안 되면 실패로 남겨 알림을 받는다
+      - name: Space /health 부르기
+        env:
+          HF_SPACE_URL: ${{ vars.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_SPACE_URL" ]; then
+            echo "::error::HF_SPACE_URL 변수가 없다. 이대로면 Space가 잠든다"
+            exit 1
+          fi
+          curl -fsS -m 60 --retry 8 --retry-delay 30 --retry-all-errors "$HF_SPACE_URL/health"
+
+  db:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 0 */4 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Supabase DB에 쿼리 한 번
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL 시크릿이 없다. 이대로면 DB가 일시정지된다"
+            exit 1
+          fi
+          psql "$SUPABASE_DB_URL" -tAc "select 1"

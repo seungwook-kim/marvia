@@ -28,7 +28,7 @@
 | MCP 서버를 api 프로세스의 `/mcp` 경로에 붙이고 서비스도 MCP 프로토콜로 부른다 | 배포 단위 하나, 외부 MCP 클라이언트와 같은 창구 |
 | 지식은 skills/ 문서를 호출마다 시스템 프롬프트에 통째로 넣는다(RAG 없음) | 문서가 작고, 근거 조각 검사(V14)가 원문 전체를 전제로 한다 |
 | 서류 사진의 B/L 조건은 검사를 통과하면 확인 화면 없이 저장하고 출처·시각을 남긴다(026) | 입력 단계를 줄이되, 사람이 확인하지 않은 값임을 답에서 밝힐 수 있게 |
-| 배포 서버는 실제 모드(`REPLAY_MODE=false`). 재생 모드는 키 없는 로컬 데모·평가용 | 실제 데이터로 시연, 재현은 재생 모드로 |
+| 배포 서버는 실제 모드(`REPLAY_MODE=false`). 재생 모드는 키 없는 로컬 데모·평가용. 무료 배포(6.8)는 재생 모드 | 실제 데이터로 시연, 재현은 재생 모드로. 무료 배포는 키·데이터 없이 비용 0으로 띄우는 것이 목적 |
 
 ### 1.1 레포 구조
 
@@ -1034,6 +1034,22 @@ open http://localhost:8000/docs
 - 하는 일은 `GET /1192000/VsslEtrynd5/*`, `/1192000/CntlVssl2/*`를 `apis.data.go.kr`로 넘기는 것뿐이다. `X-Relay-Token`이 환경변수 `RELAY_TOKEN`과 같아야 하고(없으면 503), 쿼리스트링(serviceKey)은 로그에 남기지 않으며 httpx INFO 로그도 끈다. 이미지는 python:3.12-slim, 비루트 사용자, Cloud Run `PORT`(기본 8080). 자세한 것은 `relay/README.md`, 테스트 `relay/test_relay.py`.
 - 백엔드는 `MOF_BASE_URL`(릴레이 주소)과 `MOF_RELAY_TOKEN`(릴레이의 `RELAY_TOKEN`과 같은 값)으로 연결한다. 5.3의 연결 실패 처리(1회 즉시 재시도, 15초 차단기)가 같이 동작한다.
 - 상태: 레포만으로는 실서버 연결을 확인할 수 없다. api에 `MOF_BASE_URL`·`MOF_RELAY_TOKEN`이 설정돼 있으면 릴레이를 거친다.
+
+### 6.8 무료 배포 (Hugging Face Spaces + Vercel + Supabase)
+
+카드 등록 없이 비용 0으로 띄우는 배포다. 6.3 · 6.4의 Railway 배포를 대신한다. 절차와 환경변수는 `deploy/README.md`.
+
+| 대상 | 어디 | 빌드 |
+|---|---|---|
+| api + worker | Hugging Face Space(Docker, CPU basic) | `deploy/hf-space/Dockerfile`. 코드는 빌드 때 이 레포에서 받는다(Space 시크릿 `GITHUB_TOKEN`, 읽기 전용) |
+| web | Vercel Hobby, Root Directory `web` | Vercel이 Next.js를 빌드 |
+| DB | Supabase Free | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 Space · GitHub 러너에서 안 붙는다 |
+
+- 재생 모드(`REPLAY_MODE=true`)로 돈다. 외부 API 키와 `LLM_MODEL`을 비워 두면 판정 LLM은 녹화 답을 쓴다(README 4절). 해수부를 부르지 않으므로 릴레이(6.7)가 필요 없다.
+- worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 따로 두면 HTTP 포트가 없어 Space가 시작 단계에서 실패한다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 주기마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
+- 배포: `main` push마다 `.github/workflows/deploy-hf.yml`이 `deploy/hf-space/`를 Space에 올리고, Dockerfile의 `MARVIA_REF`를 그 커밋 SHA로 바꿔 Space가 다시 빌드한다. 레포 변수 `HF_SPACE`가 없으면 건너뛴다.
+- 깨워 두기(`.github/workflows/keepalive.yml`): Space는 48시간 접속이 없으면 잠들어 12시간마다 `/health`를 부른다. Supabase 무료 DB는 7일 안 쓰면 일시정지되어 4일마다 `select 1`을 직접 보낸다.
+- 한계: GitHub 예약 실행이 빠지거나 Space가 재시작되면 첫 접속에 깨어나는 데 시간이 걸린다. Space는 미국, 기존 Supabase는 서울이라 DB 왕복마다 지연이 붙는다. 공개 Space여야 화면이 부를 수 있다(Files 탭에는 Dockerfile과 README만 보인다).
 
 ## 7. 비기능 요구사항과 보안
 
