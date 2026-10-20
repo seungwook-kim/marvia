@@ -1,0 +1,41 @@
+# Render Blueprint: 무료 배포의 api + worker (SDD 6.8, 절차는 deploy/README.md).
+# Render 대시보드 New > Blueprint에서 이 레포를 고르면 이 파일대로 서비스를 만든다. main push마다 다시 빌드한다.
+services:
+  - type: web
+    name: marvia-api
+    runtime: docker
+    # 무료 플랜. 결제수단을 넣지 않으면 한도를 넘어도 청구 대신 정지된다(render.com/docs/free)
+    plan: free
+    # 서울 Supabase와 가장 가까운 Render 지역
+    region: singapore
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      # Supabase 세션 풀러 주소(포트 5432). 비밀이라 여기 적지 않고 처음 만들 때 대시보드가 묻는다
+      - key: DATABASE_URL
+        sync: false
+      # /mcp 보호 토큰. Render가 임의 값을 만든다 (mcp_server/auth.py)
+      - key: MCP_TOKEN
+        generateValue: true
+      # 재생 모드: 외부 API · LLM 키 없이 evals/fixtures/replay/로 돈다
+      - key: REPLAY_MODE
+        value: "true"
+      # 화면(Vercel) 주소. 쉼표로 여럿
+      - key: ALLOWED_ORIGINS
+        value: https://marvia-alpha.vercel.app,https://marvia-developer95.vercel.app
+      - key: WORKER_SCHEDULE
+        value: "on"
+      - key: WORKER_INTERVAL_HOURS
+        value: "6"
+      - key: WORKER_SHIPFINDER_CALLS_PER_RUN
+        value: "0"
+      - key: WATCH_ENABLED
+        value: "off"
+      # 512MB라 OCR 모델은 첫 서류 요청 때 올린다
+      - key: DOC_WARMUP
+        value: "off"
+      # off면 10분마다 자기 /health를 부르지 않는다. 잠들어도 되면 off
+      - key: KEEP_AWAKE
+        value: "on"

@@ -1,106 +1,79 @@
-# 무료 배포 (Hugging Face Spaces + Vercel + Supabase)
+# 무료 배포 (Render + Vercel + Supabase)
 
 카드 등록 없이 비용 0으로 띄우는 배포 절차다. 구조와 이유는 SDD 6.8.
 
 | 대상 | 어디 | 무엇이 빌드하나 |
 |---|---|---|
-| api + worker | Hugging Face Space (Docker, CPU basic 무료) | `deploy/hf-space/Dockerfile` |
-| web | Vercel Hobby | Vercel (Root Directory `web`) |
-| DB | Supabase Free | 없음 (관리형) |
+| api + worker | Render 무료 웹 서비스 (512MB, CPU 0.1, 싱가포르) | `render.yaml` → `deploy/render/Dockerfile` |
+| web | Vercel Hobby (프로젝트 `marvia`, Root Directory `web`) | Vercel |
+| DB | Supabase Free (기존 서울 프로젝트) | 없음 (관리형) |
 
-재생 모드(`REPLAY_MODE=true`)로 돌아서 외부 API 키와 LLM 키가 필요 없다. 녹화 답은 `TESTBL01` 입력에만 맞고, 나머지 데모는 판정 표 등급과 "설명 문장은 만들지 못했습니다" 안내로 끝난다(README 4절). `LLM_MODEL`과 키를 넣으면 진짜 LLM이 설명하지만 그 호출 비용은 따로 든다.
+재생 모드(`REPLAY_MODE=true`)로 돌아서 외부 API 키와 LLM 키가 필요 없다. 녹화 답은 `TESTBL01`에 판매 예정일을 서버가 켜질 때 로그에 찍는 날짜로 넣었을 때만 맞고, 나머지 데모는 판정 표 등급과 "설명 문장은 만들지 못했습니다" 안내로 끝난다(README 4절).
 
-## 0. 한 번에 하기 (`deploy/setup.sh`)
+## 비용이 0인 이유 (render.com/docs/free, render.com/pricing)
 
-아래 2~5절을 스크립트가 대신한다. 사람이 할 일은 로그인 셋과 Supabase 주소뿐이다.
-
-```
-gh auth login                    # repo 권한
-hf auth login                    # Hugging Face Write 토큰 (https://huggingface.co/settings/tokens)
-vercel login && vercel link --project marvia   # 레포 루트에서
-bash deploy/setup.sh             # Supabase 세션 풀러 주소를 물어본다. ENV_FILE=경로 로 .env에서 읽게 할 수도 있다
-```
-
-Vercel 화면에서 GitHub 연결(Settings > Git)을 하면 그 뒤로는 `main` push마다 Vercel도 자동 배포된다. 연결 전에는 `vercel deploy --prod`로 올린다.
+- 무료 웹 서비스는 $0/month. 워크스페이스에 매달 750시간을 준다. 서비스 하나를 24시간 켜도 한 달 최대 744시간이다.
+- 시간·트래픽(Hobby 5GB)·빌드 시간을 넘으면 결제수단이 있을 때만 청구된다. 결제수단이 없으면 정지(빌드는 막히고 서비스는 기존 빌드로 계속)로 끝난다. **결제수단을 넣지 않는다.**
 
 ## 1. Supabase
 
-1. 기존 프로젝트를 쓴다(구글 로그인용). 없으면 Free로 새로 만든다.
-2. Connect > Session pooler 주소를 복사한다. `postgresql://postgres.<프로젝트>:<비밀번호>@aws-...pooler.supabase.com:5432/postgres` 모양이다.
-   - Direct connection 주소는 IPv6 전용이라 Space와 GitHub 러너에서 안 붙는다.
+1. Connect > Session pooler 주소를 복사한다. `postgresql://postgres.<프로젝트>:<비밀번호>@aws-...pooler.supabase.com:5432/postgres` 모양이다.
+   - Direct connection 주소는 IPv6 전용이라 GitHub 러너에서 안 붙는다.
    - Transaction pooler(6543)는 psycopg의 prepared statement와 부딪힐 수 있어 쓰지 않는다.
-3. 표는 api가 켜질 때 마이그레이션으로 자동 생성된다.
+2. 표는 api가 켜질 때 마이그레이션으로 자동 생성된다.
 
-## 2. GitHub deploy key (Space가 코드를 받을 때)
+## 2. Render
 
-이 레포 하나만 읽는 SSH 키다. 사람 계정 토큰보다 범위가 좁고 만료가 없다.
+1. https://render.com 에 GitHub로 가입한다. 결제수단은 넣지 않는다.
+2. New > Blueprint > `seungwook-kim/marvia`를 고른다(GitHub 앱에 이 레포 접근을 허용). `render.yaml`대로 `marvia-api`가 만들어진다.
+3. `DATABASE_URL`을 묻으면 1번 주소를 넣는다. `MCP_TOKEN`은 Render가 만든다.
+4. 첫 빌드가 끝나면 서비스 주소(`https://marvia-api.onrender.com` 같은 모양)를 확인한다.
 
-```
-ssh-keygen -t ed25519 -N "" -f key
-gh repo deploy-key add key.pub -R seungwook-kim/marvia --title hf-space   # 기본이 읽기 전용
-base64 -w0 < key                 # 이 한 줄을 Space 시크릿 GITHUB_DEPLOY_KEY에 넣고 key 파일은 지운다
-```
+그 뒤로는 `main` push마다 다시 빌드한다.
 
-## 3. Hugging Face Space
+## 3. GitHub 레포 설정 (`seungwook-kim/marvia`)
 
-1. New Space > SDK **Docker** > Blank > Hardware **CPU basic (free)** > **Public**.
-   - 화면(브라우저)이 api를 불러야 해서 Public이어야 한다. Files 탭에는 Dockerfile과 README만 보이고 코드는 빌드 때 받는다.
-2. Settings > Variables and secrets에 아래 값을 넣는다. Secret은 빌드와 실행 모두에 쓰인다.
+Settings > Secrets and variables > Actions (`keepalive.yml`이 쓴다)
 
 | 이름 | 종류 | 값 |
 |---|---|---|
-| `GITHUB_DEPLOY_KEY` | Secret | 2번 개인키를 base64 한 줄로 |
-| `DATABASE_URL` | Secret | 1번 세션 풀러 주소 |
-| `MCP_TOKEN` | Secret | 아무 긴 임의 문자열. 비워도 재생 모드는 돌지만 `/mcp`가 밖에 열린다 |
-| `REPLAY_MODE` | Variable | `true` |
-| `ALLOWED_ORIGINS` | Variable | Vercel 주소 (예: `https://marvia.vercel.app`) |
-| `WORKER_SCHEDULE` | Variable | `on` |
-| `WORKER_INTERVAL_HOURS` | Variable | `6` |
-| `WORKER_SHIPFINDER_CALLS_PER_RUN` | Variable | `0` |
-| `WATCH_ENABLED` | Variable | `off` |
-| `SUPABASE_URL` | Variable | 로그인을 켤 때만. `https://<프로젝트>.supabase.co` |
+| `SUPABASE_DB_URL` | Secret | 1번 세션 풀러 주소 |
+| `API_URL` | Variable | 2-4번 Render 주소 |
 
-넣지 않는 것: `LLM_MODEL`과 LLM 키, `SHIPFINDER_KEY`, `UNIPASS_KEY`, `DATA_GO_KR_KEY`, `MOF_*`, `LANGFUSE_*`, `KAKAO_*`.
+```
+gh secret set SUPABASE_DB_URL -R seungwook-kim/marvia      # 붙여 넣기(화면에 안 보임)
+gh variable set API_URL -R seungwook-kim/marvia --body https://marvia-api.onrender.com
+```
 
-3. Hugging Face > Settings > Access Tokens에서 **Write** 토큰을 만든다(배포 워크플로가 Space에 올릴 때 쓴다).
+## 4. Vercel
 
-## 4. GitHub 레포 설정 (`seungwook-kim/marvia`)
+프로젝트 `marvia`(Root Directory `web`)는 만들어 두었다. 운영 주소는 https://marvia-alpha.vercel.app.
 
-Settings > Secrets and variables > Actions
+```
+printf '%s' https://marvia-api.onrender.com | vercel env add NEXT_PUBLIC_API_BASE production
+vercel deploy --prod
+```
 
-| 이름 | 종류 | 값 |
-|---|---|---|
-| `HF_TOKEN` | Secret | 3-3번 Write 토큰 |
-| `SUPABASE_DB_URL` | Secret | 1번 세션 풀러 주소 (`keepalive.yml`) |
-| `HF_SPACE` | Variable | `seungwook-kim/<Space 이름>` |
-| `HF_SPACE_URL` | Variable | `https://seungwook-kim-<Space 이름>.hf.space` |
+- Vercel 계정 설정 > Login Connections에서 GitHub를 연결하고 `vercel git connect`를 하면 그 뒤로는 push마다 자동 배포된다.
+- Vercel 주소가 바뀌면 `render.yaml`의 `ALLOWED_ORIGINS`도 고친다.
+- 로그인을 켤 때만 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`(Vercel)와 `SUPABASE_URL`(Render)을 넣는다.
 
-`HF_SPACE`를 넣은 뒤 Actions > Deploy HF Space > Run workflow로 첫 배포를 한다. 그 뒤에는 `main` push마다 자동으로 다시 배포된다.
+## 5. 확인
 
-## 5. Vercel
-
-1. Add New > Project > `seungwook-kim/marvia` 가져오기.
-2. Root Directory `web`, Framework Next.js (자동 인식).
-3. Environment Variables
-
-| 이름 | 값 |
-|---|---|
-| `NEXT_PUBLIC_API_BASE` | `HF_SPACE_URL`과 같은 값 |
-| `NEXT_PUBLIC_SUPABASE_URL` | 로그인을 켤 때만 |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | 로그인을 켤 때만 |
-
-4. 배포 주소가 정해지면 Space의 `ALLOWED_ORIGINS`에 넣는다. 로그인을 켰으면 Supabase Auth의 Redirect URLs에도 넣는다.
-
-## 6. 확인
-
-- `https://<Space 주소>/health`가 200
-- Space Logs에 `schedule_on`과 `run_done` 줄이 보이면 워커가 돌고 있다
+- `https://<Render 주소>/health`가 `{"status":"ok","db":"ok"}`
+- Render Logs에 `schedule_on`과 `run_done` 줄이 보이면 워커가 돌고 있다
 - Vercel 화면에서 데모 B/L(`TESTBL01`) 조회
-- Actions > Keepalive > Run workflow가 초록 (space, db 두 작업 모두)
+- Actions > Keepalive > Run workflow가 초록 (api, db 두 작업 모두)
+
+## 깨워 두기
+
+- Render 무료 서비스는 밖에서 15분 요청이 없으면 잠든다. 잠들면 워커도 멈추고 첫 접속이 1분쯤 걸린다.
+- 컨테이너가 10분마다 자기 공개 주소의 `/health`를 부른다(`KEEP_AWAKE=on`). `/health`는 DB도 부르므로 Supabase도 깨어 있다.
+- Render가 재시작하거나 재우면 반복도 멈춘다. `keepalive.yml`이 12시간마다 밖에서 불러 다시 깨운다. DB는 따로 4일마다 직접 쿼리한다.
+- 잠들어도 되면 Render 환경변수 `KEEP_AWAKE`를 `off`로 바꾼다. 그러면 워커 6시간 주기도 잠든 동안은 돌지 않는다.
 
 ## 한계
 
-- Space는 48시간 접속이 없으면 잠든다. `keepalive.yml`이 12시간마다 `/health`를 불러 깨워 둔다. 예약 실행이 빠지거나 Space가 재시작되면 첫 접속에 1분 안팎 걸린다.
-- Supabase Free는 7일 안 쓰면 일시정지된다. `keepalive.yml`이 4일마다 DB에 직접 쿼리를 보낸다.
-- Space는 미국, 기존 Supabase는 서울이다. DB 왕복마다 0.15~0.2초가 붙으므로 느리면 미국 동부에 Supabase 프로젝트를 새로 만든다.
-- 워커가 죽어도 api는 계속 돈다. 워커 상태는 Space Logs로만 본다.
+- CPU 0.1개라 서류 사진 OCR은 로컬(약 1.5초)보다 몇 배 느리다. 판정 조회는 DB 왕복이 대부분이다.
+- Render 문서: "Do not use them for production applications", "Render might restart a Free web service at any time". 포트폴리오 데모용이다.
+- 재생 파일은 컨테이너 안에 생겨 재시작마다 다시 만든다(약 5시간 반 뒤 위치가 오래된 위치가 된다, scripts/make_demo.py).

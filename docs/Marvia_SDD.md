@@ -1035,22 +1035,23 @@ open http://localhost:8000/docs
 - 백엔드는 `MOF_BASE_URL`(릴레이 주소)과 `MOF_RELAY_TOKEN`(릴레이의 `RELAY_TOKEN`과 같은 값)으로 연결한다. 5.3의 연결 실패 처리(1회 즉시 재시도, 15초 차단기)가 같이 동작한다.
 - 상태: 레포만으로는 실서버 연결을 확인할 수 없다. api에 `MOF_BASE_URL`·`MOF_RELAY_TOKEN`이 설정돼 있으면 릴레이를 거친다.
 
-### 6.8 무료 배포 (Hugging Face Spaces + Vercel + Supabase)
+### 6.8 무료 배포 (Render + Vercel + Supabase)
 
 카드 등록 없이 비용 0으로 띄우는 배포다. 6.3 · 6.4의 Railway 배포를 대신한다. 절차와 환경변수는 `deploy/README.md`.
 
 | 대상 | 어디 | 빌드 |
 |---|---|---|
-| api + worker | Hugging Face Space(Docker, CPU basic) | `deploy/hf-space/Dockerfile`. 코드는 빌드 때 이 레포에서 받는다(Space 시크릿 `GITHUB_DEPLOY_KEY`: 이 레포만 읽는 deploy key. 사람 계정 토큰보다 범위가 좁고 만료가 없다) |
-| web | Vercel Hobby, Root Directory `web` | Vercel이 Next.js를 빌드 |
-| DB | Supabase Free | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 Space · GitHub 러너에서 안 붙는다 |
+| api + worker | Render 무료 웹 서비스(512MB, CPU 0.1, 싱가포르) | `render.yaml` Blueprint → `deploy/render/Dockerfile`. Render가 GitHub 앱으로 이 레포를 받아 빌드하고 `main` push마다 다시 빌드한다 |
+| web | Vercel Hobby, 프로젝트 `marvia`, Root Directory `web` | Vercel이 Next.js를 빌드 |
+| DB | Supabase Free(기존 서울 프로젝트) | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 GitHub 러너에서 안 붙는다 |
 
+- 배포처를 고른 이유: Hugging Face Spaces는 Docker Space를 무료 CPU로 돌리려면 PRO 구독이 필요해졌다(Space 생성 API가 402로 거절). Koyeb · Fly.io · Cloud Run · Oracle은 가입에 카드가 필요하다. Render 무료 웹 서비스는 $0이고, 결제수단이 없으면 한도를 넘어도 청구 대신 정지된다(render.com/docs/free).
 - 재생 모드(`REPLAY_MODE=true`)로 돈다. 외부 API 키와 `LLM_MODEL`을 비워 두면 판정 LLM은 녹화 답을 쓴다(README 4절). 해수부를 부르지 않으므로 릴레이(6.7)가 필요 없다.
-- worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 따로 두면 HTTP 포트가 없어 Space가 시작 단계에서 실패한다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 주기마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
-- 첫 설정: `deploy/setup.sh`가 deploy key 등록, Space 생성과 시크릿 · 변수, GitHub 레포 시크릿 · 변수, Vercel 환경변수와 운영 배포, Space 첫 빌드를 한 번에 한다. 사람은 gh · hf · vercel 로그인과 Supabase 주소만 준비한다.
-- 배포: `main` push마다 `.github/workflows/deploy-hf.yml`이 `deploy/hf-space/`를 Space에 올리고, Dockerfile의 `MARVIA_REF`를 그 커밋 SHA로 바꿔 Space가 다시 빌드한다. 레포 변수 `HF_SPACE`가 없으면 건너뛴다.
-- 깨워 두기(`.github/workflows/keepalive.yml`): Space는 48시간 접속이 없으면 잠들어 12시간마다 `/health`를 부른다. Supabase 무료 DB는 7일 안 쓰면 일시정지되어 4일마다 `select 1`을 직접 보낸다.
-- 한계: GitHub 예약 실행이 빠지거나 Space가 재시작되면 첫 접속에 깨어나는 데 시간이 걸린다. Space는 미국, 기존 Supabase는 서울이라 DB 왕복마다 지연이 붙는다. 공개 Space여야 화면이 부를 수 있다(Files 탭에는 Dockerfile과 README만 보인다).
+- 메모리: 512MB 제한을 건 로컬 실행에서 대기 154MB, 데모 조회 뒤 178MB, 서류 OCR 1장 뒤 201MB. OCR 모델은 `DOC_WARMUP=off`로 첫 서류 요청 때 올린다.
+- worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 무료 플랜은 background worker 종류가 없고 512MB를 나눠 쓴다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 6시간마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
+- 깨워 두기: Render 무료 서비스는 밖에서 15분 요청이 없으면 잠들고, 그러면 worker의 6시간 대기도 멈추고 첫 접속이 1분쯤 걸린다. `KEEP_AWAKE`가 off가 아니면 컨테이너가 10분마다 `RENDER_EXTERNAL_URL/health`를 부른다. 서비스 하나 24시간은 한 달 최대 744시간으로 무료 750시간 안이다. 이 반복을 GitHub Actions로 돌리지 않는 이유는 비공개 레포라 실행마다 1분씩 잡혀 월 4천 분을 넘기 때문이다(무료 2천 분).
+- `.github/workflows/keepalive.yml`: 12시간마다 `API_URL/health`(Render가 재시작 · 재우면 다시 깨운다), 4일마다 Supabase에 `select 1`(api가 죽어도 DB가 7일 일시정지에 걸리지 않게).
+- 한계: CPU 0.1개라 서류 OCR이 로컬보다 느리다. Render 문서는 무료 인스턴스를 운영 서비스에 쓰지 말라고 하고 언제든 재시작할 수 있다고 한다. 포트폴리오 데모용이다.
 
 ## 7. 비기능 요구사항과 보안
 
