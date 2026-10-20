@@ -24,7 +24,7 @@ services:
         value: "false"
       # 로그인(Supabase Auth). 프로젝트 주소라 비밀이 아니다
       - key: SUPABASE_URL
-        value: https://igojztstlanjhjtbzobo.supabase.co
+        value: https://kozjxtplvmzwhqiokcit.supabase.co
       # 화면(Vercel) 주소. 쉼표로 여럿
       - key: ALLOWED_ORIGINS
         value: https://marvia-alpha.vercel.app,https://marvia-developer95.vercel.app
