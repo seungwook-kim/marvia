@@ -275,7 +275,7 @@ cd web && npm install && npm run dev     # :3000. Node 20.9 이상
 | `DATA_GO_KR_KEY` | 공공데이터포털. 해수부 관제정보·선박운항정보 | 입항 예정·실적 조회 불가 |
 | `MOF_BASE_URL` / `MOF_RELAY_TOKEN` | 해수부 릴레이 주소와 공유 비밀 | `apis.data.go.kr`를 직접 부른다 |
 | `OPENROUTER_API_KEY` | openrouter.ai | LLM 호출 불가 |
-| `LLM_MODEL` | 서비스 모델 (배포값은 `release_manifest.json`의 `google/gemini-3.5-flash-lite`). `vertex/`로 시작하면 Vertex AI | `partial`: 판정 표 등급만, 설명 문장 없음 (재생 모드는 녹화 답) |
+| `LLM_MODEL` | 서비스 모델 (평가한 기준값은 `release_manifest.json`의 `google/gemini-3.5-flash-lite`, 지금 Render 배포값은 `claude/claude-haiku-5-5`). `vertex/`로 시작하면 Vertex AI | `partial`: 판정 표 등급만, 설명 문장 없음 (재생 모드는 녹화 답) |
 | `GOOGLE_CLOUD_PROJECT` / `VERTEX_THINKING_BUDGET` | Vertex 경로일 때만 | |
 | `MEMORY_MODEL` | 기억 뽑기·대화 제목 모델 (배포값 `openai/gpt-4o-mini`) | 기억 뽑기·제목 LLM을 건너뛴다 |
 | `EVAL_COMPARE_MODEL` / `EVAL_GRADER_MODEL` | 평가 (c) 비교 모델 / 통관 해설 채점 모델 | (c)·채점을 건너뛴다 |
@@ -382,7 +382,7 @@ judge 10을 production으로 올린 뒤 같은 모델로 다시 잰 `b_20261006_
 
 ### 서비스 모델 (10-07, EVAL_REPORT 5절)
 
-배포 서비스 모델은 `google/gemini-3.5-flash-lite`입니다. 이 모델의 평가는 OpenRouter가 아니라 Vertex AI(`vertex/google/gemini-3.5-flash-lite`)로 1회 쟀으므로 지연과 토큰은 Vertex 값입니다. 프롬프트 judge 10 · judge-eval 3 · follow-up 8, 채점 모델 `anthropic/claude-haiku-4.5`.
+평가한 서비스 모델은 `google/gemini-3.5-flash-lite`입니다. 지금 Render 배포는 `LLM_MODEL=claude/claude-haiku-5-5`(Anthropic 직접 호출)로 돌고 있고, 이 모델로는 아래 평가를 다시 재지 않았습니다. gemini 평가는 OpenRouter가 아니라 Vertex AI(`vertex/google/gemini-3.5-flash-lite`)로 1회 쟀으므로 지연과 토큰은 Vertex 값입니다. 프롬프트 judge 10 · judge-eval 3 · follow-up 8, 채점 모델 `anthropic/claude-haiku-4.5`.
 
 | 결과 파일 | exact | 판정 정확도 | act 재현율 | 선박 오확정 | 통관 해설 | p50 / p95 | LLM 호출 / 입력 토큰 (캐시) / 출력 토큰 | 비용 |
 |---|---|---|---|---|---|---|---|---|
