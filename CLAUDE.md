@@ -16,7 +16,7 @@ B/L 번호(판매 예정일은 선택)를 받아 "내 화물, 지금 신경 써�
 - 스키마나 필드를 만진다 → SDD 3절 (계약 C1~C8, DB 스키마). DB 표 관계는 docs/ERD.md
 - 요청 처리 순서, 되묻기 흐름 → SDD 4절
 - 어떤 파일이 무엇을 하고 무엇이 되면 완료인가 → SDD 5절
-- Docker, compose, 배포(Railway) → SDD 6절
+- Docker, compose, 배포(Render · Vercel · Supabase 무료 배포는 6.8, deploy/README.md) → SDD 6절
 - 지연·비용 목표, 보안, 신뢰 경계 → SDD 7절
 - 실패했을 때 무엇을 돌려주나 → SDD 8절
 - 테스트 층 → SDD 9절
@@ -73,10 +73,12 @@ marvia/
   README.md             포트폴리오 첫 화면. 한 줄 정의, 기능, 아키텍처, 실행법, 지표 표
   EVAL_REPORT.md        평가 리포트. 실행한 숫자만 적는다
   Dockerfile            멀티스테이지. base / app / worker (SDD 6.2). 로컬 compose용
-  Dockerfile.railway    Railway 배포용 API 이미지 (app 단계만). 기본 Dockerfile의 base·app을 고치면 같이 고친다
+  Dockerfile.railway    이전 Railway 배포용 API 이미지 (app 단계만). 기본 Dockerfile의 base·app을 고치면 같이 고친다
+  render.yaml           Render Blueprint (api + 워커, 무료). deploy/render/Dockerfile을 쓴다 (SDD 6.8)
+  deploy/               render/Dockerfile, README.md(무료 배포 절차와 환경변수)
   docker-compose.yml    api(/mcp 포함), worker, db(postgres 16) (SDD 6.1). docker-compose.override.yml은 로컬 전용, 커밋하지 않는다
   .dockerignore  .env.example(C8)  .gitignore
-  .github/              workflows/secret-scan.yml(gitleaks), workflows/tests.yml(pytest), PULL_REQUEST_TEMPLATE.md
+  .github/              workflows/secret-scan.yml(gitleaks), workflows/tests.yml(pytest), workflows/keepalive.yml(Render · Supabase 깨워 두기), PULL_REQUEST_TEMPLATE.md
   docs/                 Marvia_PRD.md, Marvia_SDD.md, Marvia_개발_작업_리스트.md, ERD.md, release_manifest.json,
                         prompt_versions.md, SCAFFOLD.md, specs/, evidence/(Langfuse 집계, MCP 연결 캡처), mockups/
   backend/
@@ -104,7 +106,7 @@ marvia/
   skills/               폴더마다 SKILL.md + rules.md(import-basics/는 SKILL.md만). ais-reliability/, customs-stages/, port-busan/, cargo-verdict/, referrals/, import-basics/
   evals/                schema.py(C7), dataset.jsonl, doc_dataset.jsonl, fixtures/, results/, baseline_rules.py, run_eval.py,
                         judge.py, contract_rate.py, push_dataset.py, replay_fixtures.py
-  web/                  Next.js 16. Railway marvia-web이 빌드하므로 compose 밖
+  web/                  Next.js 16. Vercel 프로젝트 marvia(Root Directory web)가 빌드하므로 compose 밖
                         app/(경로 /, /today, /watch, /cargo, /history, /settings, /settings/kakao, /admin, /metrics, /about),
                         components/, lib/(api, auth, tour, theme, docAttach, fixtures 등), public/basemap/
   scripts/              손으로 돌리는 스크립트 (make_demo, demo_live, mcp_check, langfuse_evidence, 실제 API 호출 저장 등)

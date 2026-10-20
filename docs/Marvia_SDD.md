@@ -1003,12 +1003,12 @@ FROM base AS worker
 - 이미지 안에 `.env`나 키를 COPY하지 않는다. `.dockerignore`: `.env`, `.env.*`(예시 제외), `.git`, `.venv`, `evals/results/`, `web/node_modules/`, 데모 재생 폴더. searoute는 항로망이 패키지에 들어 있어 시스템 패키지가 필요 없다. `platform: linux/amd64`는 compose에서 주석 처리돼 있고 Apple Silicon에서 안 뜰 때만 푼다.
 - `Dockerfile.railway`: Railway는 Dockerfile의 마지막 단계만 빌드하고 target을 고를 수 없어서, base + app을 한 단계로 합친 이 파일을 쓴다(`RAILWAY_DOCKERFILE_PATH`). 기본 Dockerfile의 base·app을 고치면 이 파일도 같이 고친다. 시작 명령은 `PORT`를 읽어 uvicorn을 띄우고(`MCP_URL`은 같은 포트의 `/mcp`), `REPLAY_MODE`가 켜져 있으면 먼저 `python -m scripts.make_demo`로 데모 재생 파일을 만든다(실패해도 서버는 켠다).
 
-### 6.3 web 배포
+### 6.3 web 배포 (이전 Railway 배포. 지금은 6.8)
 
 - Railway 서비스 `marvia-web`(`web/` 폴더, Next.js). 레포에는 `web/Dockerfile`이 없다. Railway 서비스 설정(빌드 방식, 환경변수)은 레포 밖이다.
 - 환경변수 `NEXT_PUBLIC_API_BASE`로 api 주소를, `NEXT_PUBLIC_SUPABASE_URL`·`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`로 로그인을 지정한다(빌드 때 번들에 들어가는 공개 값이다). 로컬은 `cd web && npm run dev`(`:3000`). `NEXT_PUBLIC_API_BASE`를 비우면 체험 모드(5.13)로 서버 없이 돈다.
 
-### 6.4 Railway (api)
+### 6.4 Railway (api) (이전 배포. 지금은 6.8)
 
 - `marvia-api`는 `Dockerfile.railway`로 배포한다. 환경변수는 Railway 서비스 설정에 두고 레포에는 `.env.example`만 둔다. 모델·프롬프트 버전·평가 기록은 `docs/release_manifest.json`(되돌리기: Railway에서 이전 deployment를 Redeploy, 프롬프트는 Langfuse에서 이전 version에 production label).
 - DB는 Supabase(`DATABASE_URL`). 서버가 켜질 때 마이그레이션이 자동 적용된다.
@@ -1043,12 +1043,12 @@ open http://localhost:8000/docs
 |---|---|---|
 | api + worker | Render 무료 웹 서비스(512MB, CPU 0.1, 싱가포르) | `render.yaml` Blueprint → `deploy/render/Dockerfile`. Render가 GitHub 앱으로 이 레포를 받아 빌드하고 `main` push마다 다시 빌드한다 |
 | web | Vercel Hobby, 프로젝트 `marvia`, Root Directory `web` | Vercel이 Next.js를 빌드 |
-| DB | Supabase Free(기존 서울 프로젝트) | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 GitHub 러너에서 안 붙는다 |
+| DB | Supabase Free(본인 계정 `mariva` 프로젝트, 서울). 로그인(Google)도 같은 프로젝트 | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 GitHub 러너에서 안 붙는다 |
 
 - 배포처를 고른 이유: Hugging Face Spaces는 Docker Space를 무료 CPU로 돌리려면 PRO 구독이 필요해졌다(Space 생성 API가 402로 거절). Koyeb · Fly.io · Cloud Run · Oracle은 가입에 카드가 필요하다. Render 무료 웹 서비스는 $0이고, 결제수단이 없으면 한도를 넘어도 청구 대신 정지된다(render.com/docs/free).
-- 실제 모드(`REPLAY_MODE=false`, ADR 0010)로 돈다. UNI-PASS · ShipFinder · 공공데이터 · OpenRouter · Supabase 로그인 키는 Render 대시보드에만 넣는다(`render.yaml`은 `sync: false`로 이름만). LLM 호출은 OpenRouter 선불 크레딧과 사용자별 하루 토큰 한도(5.20) 안에서 비용이 든다. 해수부는 해외 서버 연결을 막고 릴레이(6.7) 주소가 없어 실패 즉시 포기 경로로 간다. 로그인 전 "데모 둘러보기"는 서버 없이 `web/lib/tour.ts`로 돈다. `REPLAY_MODE=true`로 바꾸면 키 없이 데모 13건으로 돈다.
+- 실제 모드(`REPLAY_MODE=false`, ADR 0010)로 돈다. UNI-PASS · ShipFinder · 공공데이터 · OpenRouter · Supabase 로그인 키는 Render 대시보드에만 넣는다(`render.yaml`은 `sync: false`로 이름만). LLM 호출은 OpenRouter 선불 크레딧과 사용자별 하루 토큰 한도(5.20) 안에서 비용이 든다. 릴레이(6.7) 주소는 넣지 않았다. 해수부가 해외 연결을 막으면 실패 즉시 포기 경로로 간다(10-20 채팅 조회에서는 해수부 입항 신고 근거가 표시됐으나 직접 연결 여부는 로그로 확인 전). 로그인 전 "데모 둘러보기"는 서버 없이 `web/lib/tour.ts`로 돈다. `REPLAY_MODE=true`로 바꾸면 키 없이 데모 13건으로 돈다.
 - 메모리: 512MB 제한을 건 로컬 실행에서 대기 154MB, 데모 조회 뒤 178MB, 서류 OCR 1장 뒤 201MB. OCR 모델은 `DOC_WARMUP=off`로 첫 서류 요청 때 올린다.
-- worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 무료 플랜은 background worker 종류가 없고 512MB를 나눠 쓴다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 6시간마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
+- worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 무료 플랜은 background worker 종류가 없고 512MB를 나눠 쓴다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=12`로 6시간마다 수집한다(ShipFinder 하루 한도).
 - 깨워 두기: Render 무료 서비스는 밖에서 15분 요청이 없으면 잠들고, 그러면 worker의 6시간 대기도 멈추고 첫 접속이 1분쯤 걸린다. `KEEP_AWAKE`가 off가 아니면 컨테이너가 10분마다 `RENDER_EXTERNAL_URL/health`를 부른다. 서비스 하나 24시간은 한 달 최대 744시간으로 무료 750시간 안이다. 이 반복을 GitHub Actions로 돌리지 않는 이유는 비공개 레포라 실행마다 1분씩 잡혀 월 4천 분을 넘기 때문이다(무료 2천 분).
 - `.github/workflows/keepalive.yml`: 12시간마다 `API_URL/health`(Render가 재시작 · 재우면 다시 깨운다), 4일마다 Supabase에 `select 1`(api가 죽어도 DB가 7일 일시정지에 걸리지 않게).
 - 한계: CPU 0.1개라 서류 OCR이 로컬보다 느리다. Render 문서는 무료 인스턴스를 운영 서비스에 쓰지 말라고 하고 언제든 재시작할 수 있다고 한다. 포트폴리오 데모용이다.

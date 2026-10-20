@@ -7,12 +7,13 @@
     "verification": "pytest backend/tests mcp_server/tests, web tsc, verify-contract, e2e 데모(scripts/verify.mjs)로 확인한다"
   },
   "deploy": {
-    "platform": "Railway (api: Dockerfile.railway, web: web/)",
+    "platform": "Render 무료 (api + worker: render.yaml, deploy/render/Dockerfile) + Vercel Hobby (web: web/) + Supabase Free (mariva). 이전: Railway",
+    "urls": {"web": "https://marvia-alpha.vercel.app", "api": "https://marvia-api.onrender.com"},
     "mof_relay": {
       "platform": "Google Cloud Run (relay/)",
       "region": "asia-northeast3",
       "why": "해수부 API가 해외 리전(Railway 싱가포르)에서 연결 시간 초과가 나서 서울 리전에 릴레이를 둔다",
-      "env": "api 쪽에 MOF_BASE_URL·MOF_RELAY_TOKEN을 설정하면 릴레이를 거친다"
+      "env": "api 쪽에 MOF_BASE_URL·MOF_RELAY_TOKEN을 설정하면 릴레이를 거친다. Render 배포에는 넣지 않았다"
     },
     "replay_mode": false,
     "replay_mode_note": "배포 서버는 실제 모드(REPLAY_MODE=false). 재생 모드는 키 없는 로컬 데모·평가용"
@@ -71,6 +72,6 @@
       "marvia-chat-agent": 12,
       "marvia-follow-up": 8
     },
-    "code": "Railway에서 이전 deployment를 Redeploy 하거나, git revert 뒤 다시 배포"
+    "code": "Render Events에서 이전 deploy를 Rollback, Vercel은 이전 deployment를 Promote. 또는 git revert 뒤 push(둘 다 다시 배포)"
   }
 }

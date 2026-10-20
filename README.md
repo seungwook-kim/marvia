@@ -8,15 +8,15 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 
 | | |
 |---|---|
-| 서비스 | https://marvia.up.railway.app (Railway `marvia-web`) · 로그인 없이 "데모 둘러보기" |
-| Agent API | https://marvia-api-production.up.railway.app (Railway `marvia-api`) · `GET /health` · `POST /api/agent` |
+| 서비스 | https://marvia-alpha.vercel.app (Vercel `marvia`) · 로그인 없이 "데모 둘러보기" |
+| Agent API | https://marvia-api.onrender.com (Render `marvia-api`) · `GET /health` · `POST /api/agent` |
 | MCP | 위 API 주소의 `/mcp` (Bearer 토큰) |
 | 기획 | [docs/Marvia_PRD.md](./docs/Marvia_PRD.md) |
 | 설계 | [docs/Marvia_SDD.md](./docs/Marvia_SDD.md) · [docs/ERD.md](./docs/ERD.md) |
 | 작업 기록 | [docs/Marvia_개발_작업_리스트.md](./docs/Marvia_개발_작업_리스트.md) |
 | 평가 | [EVAL_REPORT.md](./EVAL_REPORT.md) |
 
-배포 주소와 모델·프롬프트 버전은 `docs/release_manifest.json`에 적힌 값입니다. api와 web은 Railway에 있고, 배포 서버는 실제 모드(`REPLAY_MODE=false`)로 외부 API를 부릅니다. 재생 모드(`REPLAY_MODE=true`)는 키 없는 로컬 데모와 평가용입니다.
+배포 주소와 모델·프롬프트 버전은 `docs/release_manifest.json`에 적힌 값입니다. api(+ 워커)는 Render 무료, web은 Vercel Hobby, DB·로그인은 Supabase Free에 있고(카드 없이 호스팅 0원, [deploy/README.md](./deploy/README.md)), 배포 서버는 실제 모드(`REPLAY_MODE=false`)로 외부 API를 부릅니다. 재생 모드(`REPLAY_MODE=true`)는 키 없는 로컬 데모와 평가용입니다.
 
 ---
 
@@ -134,7 +134,7 @@ worker의 재판정은 worker 프로세스 안에서 판정 흐름을 그대로 
 
 ### 해수부 릴레이 (`relay/`)
 
-해외(Railway 싱가포르)에서 해수부 API(apis.data.go.kr)가 ConnectTimeout으로 막혀(한국에서는 0.1초에 응답), 서울 Cloud Run에 작은 FastAPI 중계를 둡니다. `GET /1192000/VsslEtrynd5/*`, `/1192000/CntlVssl2/*`만 넘기고 `X-Relay-Token`이 맞아야 받습니다. 백엔드는 연결 대기 3초, 연결 실패는 한 번 바로 다시 부르고 두 번 실패하면 15초 동안 해수부 호출을 바로 실패시킵니다(`backend/app/clients/mof.py`). 릴레이 배포와 Railway 환경변수 설정은 확인 전입니다(`docs/release_manifest.json`). 자세한 내용은 [relay/README.md](./relay/README.md).
+해외(Railway 싱가포르)에서 해수부 API(apis.data.go.kr)가 ConnectTimeout으로 막혀(한국에서는 0.1초에 응답), 서울 Cloud Run에 작은 FastAPI 중계를 둡니다. `GET /1192000/VsslEtrynd5/*`, `/1192000/CntlVssl2/*`만 넘기고 `X-Relay-Token`이 맞아야 받습니다. 백엔드는 연결 대기 3초, 연결 실패는 한 번 바로 다시 부르고 두 번 실패하면 15초 동안 해수부 호출을 바로 실패시킵니다(`backend/app/clients/mof.py`). 지금 Render 배포는 릴레이 주소(`MOF_BASE_URL`) 없이 돌고, Railway 시절 릴레이 배포와 환경변수 설정은 확인 전입니다(`docs/release_manifest.json`). 자세한 내용은 [relay/README.md](./relay/README.md).
 
 ## 5. 디렉토리 구조
 
@@ -142,7 +142,9 @@ worker의 재판정은 worker 프로세스 안에서 판정 흐름을 그대로 
 .
 ├── README.md · CLAUDE.md · AGENTS.md · EVAL_REPORT.md
 ├── Dockerfile            멀티스테이지 (base / app / worker). 로컬 compose용
-├── Dockerfile.railway    Railway 배포용 API 이미지 (app 단계만)
+├── Dockerfile.railway    이전 Railway 배포용 API 이미지 (app 단계만)
+├── render.yaml           Render Blueprint (무료 배포, SDD 6.8)
+├── deploy/               render/Dockerfile(api + 워커 한 컨테이너), README.md(무료 배포 절차)
 ├── docker-compose.yml    api(/mcp 포함) + worker + postgres 16
 ├── .env.example          필요한 키 목록 (값 없음)
 ├── backend/
@@ -330,8 +332,8 @@ GitHub Actions `tests.yml`이 같은 pytest 범위를, `secret-scan.yml`(gitleak
 
 | 영역 | 사용 |
 |---|---|
-| Backend | FastAPI, Pydantic v2, Docker, Railway (`marvia-api`) |
-| Frontend | Next.js 16, React 19, Leaflet·MapLibre 지도, Railway (`marvia-web`) |
+| Backend | FastAPI, Pydantic v2, Docker, Render (`marvia-api`, 무료) |
+| Frontend | Next.js 16, React 19, Leaflet·MapLibre 지도, Vercel (`marvia`, Hobby) |
 | LLM | OpenRouter (구조화 출력, 모델 비교), Vertex AI 경로 |
 | 도구 | FastMCP (Streamable HTTP), ShipFinder, 해수부 공공데이터, searoute |
 | 데이터 | Supabase(배포 DB·로그인), 로컬은 PostgreSQL 16 |
