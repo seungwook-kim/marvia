@@ -28,7 +28,7 @@
 | MCP 서버를 api 프로세스의 `/mcp` 경로에 붙이고 서비스도 MCP 프로토콜로 부른다 | 배포 단위 하나, 외부 MCP 클라이언트와 같은 창구 |
 | 지식은 skills/ 문서를 호출마다 시스템 프롬프트에 통째로 넣는다(RAG 없음) | 문서가 작고, 근거 조각 검사(V14)가 원문 전체를 전제로 한다 |
 | 서류 사진의 B/L 조건은 검사를 통과하면 확인 화면 없이 저장하고 출처·시각을 남긴다(026) | 입력 단계를 줄이되, 사람이 확인하지 않은 값임을 답에서 밝힐 수 있게 |
-| 배포 서버는 실제 모드(`REPLAY_MODE=false`). 재생 모드는 키 없는 로컬 데모·평가용. 무료 배포(6.8)는 재생 모드 | 실제 데이터로 시연, 재현은 재생 모드로. 무료 배포는 키·데이터 없이 비용 0으로 띄우는 것이 목적 |
+| 배포 서버는 실제 모드(`REPLAY_MODE=false`). 재생 모드는 키 없는 로컬 데모·평가용. 무료 배포(6.8)도 실제 모드 | 실제 데이터로 시연, 재현은 재생 모드로. 호스팅은 무료, LLM 호출만 선불 크레딧 |
 
 ### 1.1 레포 구조
 
@@ -1046,7 +1046,7 @@ open http://localhost:8000/docs
 | DB | Supabase Free(기존 서울 프로젝트) | 세션 풀러 주소(포트 5432). 직접 연결 주소는 IPv6 전용이라 GitHub 러너에서 안 붙는다 |
 
 - 배포처를 고른 이유: Hugging Face Spaces는 Docker Space를 무료 CPU로 돌리려면 PRO 구독이 필요해졌다(Space 생성 API가 402로 거절). Koyeb · Fly.io · Cloud Run · Oracle은 가입에 카드가 필요하다. Render 무료 웹 서비스는 $0이고, 결제수단이 없으면 한도를 넘어도 청구 대신 정지된다(render.com/docs/free).
-- 재생 모드(`REPLAY_MODE=true`)로 돈다. 외부 API 키와 `LLM_MODEL`을 비워 두면 판정 LLM은 녹화 답을 쓴다(README 4절). 해수부를 부르지 않으므로 릴레이(6.7)가 필요 없다.
+- 실제 모드(`REPLAY_MODE=false`, ADR 0010)로 돈다. UNI-PASS · ShipFinder · 공공데이터 · OpenRouter · Supabase 로그인 키는 Render 대시보드에만 넣는다(`render.yaml`은 `sync: false`로 이름만). LLM 호출은 OpenRouter 선불 크레딧과 사용자별 하루 토큰 한도(5.20) 안에서 비용이 든다. 해수부는 해외 서버 연결을 막고 릴레이(6.7) 주소가 없어 실패 즉시 포기 경로로 간다. 로그인 전 "데모 둘러보기"는 서버 없이 `web/lib/tour.ts`로 돈다. `REPLAY_MODE=true`로 바꾸면 키 없이 데모 13건으로 돈다.
 - 메모리: 512MB 제한을 건 로컬 실행에서 대기 154MB, 데모 조회 뒤 178MB, 서류 OCR 1장 뒤 201MB. OCR 모델은 `DOC_WARMUP=off`로 첫 서류 요청 때 올린다.
 - worker는 api와 같은 컨테이너의 뒤 프로세스로 돈다. 무료 플랜은 background worker 종류가 없고 512MB를 나눠 쓴다. `WORKER_SCHEDULE=on`, `WORKER_SHIPFINDER_CALLS_PER_RUN=0`이면 6시간마다 해수부 호출이 실패로 기록되고 보존 기간 지난 행 삭제만 돈다.
 - 깨워 두기: Render 무료 서비스는 밖에서 15분 요청이 없으면 잠들고, 그러면 worker의 6시간 대기도 멈추고 첫 접속이 1분쯤 걸린다. `KEEP_AWAKE`가 off가 아니면 컨테이너가 10분마다 `RENDER_EXTERNAL_URL/health`를 부른다. 서비스 하나 24시간은 한 달 최대 744시간으로 무료 750시간 안이다. 이 반복을 GitHub Actions로 돌리지 않는 이유는 비공개 레포라 실행마다 1분씩 잡혀 월 4천 분을 넘기 때문이다(무료 2천 분).

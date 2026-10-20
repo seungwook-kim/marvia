@@ -19,9 +19,12 @@ services:
       # /mcp 보호 토큰. Render가 임의 값을 만든다 (mcp_server/auth.py)
       - key: MCP_TOKEN
         generateValue: true
-      # 재생 모드: 외부 API · LLM 키 없이 evals/fixtures/replay/로 돈다
+      # 실제 모드: UNI-PASS · ShipFinder · LLM을 실제로 부른다 (ADR 0010). true면 evals/fixtures/replay/로 키 없이 돈다
       - key: REPLAY_MODE
-        value: "true"
+        value: "false"
+      # 로그인(Supabase Auth). 프로젝트 주소라 비밀이 아니다
+      - key: SUPABASE_URL
+        value: https://igojztstlanjhjtbzobo.supabase.co
       # 화면(Vercel) 주소. 쉼표로 여럿
       - key: ALLOWED_ORIGINS
         value: https://marvia-alpha.vercel.app,https://marvia-developer95.vercel.app
@@ -29,8 +32,9 @@ services:
         value: "on"
       - key: WORKER_INTERVAL_HOURS
         value: "6"
+      # ShipFinder 하루 한도에 맞춘 한 번 수집 척수 (worker/run.py, SDD 5.10)
       - key: WORKER_SHIPFINDER_CALLS_PER_RUN
-        value: "0"
+        value: "12"
       - key: WATCH_ENABLED
         value: "off"
       # 512MB라 OCR 모델은 첫 서류 요청 때 올린다
@@ -39,3 +43,27 @@ services:
       # off면 10분마다 자기 /health를 부르지 않는다. 잠들어도 되면 off
       - key: KEEP_AWAKE
         value: "on"
+      # 아래는 비밀이라 값을 적지 않는다. Blueprint를 처음 만들 때만 대시보드가 묻고, 이미 만든 서비스는
+      # Environment > Edit > Add from .env로 넣는다 (deploy/README.md 2절)
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: UNIPASS_KEY
+        sync: false
+      - key: SHIPFINDER_KEY
+        sync: false
+      - key: DATA_GO_KR_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: BL_ENCRYPTION_KEY
+        sync: false
+      - key: PII_ENCRYPTION_KEY
+        sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_BASE_URL
+        sync: false

@@ -8,7 +8,7 @@
 | web | Vercel Hobby (프로젝트 `marvia`, Root Directory `web`) | Vercel |
 | DB | Supabase Free (기존 서울 프로젝트) | 없음 (관리형) |
 
-재생 모드(`REPLAY_MODE=true`)로 돌아서 외부 API 키와 LLM 키가 필요 없다. 녹화 답은 `TESTBL01`에 판매 예정일을 서버가 켜질 때 로그에 찍는 날짜로 넣었을 때만 맞고, 나머지 데모는 판정 표 등급과 "설명 문장은 만들지 못했습니다" 안내로 끝난다(README 4절).
+실제 모드(`REPLAY_MODE=false`)로 돈다. 키는 Render 대시보드 Environment > Edit > Add from .env로 넣는다(`render.yaml`의 `sync: false` 목록). 호스팅은 0원이고 LLM 호출만 OpenRouter 선불 크레딧을 쓴다. 해수부는 해외 서버라 막힌다(릴레이 없음). 키 없이 띄우려면 `REPLAY_MODE`를 `true`로 바꾼다(데모 13건, README 4절).
 
 ## 비용이 0인 이유 (render.com/docs/free, render.com/pricing)
 
