@@ -283,7 +283,7 @@ flowchart TB
 | --- | --- | --- |
 | 백엔드 | Python 3.12, FastAPI, Pydantic v2 | 필수 조건 2, 출력 계약 |
 | MCP | mcp(FastMCP) 1.x, Streamable HTTP | 필수 조건 5 |
-| LLM | OpenRouter(openai SDK, base_url만 교체), 구조화 출력. `vertex/` 접두 모델 이름이면 Vertex AI(ADC 로그인) | 모델 비교, 서비스 모델은 `LLM_MODEL` |
+| LLM | OpenRouter(openai SDK, base_url만 교체), 구조화 출력. `vertex/` 접두 모델 이름이면 Vertex AI(ADC 로그인), `claude/` 접두면 Anthropic Messages API 직접 호출(`ANTHROPIC_API_KEY`) | 모델 비교, 서비스 모델은 `LLM_MODEL`(배포값 `claude/claude-haiku-5-5`, `docs/release_manifest.json`) |
 | 관측 | Langfuse v4 (Cloud 기본) | 필수 조건 4 |
 | DB | Postgres. 운영·개발 Supabase, 로컬 compose는 postgres 16. 드라이버 psycopg 3 | 수집 데이터, 이력, 기억 |
 | 로그인 | Supabase Auth(구글), 백엔드는 PyJWT로 출입증 서명 확인 | 5.15 |
@@ -508,7 +508,7 @@ class EvalRecord(BaseModel):
 
 | 묶음 | 변수 |
 | --- | --- |
-| LLM | `OPENROUTER_API_KEY`, `LLM_MODEL`, `VERTEX_THINKING_BUDGET`, `EVAL_COMPARE_MODEL`, `EVAL_GRADER_MODEL`, `MEMORY_MODEL`, `DAILY_TOKENS_PER_USER`, `CHAT_AGENT`. Vertex AI는 키 대신 ADC를 쓰고 프로젝트는 `GOOGLE_CLOUD_PROJECT`(google-auth가 읽음) |
+| LLM | `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL`, `VERTEX_THINKING_BUDGET`, `EVAL_COMPARE_MODEL`, `EVAL_GRADER_MODEL`, `MEMORY_MODEL`, `DOC_VISION_MODEL`, `DAILY_TOKENS_PER_USER`, `CHAT_AGENT`. Vertex AI는 키 대신 ADC를 쓰고 프로젝트는 `GOOGLE_CLOUD_PROJECT`(google-auth가 읽음) |
 | 관측 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`(Langfuse SDK가 읽음) |
 | DB·로그인·암호화 | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `PII_ENCRYPTION_KEY`, `BL_ENCRYPTION_KEY` |
 | 외부 API | `SHIPFINDER_KEY`, `UNIPASS_KEY`, `DATA_GO_KR_KEY`, `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET`, `KAKAO_REDIRECT_URI`, `AISSTREAM_KEY`, `AISSTREAM_ENABLED`, `AISSTREAM_BBOX`(busan / wide) |
@@ -816,10 +816,10 @@ multipart 업로드(10MB 상한). 앞 4바이트로 PDF 여부를 가른다(파�
   | `match_ports()` | `marvia-port-match` | 질문한 지역에 맞는 항구 고르기 |
   | `grade_customs()` | `marvia-judge-eval` | 평가의 통관 해설 채점(evals/judge.py) |
 
-- 프롬프트는 `observability/langfuse.get_prompt(name, label="production")`로 받는다. Langfuse 키가 없거나 실패하면 `backend/app/prompts/<이름>.md` 로컬 사본을 쓴다(트레이스의 prompt_version은 "local"). 코드에 프롬프트 문자열 없음. 현재 버전 번호와 되돌리기 절차는 `docs/release_manifest.json`·`docs/prompt_versions.md`. `marvia-memory-write`는 Langfuse에 등록하지 않고 레포 파일로 동작한다.
+- 프롬프트는 `observability/langfuse.get_prompt(name, label="production")`로 받는다. Langfuse 키가 없거나 실패하면 `backend/app/prompts/<이름>.md` 로컬 사본을 쓴다(트레이스의 prompt_version은 "local"). 코드에 프롬프트 문자열 없음. 현재 버전 번호와 되돌리기 절차는 `docs/release_manifest.json`·`docs/prompt_versions.md`. 배포가 쓰는 개인 Langfuse 프로젝트에는 `marvia-memory-write`를 포함한 레포 사본 11개가 모두 등록돼 있다(팀 프로젝트에서는 `marvia-memory-write`만 미등록이라 레포 파일로 동작했다).
 - 시스템 프롬프트 = Langfuse prompt + 그 호출에 필요한 skills/ 문서 전문(통째로, RAG 아님). 판정 = AIS 신뢰도·통관 단계·등급(`JUDGE_SKILLS`), 배 고르기 = AIS 신뢰도, 후속 질문·채팅 에이전트 = 전부(`CHAT_AGENT_SKILLS`), 통관 해설 채점 = 통관 단계(`GRADE_SKILLS`).
 - 도구 호출: 판정 흐름의 도구(위치·일정·거리·후보)는 코드가 순서대로 부르고 결과를 자료로 넘긴다. LLM이 도구를 고르는 곳은 후속 질문(읽기 전용 MCP 도구)과 채팅 에이전트뿐이고, 루프 상한은 `MAX_TOOL_ROUNDS=3`. 코드는 `services/mcp_client.py`로 `/mcp`를 거쳐 도구를 부르고(`MCP_URL`이 없으면 같은 프로세스 안의 MCP 서버에 메모리로 붙음) 호출마다 Langfuse tool 관측을 남긴다.
-- 모델: 서비스 모델은 `LLM_MODEL`(값은 `docs/release_manifest.json`의 `models.service`). 기억 뽑기·제목은 `MEMORY_MODEL`(비면 건너뜀), 평가 비교는 `EVAL_COMPARE_MODEL`, 채점은 `EVAL_GRADER_MODEL`. 레이트 리밋 때 다른 모델로 돌리는 폴백은 없다.
+- 모델: 서비스 모델은 `LLM_MODEL`(값은 `docs/release_manifest.json`의 `models.service`). 기억 뽑기·제목은 `MEMORY_MODEL`(비면 건너뜀), 서류 사진 직접 읽기는 `DOC_VISION_MODEL`(`claude/` 모델만, 비면 끔), 평가 비교는 `EVAL_COMPARE_MODEL`, 채점은 `EVAL_GRADER_MODEL`. 레이트 리밋 때 다른 모델로 돌리는 폴백은 없다.
 - 재시도: 호출 하나는 최초 1회 + 재시도 1회(`MAX_ATTEMPTS=2`, 429·500·502·503, 2초 대기), 호출당 타임아웃 60초. 끊긴 답(finish_reason None·error)은 같은 대화로 한 번 더 묻는다. 판정의 위반 재시도(최대 3회, 시간 예산 60초)는 라우터가 한다(5.7).
 - 응답은 구조화 출력(strict JSON schema)으로 받는다. 입력의 B/L은 가린 토큰이고 컨테이너 번호는 `[CNTR1]` 번호표다.
 - 모든 호출이 쓴 토큰(입력+출력)을 `services/quota.add()`로 사용자별 하루 사용량에 더한다(5.20).

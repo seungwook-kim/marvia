@@ -16,7 +16,7 @@
 | 마이그레이션 015 "적용은 수동" | 서버와 worker가 켜질 때 `migrations/*.sql`을 자동 적용한다 (`db.apply_migrations`). 끝난 화물 3년 정리는 `worker/run.py`가 실행마다 `purge_done_cargo`를 부르고, pg_cron이 있으면 매일 18:20 UTC에도 돈다 |
 | "확정된 배는 다시 조회 때 배 찾기를 건너뛰는 데 아직 쓰지 않는다" | 일반 조회에서는 여전히 안 쓴다. 지켜보기 재판정(`services/watch.py run_watch`)은 저장된 `vessel_mmsi`를 후보 검색 없이 쓴다 (`routers/agent.py trusted_vessel`) |
 | 화면 "설정 > 내 기억" | 설정의 "기억한 화물" 탭(`web/components/SettingsPage.tsx`, `MemoryPanel.tsx`). 화물 표는 `/today` 오늘의 화물, `/cargo` 화물 현황(엑셀 내려받기 포함, `services/cargo_sheet.py`), `/watch` 지켜보는 화물에도 쓰인다 |
-| 모델 표 (`LLM_MODEL` Gemini 2.5 Flash) | 서비스 모델은 OpenRouter `google/gemini-3.5-flash-lite`, 기억 뽑기·대화 제목은 `openai/gpt-4o-mini` (docs/release_manifest.json). `.env.example`의 `MEMORY_MODEL`은 비어 있고, 비면 기억 뽑기만 건너뛴다. `marvia-memory-write`는 Langfuse에 등록하지 않고 레포 파일 프롬프트로 동작한다 |
+| 모델 표 (`LLM_MODEL` Gemini 2.5 Flash) | 배포의 서비스 모델과 기억 뽑기·대화 제목 모델은 모두 `claude/claude-haiku-5-5` (Anthropic 직접 호출, docs/release_manifest.json). `.env.example`의 `MEMORY_MODEL`은 비어 있고, 비면 기억 뽑기만 건너뛴다. `marvia-memory-write`는 배포가 쓰는 개인 Langfuse 프로젝트에 등록돼 있고(버전 1), 팀 프로젝트 시절에는 레포 파일 프롬프트로 동작했다 |
 | 워커 재판정·카카오 알림 "범위 밖" | 별도 기능으로 만들어져 있다 (docs/specs/cargo-watch.md) |
 | 체크리스트 | 아래 체크 표시는 설계 당시 기준이다. 실제 DB 검증·평가 문항·처리방침 문구는 레포에서 확인되지 않아 열린 채로 둔다 |
 
@@ -341,7 +341,7 @@ GET 응답에 pruned_count·pruned_at(상한 때문에 코드가 마지막으로
 7. **서류 값 저장** (현재는 바뀜): 처음 설계는 확인 화면에서 확인한 값만 저장이었다. 현재는 확인 화면이 없고, `/api/document`가 로그인 + `bl_status=ok`일 때 코드 검사를 통과한 칸만 저장한다. 서버는 화물 줄(cargo_key)을 만들거나 고치고, 연락처를 거래처 메모(출처 B/L 또는 A/N)로 더한다. 검사에 걸린 값은 저장하지 않는다.
 8. **Langfuse 트레이스**: 기억 블록을 그대로 둔다(가리지 않음). 운영자가 필요하고, Langfuse는 바꾸지 않는 관리 기록이다. DB 줄은 탈퇴와 "내 기록 삭제" 때 지운다.
 9. **외부 작업**: 마이그레이션은 서버 기동 때 자동 적용된다. `marvia-memory-write` 프롬프트는 레포 파일로 동작한다.
-10. **기억 뽑기 모델**: `MEMORY_MODEL` (OpenRouter gpt-4o-mini). 비어 있으면 기억 뽑기를 조용히 건너뛴다(로그만, EC-07과 같은 동작).
+10. **기억 뽑기 모델**: `MEMORY_MODEL` (설계 당시 OpenRouter gpt-4o-mini, 배포값은 docs/release_manifest.json). 비어 있으면 기억 뽑기를 조용히 건너뛴다(로그만, EC-07과 같은 동작).
 
 ### 추가 결정 (검증 뒤. 위 결정보다 우선)
 

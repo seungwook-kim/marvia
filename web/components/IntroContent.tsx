@@ -3,7 +3,7 @@
  *  아임웹 GLOBAL LOGISTICS 템플릿의 짜임을 따르되, 필요한 것만 가져왔다.
  *   가져온 것: 사진 꽉 찬 첫 화면 + 굵은 큰 제목, 숫자 줄, 글·그림 두 칸 단락, 연회색 바탕 기능 카드(엇갈림), 짙은 바탕 단락, 마지막 권유 상자, 강조색 하나
  *   버린 것: 공지 띠, 고객 후기·별점, 파트너 로고(우리에게 없는 것), 지어낸 숫자. 스크롤해야 나타나는 숨김 효과도 없앴다 (빠르게 내리면 빈 화면으로 보인다)
- * 숫자 줄은 우리가 실제로 잰 값만 싣는다: evals/results/b_20261007_0935.json (평가셋 30건, 서비스 모델 gemini-3.5-flash-lite, EVAL_REPORT.md 5절).
+ * 숫자 줄은 우리가 실제로 잰 값만 싣는다: evals/results/b_20261021_1654.json (평가셋 30건, 배포 서비스 모델 claude-haiku-5-5, EVAL_REPORT.md 5절).
  * 다시 재면 EVAL 상수만 고친다. 실행하지 않은 숫자는 싣지 않는다 (CLAUDE.md).
  * 사진은 Unsplash 무료 사진 (web/public/landing/README.md). 스타일은 app/styles/landing.css (lp-*).
  */
@@ -15,15 +15,15 @@ const HERO_SRCSET = '/landing/port-800.webp 800w, /landing/port-1280.webp 1280w,
 const SEA_SRCSET = '/landing/sea-800.webp 800w, /landing/sea-1280.webp 1280w, /landing/sea-1920.webp 1920w';
 import {isLive} from '@/lib/api';
 
-/** 평가셋 30건 실측 (b_20261007_0935.json). 숫자 줄과 출처 문장이 이 값 하나를 쓴다 */
+/** 평가셋 30건 실측 (b_20261021_1654.json). 숫자 줄과 출처 문장이 이 값 하나를 쓴다 */
 const EVAL = {
-  date: '10월 7일',
+  date: '10월 21일',
   total: 30,
   exact: 30,          // 정답과 판정·되묻기·보류가 모두 같은 건수 (exact_match)
   actMissed: 0,       // 지금 조치해야 할 화물을 놓친 건수 (act_recall 1.0)
   wrongVessel: 0,     // 다른 배를 내 배로 확정한 건수 (vessel_wrong_confirm 0건)
   customsGraded: 20,  // 통관 해설을 채점한 건수 (customs_graded)
-  customsPass: 20,    // 그중 맞게 풀어 쓴 건수 (customs_explanation 1.0). 지연은 Vertex 직접 호출로 재서 서비스 경로 값이 아니라 싣지 않는다
+  customsPass: 20,    // 그중 맞게 풀어 쓴 건수 (customs_explanation 1.0). 지연은 외부 API를 재생 파일로 읽은 값이라 실제 지연이 아니어서 싣지 않는다
 };
 
 /** 어떻게 판단하나요 4단계. 제품이 실제로 하는 일만 적는다 */

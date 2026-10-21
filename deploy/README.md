@@ -8,7 +8,7 @@
 | web | Vercel Hobby (프로젝트 `marvia`, Root Directory `web`) | Vercel |
 | DB | Supabase Free (본인 계정 `mariva`, 서울. 로그인도 같은 프로젝트) | 없음 (관리형) |
 
-실제 모드(`REPLAY_MODE=false`)로 돈다. 키는 Render 대시보드 Environment > Edit > Add from .env로 넣는다(`render.yaml`의 `sync: false` 목록). 호스팅은 0원이고 LLM 호출만 OpenRouter 선불 크레딧을 쓴다. 해수부는 해외 서버라 막힌다(릴레이 없음). 키 없이 띄우려면 `REPLAY_MODE`를 `true`로 바꾼다(데모 13건, README 4절).
+실제 모드(`REPLAY_MODE=false`)로 돈다. 키는 Render 대시보드 Environment > Edit > Add from .env로 넣는다(`render.yaml`의 `sync: false` 목록). 호스팅은 0원이고 LLM 호출만 돈이 든다. 배포 모델은 `claude/` 모델(서비스·기억 `claude/claude-haiku-5-5`, 서류 사진 `claude/claude-sonnet-5-5`)이라 `ANTHROPIC_API_KEY`로 Anthropic을 바로 부른다(`docs/release_manifest.json` models). `ANTHROPIC_API_KEY`·`MEMORY_MODEL`·`DOC_VISION_MODEL`은 `render.yaml` 목록에 없지만 Add from .env로 들어가 있다. 해수부는 해외 서버라 막힌다(릴레이 없음). 키 없이 띄우려면 `REPLAY_MODE`를 `true`로 바꾼다(데모 13건, README 4절).
 
 ## 비용이 0인 이유 (render.com/docs/free, render.com/pricing)
 

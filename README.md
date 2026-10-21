@@ -99,7 +99,8 @@ flowchart LR
   R --> MOF["해수부 apis.data.go.kr"]
   MOFC -.->|"없으면 직접"| MOF
   A --> L["services/llm.py"]
-  L --> OR["OpenRouter (또는 Vertex AI)"]
+  L --> AN["Anthropic (claude/ 모델, 배포값)"]
+  L -.-> OR["OpenRouter · Vertex AI (평가 비교용)"]
   L --> LF["Langfuse (prompt, trace)"]
   A --> DB[("Postgres / Supabase")]
   A --> KK["Kakao"]
@@ -242,7 +243,7 @@ curl -s -X POST localhost:8000/api/agent -H 'content-type: application/json' \
 
 - 판매 예정일은 선택입니다. 비우면 정상 건은 여유 일수 없이 순항이 나옵니다. `DEMONB2610003`은 판매 예정일이 있어야 긴급이 나옵니다
 - 녹화 답은 평가셋 `TESTBL01` 입력에만 맞습니다. 다른 입력이면 녹화 답을 쓰지 않고 `partial`로 끝나며, 등급은 판정 표가 정해 그대로 나오고 "설명 문장은 만들지 못했습니다" 안내가 붙습니다
-- `.env`에 `LLM_MODEL`과 `OPENROUTER_API_KEY`를 넣으면 같은 데모를 진짜 LLM이 설명합니다
+- `.env`에 `LLM_MODEL`과 그 모델의 키(`claude/...`면 `ANTHROPIC_API_KEY`, 그 밖은 `OPENROUTER_API_KEY`)를 넣으면 같은 데모를 진짜 LLM이 설명합니다
 - 위치 수신 시각이 "만든 시각 30분 전"이라 약 5시간 반 뒤에는 오래된 위치가 됩니다. 재생 모드 서버는 4시간마다 스스로 다시 만들고(`DEMO_REFRESH`), 직접 돌릴 때는 `make_demo`를 다시 돌립니다
 - Docker 없이: `python -m scripts.make_demo` 후 `REPLAY_MODE=true uvicorn backend.app.main:app --port 8000`
 
@@ -274,10 +275,12 @@ cd web && npm install && npm run dev     # :3000. Node 20.9 이상
 | `SHIPFINDER_KEY` | ShipFinder 스타터 키 | 선박 검색·위치 조회 불가 |
 | `DATA_GO_KR_KEY` | 공공데이터포털. 해수부 관제정보·선박운항정보 | 입항 예정·실적 조회 불가 |
 | `MOF_BASE_URL` / `MOF_RELAY_TOKEN` | 해수부 릴레이 주소와 공유 비밀 | `apis.data.go.kr`를 직접 부른다 |
-| `OPENROUTER_API_KEY` | openrouter.ai | LLM 호출 불가 |
-| `LLM_MODEL` | 서비스 모델 (평가한 기준값은 `release_manifest.json`의 `google/gemini-3.5-flash-lite`, 지금 Render 배포값은 `claude/claude-haiku-5-5`). `vertex/`로 시작하면 Vertex AI | `partial`: 판정 표 등급만, 설명 문장 없음 (재생 모드는 녹화 답) |
+| `ANTHROPIC_API_KEY` | Anthropic 콘솔. `claude/`로 시작하는 모델(배포값)을 Messages API로 바로 부른다 | `claude/` 모델 호출 불가 |
+| `OPENROUTER_API_KEY` | openrouter.ai. `claude/`·`vertex/`가 아닌 모델(평가 비교 모델, 채점 모델) | 그 모델 호출 불가 |
+| `LLM_MODEL` | 서비스 모델 (Render 배포값 `claude/claude-haiku-5-5`, `release_manifest.json`). `vertex/`로 시작하면 Vertex AI | `partial`: 판정 표 등급만, 설명 문장 없음 (재생 모드는 녹화 답) |
 | `GOOGLE_CLOUD_PROJECT` / `VERTEX_THINKING_BUDGET` | Vertex 경로일 때만 | |
-| `MEMORY_MODEL` | 기억 뽑기·대화 제목 모델 (배포값 `openai/gpt-4o-mini`) | 기억 뽑기·제목 LLM을 건너뛴다 |
+| `MEMORY_MODEL` | 기억 뽑기·대화 제목 모델 (배포값 `claude/claude-haiku-5-5`) | 기억 뽑기·제목 LLM을 건너뛴다 |
+| `DOC_VISION_MODEL` | 서류 사진 직접 읽기 모델 (배포값 `claude/claude-sonnet-5-5`, `claude/` 모델만) | OCR 정리 길만 쓴다 |
 | `EVAL_COMPARE_MODEL` / `EVAL_GRADER_MODEL` | 평가 (c) 비교 모델 / 통관 해설 채점 모델 | (c)·채점을 건너뛴다 |
 | `CHAT_AGENT` | 채팅 에이전트 (기본 on) | |
 | `DAILY_TOKENS_PER_USER` | 1명당 하루 LLM 토큰 한도 (예시 100000) | 한도 없음 |
@@ -334,7 +337,7 @@ GitHub Actions `tests.yml`이 같은 pytest 범위를, `secret-scan.yml`(gitleak
 |---|---|
 | Backend | FastAPI, Pydantic v2, Docker, Render (`marvia-api`, 무료) |
 | Frontend | Next.js 16, React 19, Leaflet·MapLibre 지도, Vercel (`marvia`, Hobby) |
-| LLM | OpenRouter (구조화 출력, 모델 비교), Vertex AI 경로 |
+| LLM | Anthropic Messages API 직접 호출(배포: 서비스·기억 Claude Haiku 5.5, 서류 사진 Claude Sonnet 5.5), OpenRouter·Vertex AI 경로(모델 비교·채점) |
 | 도구 | FastMCP (Streamable HTTP), ShipFinder, 해수부 공공데이터, searoute |
 | 데이터 | Supabase(배포 DB·로그인), 로컬은 PostgreSQL 16 |
 | 관측·평가 | Langfuse (트레이스, Prompt, Dataset) |
@@ -380,15 +383,32 @@ GitHub Actions `tests.yml`이 같은 pytest 범위를, `secret-scan.yml`(gitleak
 
 judge 10을 production으로 올린 뒤 같은 모델로 다시 잰 `b_20261006_1739.json`은 exact 30/30, 판정 정확도 1.0, act 재현율 1.0, 선박 오확정 0, 통관 해설 0.95(20건), p50/p95 4.0초 / 7.1초, 요청당 $0.000696입니다.
 
-### 서비스 모델 (10-07, EVAL_REPORT 5절)
+### 서비스 모델 (10-21, EVAL_REPORT 5절)
 
-평가한 서비스 모델은 `google/gemini-3.5-flash-lite`입니다. 지금 Render 배포는 `LLM_MODEL=claude/claude-haiku-5-5`(Anthropic 직접 호출)로 돌고 있고, 이 모델로는 아래 평가를 다시 재지 않았습니다. gemini 평가는 OpenRouter가 아니라 Vertex AI(`vertex/google/gemini-3.5-flash-lite`)로 1회 쟀으므로 지연과 토큰은 Vertex 값입니다. 프롬프트 judge 10 · judge-eval 3 · follow-up 8, 채점 모델 `anthropic/claude-haiku-4.5`.
+지금 Render 배포 모델 `claude/claude-haiku-5-5`(Anthropic 직접 호출)를 배포 커밋 `9cd92d6`에서 배포와 같은 경로로 1회 쟀습니다. 프롬프트는 배포가 읽는 Langfuse production(글은 레포 사본과 같음), 채점 모델 `google/gemini-2.5-flash`.
 
-| 결과 파일 | exact | 판정 정확도 | act 재현율 | 선박 오확정 | 통관 해설 | p50 / p95 | LLM 호출 / 입력 토큰 (캐시) / 출력 토큰 | 비용 |
+| 결과 파일 | exact | 판정 정확도 | act 재현율 | 선박 오확정 | 통관 해설 | p50 / p95 | LLM 호출 / 입력 토큰 (캐시) / 출력 토큰 | 요청당 비용 |
 |---|---|---|---|---|---|---|---|---|
-| `b_20261007_0935.json` | 30/30 | 1.0 | 1.0 | 0 | 1.0 (20건) | 1.8초 / 4.8초 | 29 / 231,184 (16,146) / 5,380 | 금액 미기록 (Vertex라 토큰만) |
+| `b_20261021_1654.json` | 30/30 | 1.0 | 1.0 | 0 | 1.0 (20건) | 5.0초 / 15.1초 | 30 / 462,140 (367,689) / 26,143 | $0.00087~$0.00095 (토큰 × 공식 단가 계산, 결과 파일엔 금액 없음) |
 
-게이트 4개 통과. 한계: F08에서 judge가 `bad_format`을 3번 내고 포기했습니다. 등급이 코드 판정 표에서 나와 문항은 맞았습니다.
+게이트 4개 통과. 한계: F08에서 judge가 `bad_format`을 3번 내고 포기했습니다(flash-lite 때와 같은 문항). 등급이 코드 판정 표에서 나와 문항은 맞았습니다. p95 15.1초는 SDD 7절 정상 경로 목표(15초)를 넘습니다. 판정 호출 한 번이 4~11초 걸리고, 후속 질문이 붙는 문항(N05, B09)은 호출이 2~3번이라 15초가 됩니다.
+
+이전 서비스 모델 `google/gemini-3.5-flash-lite`는 10-07에 Vertex AI로 1회 쟀습니다(`b_20261007_0935.json`: exact 30/30, 통관 해설 1.0, p50/p95 1.8초 / 4.8초, 프롬프트 judge 10 · judge-eval 3 · follow-up 8, 채점 `anthropic/claude-haiku-4.5`). 경로·채점 모델이 달라 나란히 비교하는 값은 아닙니다.
+
+### 누적 개선 요약 (EVAL_REPORT 6-1절)
+
+새로 잰 값이 아니라 위 결과 파일과 서류 측정 파일을 전후로 짝지은 것입니다. 대부분 1회 측정이고 조건은 EVAL_REPORT 6-1절에 있습니다.
+
+| 무엇을 바꿨나 | 전 | 후 | 변화 |
+|---|---|---|---|
+| 동명 선박은 근거 없이 LLM이 확정하지 않음 | exact 28/30, 선박 오확정 2건, LLM 호출 29, p95 7.1초 | exact 30/30, 오확정 0건, 호출 25, p95 5.3초 | 오확정 -2건, 호출 -13.8%, p95 -25.4% |
+| 판정 프롬프트 judge 8 → 10 | 통관 해설 13/20 (0.65) | 20/20 (1.0) | +35%p. judge 9는 4/20이라 버림 |
+| 서비스 모델 qwen3-235b → gpt-4o-mini (10-02) | $0.003791/건, p95 30.4초, 계약 준수 64.7% | $0.000365/건, p95 5.5초, 계약 준수 98.2% | 비용 -90.4%, p95 -81.9%, 준수 +33.5%p |
+| 서류 사진: OCR → OCR + 사진 직접 읽기 | 30/45 칸 (66.7%), 중앙 5.1초 | 43/45 칸 (95.6%), 중앙 3.8초 | +28.9%p, 시간 -24.9% (실제 사진 1장 + 변형 4장) |
+| 서류 OCR 엔진 교체 | 72/90칸, 한 장 약 20초 | 90/90칸, 약 2초 | +20%p, 시간 -90% |
+| 프롬프트 주입 방어 | 프롬프트만 10/20 뚫림 | 코드 방어까지 넣은 서비스 경로 0/240 | 공격 구성이 달라 직접 비교는 아님 |
+
+나빠진 것도 있습니다. gpt-4o-mini 요청당 비용이 10-02 $0.000365에서 10-06 $0.000696으로 올랐고(+90.7%) 원인은 확인하지 못했습니다. 서비스 모델을 gemini-3.5-flash-lite에서 claude-haiku-5-5로 바꾼 뒤 p95가 4.8초(Vertex 경로)에서 15.1초(Anthropic 경로)로 늘었습니다. 경로·채점 모델이 달라 변화율은 적지 않습니다. 등급 정확도는 처음부터 1.0이라 개선으로 세지 않았습니다.
 
 **배포 게이트:** act 누락 1건 이상 · 선박 오확정 1건 이상 · 스키마 통과 95% 미만 · 주입 오작동 1건 이상 중 하나라도 걸리면 배포하지 않습니다.
 

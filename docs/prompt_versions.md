@@ -4,6 +4,7 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 
 - 서비스는 Langfuse를 먼저 읽고 레포 파일은 예비라서, 고칠 때는 Langfuse에서 먼저 고치고 같은 글을 레포 파일에 복사한다. Langfuse는 고칠 때마다 번호가 자동으로 올라간다. 아래 표의 "Langfuse N"이 그 번호다
 - 지금 production 번호와 릴리스 라벨(v1~v4)은 `docs/release_manifest.json`이 원본이다. 되돌리기는 production 라벨을 이전 번호로 옮기는 것이다
+- Render 배포는 개인 Langfuse 프로젝트를 쓴다. 레포 사본을 새로 올려 번호가 1부터 다시 매겨졌고(judge 2, follow-up 1, chat-agent 3 등), 10-21에 production 글이 레포 사본 11개와 모두 같은 것을 확인했다. 아래 표와 수정 이력의 "Langfuse N"은 팀 프로젝트 번호다. 새 프로젝트 번호는 `docs/release_manifest.json` prompts
 - 결과 칸에는 실제로 돌린 것만 적는다. "스모크"는 `scripts/smoke_judge.py`의 가공 사례 1건을 1회 돌린 것이라 경향만 보여 준다. 평가셋 30건 수치는 `EVAL_REPORT.md`에 있다
 - 한 번에 하나만 바꾼다 (PRD 8절). 초기 스모크 모델은 `openai/gpt-4o-mini` (OpenRouter)
 - 프롬프트는 영어로 쓰고, 사용자가 읽는 글(answer·actions·conflicts.why·plain_explanation·후보 이유)은 한국어로 쓰라고 명시한다
@@ -17,7 +18,7 @@ Langfuse Prompt Management에 등록한 프롬프트의 버전과, 버전마다 
 | marvia-doc-extract | 서류 OCR 글자에서 칸(선명·항차·ETA·적재항·양륙항·품명·출항일, B/L 조건·연락처) 옮겨 적기 (docs/specs/document-extract.md) | Langfuse 6 |
 | marvia-chat-route | 자연어 입력 한 문장의 의도(화물 조회·후속 질문·입항 선박 검색·그 밖)와 칸 고르기. B/L은 가린 토큰만. 채팅 에이전트가 실패할 때의 대비 경로 (docs/specs/chat-search.md) | Langfuse 2 |
 | marvia-port-match | 지역 이름에 해당하는 항구를 해수부 직전 기항지 목록 안에서만 고르기 (docs/specs/chat-search.md) | Langfuse 1 |
-| marvia-chat-agent | 채팅 에이전트. 가린 문장과 최근 대화를 받아 도구(화물 조회·화물 질문·입항 선박 검색·읽기 전용 MCP 도구)를 골라 쓰고, 도구가 필요 없는 실무 질문은 Skill 문서 안에서 답한다. 안 되면 marvia-chat-route 방식으로 간다 (services/chat.py) | Langfuse 13 (라벨 v4: 해요체 · on_screen 입력 · 근거 번호 [E#]). 레포 사본은 웹 검색 단계를 뺐고 회사 연락처는 포워더·선사 확인 안내로 바꿨다 (운영 Langfuse에는 아직 반영 전). 처음 1~10 이력: 3 웹 검색 규칙, 4 답 출처 3단계, 5 출발지에 부산 안 넣기·애매한 번호, 6 묻지 않은 날짜 안 말하기·존댓말, 7 인사·사용 안내·상황 질문·통관 시기는 ask_cargo·여러 화물 비교 한 문장, 8 근거 조각 짧은 한 문장·구체적 검색어, 9 set_watch 도구·watch_cue, 10 send_kakao 도구 |
+| marvia-chat-agent | 채팅 에이전트. 가린 문장과 최근 대화를 받아 도구(화물 조회·화물 질문·입항 선박 검색·읽기 전용 MCP 도구)를 골라 쓰고, 도구가 필요 없는 실무 질문은 Skill 문서 안에서 답한다. 안 되면 marvia-chat-route 방식으로 간다 (services/chat.py) | Langfuse 13 (라벨 v4: 해요체 · on_screen 입력 · 근거 번호 [E#]). 레포 사본은 웹 검색 단계를 뺐고 회사 연락처는 포워더·선사 확인 안내로 바꿨다 (팀 Langfuse에는 반영 전, 배포가 쓰는 개인 프로젝트 버전 3은 이 레포 사본과 같다). 처음 1~10 이력: 3 웹 검색 규칙, 4 답 출처 3단계, 5 출발지에 부산 안 넣기·애매한 번호, 6 묻지 않은 날짜 안 말하기·존댓말, 7 인사·사용 안내·상황 질문·통관 시기는 ask_cargo·여러 화물 비교 한 문장, 8 근거 조각 짧은 한 문장·구체적 검색어, 9 set_watch 도구·watch_cue, 10 send_kakao 도구 |
 | marvia-memory-write | 조회·대화 뒤 사용자 말에서 메모장 줄 단위 명령(add·update·delete·set_cargo·noop)만 내기. 적용은 코드 (docs/specs/memory.md) | Langfuse 미등록, 레포 파일로 동작 |
 | marvia-chat-title | 대화 목록의 제목 짓기. 첫 사용자 말(B/L은 [BL1]로 가림)에서 한국어 20자 이내 한 줄 제목만 낸다. 검사와 대체 제목은 코드 (services/conversations.py) | Langfuse 1 |
 | marvia-doc-vision | 서류 사진을 직접 보고 칸(B/L·MRN·선명·항차·ETA·적재항·양륙항·품명·출항일, B/L 조건·연락처) 옮겨 적기. 사진 직접 읽기(DOC_VISION_MODEL)일 때만 (docs/specs/document-extract.md "사진 직접 읽기") | Langfuse 1 |
