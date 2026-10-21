@@ -47,7 +47,14 @@ services:
       # Environment > Edit > Add from .env로 넣는다 (deploy/README.md 2절)
       - key: OPENROUTER_API_KEY
         sync: false
+      # 배포 모델은 claude/ 모델이라 Anthropic을 바로 부른다 (docs/release_manifest.json models)
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: LLM_MODEL
+        sync: false
+      - key: MEMORY_MODEL
+        sync: false
+      - key: DOC_VISION_MODEL
         sync: false
       - key: UNIPASS_KEY
         sync: false
