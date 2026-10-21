@@ -1,0 +1,11 @@
+# vercel deploy가 올리는 파일 (Vercel 프로젝트 marvia, Root Directory web).
+# CLI는 .gitignore를 읽지 않아, 이 파일이 없으면 .env(서버 비밀 키)와 커밋하지 않는 로컬 파일까지 올라간다.
+# 그래서 web/만 올리고, 그 안에서도 키 파일과 빌드 산출물은 뺀다. web은 web/ 밖 파일을 읽지 않는다
+/*
+!/web
+/web/.env
+/web/.env.*
+!/web/.env.example
+/web/node_modules
+/web/.next
+/web/test-results

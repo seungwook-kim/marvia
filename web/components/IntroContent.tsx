@@ -3,7 +3,7 @@
  *  아임웹 GLOBAL LOGISTICS 템플릿의 짜임을 따르되, 필요한 것만 가져왔다.
  *   가져온 것: 사진 꽉 찬 첫 화면 + 굵은 큰 제목, 숫자 줄, 글·그림 두 칸 단락, 연회색 바탕 기능 카드(엇갈림), 짙은 바탕 단락, 마지막 권유 상자, 강조색 하나
  *   버린 것: 공지 띠, 고객 후기·별점, 파트너 로고(우리에게 없는 것), 지어낸 숫자. 스크롤해야 나타나는 숨김 효과도 없앴다 (빠르게 내리면 빈 화면으로 보인다)
- * 숫자 줄은 우리가 실제로 잰 값만 싣는다: evals/results/b_20261021_1654.json (평가셋 30건, 배포 서비스 모델 claude-haiku-5-5, EVAL_REPORT.md 5절).
+ * 숫자 줄은 우리가 실제로 잰 값만 싣는다: evals/results/b_20261021_1726.json (평가셋 30건, 배포 서비스 모델 claude-haiku-5-5, EVAL_REPORT.md 5절).
  * 다시 재면 EVAL 상수만 고친다. 실행하지 않은 숫자는 싣지 않는다 (CLAUDE.md).
  * 사진은 Unsplash 무료 사진 (web/public/landing/README.md). 스타일은 app/styles/landing.css (lp-*).
  */
@@ -15,7 +15,7 @@ const HERO_SRCSET = '/landing/port-800.webp 800w, /landing/port-1280.webp 1280w,
 const SEA_SRCSET = '/landing/sea-800.webp 800w, /landing/sea-1280.webp 1280w, /landing/sea-1920.webp 1920w';
 import {isLive} from '@/lib/api';
 
-/** 평가셋 30건 실측 (b_20261021_1654.json). 숫자 줄과 출처 문장이 이 값 하나를 쓴다 */
+/** 평가셋 30건 실측 (b_20261021_1726.json, 1654와 판정 숫자 같음). 숫자 줄과 출처 문장이 이 값 하나를 쓴다 */
 const EVAL = {
   date: '10월 21일',
   total: 30,
