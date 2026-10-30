@@ -218,7 +218,7 @@ class ChatResponse(BaseModel):
     watch_set: WatchSet | None = None  # 대화로 지켜보기를 켜거나 껐을 때만 채워진다
     watch_vessel_set: WatchVesselSet | None = None  # 대화로 배 한 척을 감시 목록에 넣거나 뺐을 때만 채워진다
     # 답 문장 속 근거 표시. 둘 다 선택 칸이라 화면이 무시해도 된다.
-    # evidence_items: 이번 문장에서 모은 근거 [{id, source, fetched_at, values:[{field,value}], url?, title?}]. 코드 문장·고정 문구에도 실린다(화면이 글 끝 칩으로 보인다)
+    # evidence_items: 이번 문장에서 모은 근거 [{id, source, fetched_at, values:[{field,value}], url?, title?}]. 문서 검색 조각 카드(source가 knowledge:<경로>)는 chunk_id, source_path, heading_path, last_verified?, corpus_id 칸이 더해진다. 코드 문장·고정 문구에도 실린다(화면이 글 끝 칩으로 보인다)
     # citations: 검증을 통과한 [E#] 표시 [{id, start, end, evidence_ref}]. start/end는 reply 글 안 "[E1]"의 자리, evidence_ref는 evidence_items[].id
     evidence_items: list[dict] = []
     citations: list[dict] = []

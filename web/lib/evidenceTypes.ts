@@ -9,6 +9,12 @@ export interface EvidenceItem {
   values: {field: string; value: string}[];
   url?: string;                     // 웹 결과만. http(s)만 온다
   title?: string;                   // 웹 결과만
+  // 문서 검색 조각 카드(source가 "knowledge:<파일 경로>")만 채워진다. 모르는 칸은 화면이 무시해도 된다
+  chunk_id?: string;                // 조각 id (글이 바뀌면 바뀐다)
+  source_path?: string;             // 조각이 나온 문서 경로
+  heading_path?: string;            // 조각이 속한 제목 경로
+  last_verified?: string;           // 문서 검수일 YYYY-MM-DD. 없으면 칸이 없다
+  corpus_id?: string;               // 문서 묶음 이름
 }
 
 /** 답 글 속 표시 한 개. start/end는 text 안 "[E1]"의 위치. 어긋나면 화면이 글자를 다시 찾는다 */

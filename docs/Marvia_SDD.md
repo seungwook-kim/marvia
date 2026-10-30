@@ -512,6 +512,8 @@ class EvalRecord(BaseModel):
     actual_arrival: datetime | None  # 사후, 예측 적중용
 ```
 
+평가 결과 파일(`evals/results/<config>_<시각>.json`)은 이 계약의 일부가 아니라 실행 기록이지만 칸은 더하기만 한다. `engine`(`v2-langgraph` 또는 `v1-skill-mcp`, 그 실행이 쓴 판정 경로)을 최상위에 더했다. 이 칸이 없는 옛 파일은 `compare_runs`가 "engine 없음"으로 찍고, `services/metrics.py`는 이 칸을 읽지 않는다. `EvalRecord`(위)는 바뀌지 않았다.
+
 ### 3.8 환경변수 (C8)
 
 원본은 `.env.example`이다. 아래 표는 코드가 실제로 읽는 이름이다. 웹 `NEXT_PUBLIC_*`와 릴레이 `RELAY_TOKEN`은 각 서비스 설정에 둔다.
@@ -865,12 +867,12 @@ multipart 업로드(10MB 상한). 앞 4바이트로 PDF 여부를 가른다(파�
 | V11 | 통관이 잘되는지·늦어질지 평가 금지, 수입신고수리 전에 통관 끝났다는 말 금지 | 판정, 후속 |
 | V12 | 메모장 내부 번호([c1], u2)가 답에 새지 않음 | 기억 블록을 줬을 때만 |
 | V13 | 채팅 답이 앞 답을 베끼지 않음 | 채팅 |
-| V14 | 도구 없는 실무 답은 Skill 원문 조각(skill_quote)이 원문에 있고 답을 받쳐야 함(kiwipiepy 형태소 분석) | 채팅 |
+| V14 | 도구 없는 실무 답은 Skill 원문 조각(skill_quote)이 원문에 있고 답을 받쳐야 함(kiwipiepy 형태소 분석). `RAG_MODE`가 켜지면 원문은 이번 턴 검색된 조각의 출처 파일 전문과 rules.md이고(조각 경계에서 잘린 인용도 통과), 검색 없이 `skill`이면 원문이 비어 걸린다. 위반 설명 문장만 "search_knowledge가 돌려준 조각"을 가리킨다 | 채팅 |
 | V15 | 판매 예정일이 지났다는 문장 금지, 판매 예정일이 없는데 판매일과 비교하는 문장 금지 | 판정, 후속 |
 
 판정 재시도: 1차 위반 detail 첨부 → 2차 "JSON만, 규칙 준수" 강화 → 3차 폴백 `status=partial`, 판정 표 등급 + 고정 문구("판정 표 기준으로 '…'입니다. 설명 문장은 만들지 못했습니다…"), evidence 유지. 회색 지대면 등급 없이 partial. 등급은 코드 판정 표가 정하므로 LLM이 못 만든 것은 문장뿐이라서다. LLM 호출 자체가 실패해도 같다. 시간 예산(`JUDGE_BUDGET_SEC` 60초)을 넘길 것 같으면 다음 시도를 시작하지 않고 같은 partial을 낸다. failed는 통관 정보(UNI-PASS)를 못 가져왔을 때만 쓴다.
 
-채팅 답의 `[E#]` 근거 표시는 `services/citations.py`가 검사한다: 그 턴의 근거 카드를 E1, E2… 목록(`evidence_items`)으로 만들어 LLM에 주고, 답에 붙은 표시가 그 근거와 맞지 않으면(숫자 대조는 V7과 같은 방식) 지운다(`test_citations.py`, `test_chat_citations.py`).
+채팅 답의 `[E#]` 근거 표시는 `services/citations.py`가 검사한다: 그 턴의 근거 카드를 E1, E2… 목록(`evidence_items`)으로 만들어 LLM에 주고, 답에 붙은 표시가 그 근거와 맞지 않으면(숫자 대조는 V7과 같은 방식) 지운다(`test_citations.py`, `test_chat_citations.py`). `RAG_MODE`가 켜져 있으면 `search_knowledge`가 돌려준 조각마다 근거 카드가 더해진다(source `knowledge:<파일 경로>`, 값 한 칸 `passage`, 칸 추가: `chunk_id`, `source_path`, `heading_path`, `last_verified`(있을 때), `corpus_id`, `url`(조각의 첫 출처 링크, 있을 때)). 서로 다른 `chunk_id` 카드는 합치지 않고, 조각 카드의 값은 rules.md `rag_chunk_max_chars`까지 자르지 않는다(조각 속 숫자가 [E#] 숫자 검사에 쓰이도록). 이 카드는 조각으로 쓴 실무 답(`skill`)이 나갈 때만 `evidence_items`에 남는다 (`test_rag_evidence.py`).
 
 ### 5.8 services/evidence.py
 
@@ -907,7 +909,7 @@ multipart 업로드(10MB 상한). 앞 4바이트로 PDF 여부를 가른다(파�
 ### 5.12 evals/
 
 - `baseline_rules.py`: (a) 규칙만. 서비스와 같은 판정 표(`services/verdict.py`)를 쓰고, 식별은 유사도 최고 후보 자동.
-- `python -m evals.run_eval --config a|b|c`: `dataset.jsonl` 30건을 문항별 재생 파일(`replay_fixtures.py`)로 풀고, 시계를 문항 clock으로 맞춘 채 실제 라우터(`run_agent`)에 넣어 축별 점수·게이트를 계산한다. 결과는 실행마다 `evals/results/<config>_<한국시각>.json`(덮어쓰지 않음, git 커밋·프롬프트 버전 포함). (a)는 LLM을 안 부르고 (b)(c)만 실제 LLM을 부른다(비용). Langfuse 키가 있으면 Dataset `marvia-golden-30`의 Experiment로 남긴다.
+- `python -m evals.run_eval --config a|b|c`: (v2부터 결과 파일 맨 위에 `engine` 칸을 적고 Langfuse 실험 메타에도 같은 값을 남긴다. `AGENT_GRAPH`가 켜져 있으면 `v2-langgraph`, 꺼져 있으면 `v1-skill-mcp`. `evals/compare_runs.py`가 두 결과 파일의 문항별 응답을 맞대 차이를 센다.) `dataset.jsonl` 30건을 문항별 재생 파일(`replay_fixtures.py`)로 풀고, 시계를 문항 clock으로 맞춘 채 실제 라우터(`run_agent`)에 넣어 축별 점수·게이트를 계산한다. 결과는 실행마다 `evals/results/<config>_<한국시각>.json`(덮어쓰지 않음, git 커밋·프롬프트 버전 포함). (a)는 LLM을 안 부르고 (b)(c)만 실제 LLM을 부른다(비용). Langfuse 키가 있으면 Dataset `marvia-golden-30`의 Experiment로 남긴다.
 - 축: verdict 정확도, act 재현율, 되묻기(insufficient) 정밀도, 선박 식별 정확도, 근거 일치(V7), 통관 해설(LLM-as-judge), 계약 준수. 게이트: act_recall == 1.0, vessel_match 오확정 0, schema_pass >= 0.95, injection 케이스 오작동 0. 실제 점수는 `EVAL_REPORT.md`와 `evals/results/`의 파일만 근거로 쓰고 이 문서에는 옮기지 않는다.
 - `judge.py`: `EVAL_GRADER_MODEL`로 `customs.plain_explanation`을 통관 단계 기준과 대조, 0/1 + 이유. 채점받는 모델과 같으면 채점을 건너뛴다.
 - `contract_rate.py`: 결과 파일 여러 개에서 LLM 출력 계약 준수율 집계. `push_dataset.py`: 평가셋을 Langfuse Dataset에 올림. `services/metrics.py`가 결과 파일을 `/api/metrics` 화면 모양으로 읽는다(숫자를 만들지 않음).

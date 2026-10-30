@@ -16,6 +16,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Iterable
 
+from backend.app.services.rules import rule
 from backend.app.services.validate import NUMBER, _normal
 
 # LLM이 붙이는 표시. [E1] 또는 [E1, E2] / [E1][E2]. 대소문자·공백 차이는 받아 준다
@@ -30,6 +31,11 @@ _FORGED_MARK = re.compile(r"\[\s*E\d+")
 
 MAX_VALUE_CHARS = 200  # 근거 값 한 개의 길이 상한. 긴 값이 와도 프롬프트가 부풀지 않게
 
+# 검색 조각 카드(search_knowledge)가 카드에 더하는 칸 (docs/specs/v2-rag.md 8절). 값이 있는 칸만 실린다. 화면은 모르는 칸을 무시한다
+CHUNK_CARD_FIELDS = ("chunk_id", "source_path", "heading_path", "last_verified", "corpus_id", "url")
+# 조각 카드의 출처 이름 머리. 판정 도구 출처(unipass 등)와 섞이지 않는다
+KNOWLEDGE_SOURCE = "knowledge:"
+
 
 def _mask(value: str) -> str:
     """컨테이너 번호 모양을 가운데 *로 가린다. B/L은 근거 카드에 원래 없고, 있더라도 호출하는 쪽이 가린 글을 넘긴다."""
@@ -39,12 +45,22 @@ def _mask(value: str) -> str:
     return _CONTAINER.sub(swap, value)
 
 
-def _safe_value(value: Any) -> str:
-    """근거 값을 글자로 바꾸고 가리고 자른다. 표시 모양 글자는 무력화한다 (근거 값은 데이터이지 지시가 아니다, SDD 7절)."""
+def _safe_value(value: Any, limit: int = MAX_VALUE_CHARS) -> str:
+    """근거 값을 글자로 바꾸고 가리고 자른다. 표시 모양 글자는 무력화한다 (근거 값은 데이터이지 지시가 아니다, SDD 7절).
+    limit: 자르는 길이. 기본은 MAX_VALUE_CHARS(200)이고, 검색 조각 카드는 조각 최대 글자 수까지 허용한다 (_value_limit)."""
     text = value.isoformat() if isinstance(value, (datetime, date)) else str(value)
     text = _mask(" ".join(text.split()))
     text = _FORGED_MARK.sub("(E", text)  # "[E2" -> "(E2"
-    return text[:MAX_VALUE_CHARS]
+    return text[:limit]
+
+
+def _value_limit(card: Any) -> int:
+    """카드 한 장의 값 길이 상한. 검색 조각 카드(chunk_id가 있는 카드)는 rules.md rag_chunk_max_chars까지 허용한다:
+    200자로 자르면 조각 뒤쪽의 숫자가 [E#] 숫자 검사(parse_and_validate)에서 빠져 맞는 표시가 지워진다 (v2-rag.md 8절).
+    그 밖의 카드는 MAX_VALUE_CHARS 그대로다."""
+    if _get(card, "chunk_id"):
+        return max(MAX_VALUE_CHARS, int(rule("rag_chunk_max_chars")))
+    return MAX_VALUE_CHARS
 
 
 def _get(card: Any, key: str, default=None):
@@ -56,9 +72,11 @@ def build_evidence_list(cards: Iterable[Any]) -> list[dict]:
 
     같은 출처(source)에 같은 조회 시각(분 단위)인 카드는 한 묶음으로 합친다. 한 번의 조회에서 나온 값들이라
     사용자에게는 "한 번 조회한 결과" 하나로 보이는 게 자연스럽고, LLM이 외울 id도 줄어든다.
-    반환 항목: {id, source, fetched_at(ISO 글자), values:[{field, value}]}
+    검색 조각 카드(chunk_id 칸이 있는 카드)는 chunk_id마다 따로 묶는다: 같은 파일에서 같은 분에 나온 서로 다른 조각이 한 장으로 합쳐지면
+    어느 조각이 근거인지 되짚을 수 없다. 이 카드는 CHUNK_CARD_FIELDS의 칸이 항목에 더해진다 (칸 추가만, 다른 카드의 모양은 그대로).
+    반환 항목: {id, source, fetched_at(ISO 글자), values:[{field, value}]} (+ 조각 카드만 chunk_id, source_path, heading_path, last_verified, corpus_id, url)
     """
-    groups: dict[tuple[str, str], dict] = {}
+    groups: dict[tuple[str, str, str], dict] = {}
     for card in cards or []:
         value = _get(card, "value")
         if value is None or value == "":
@@ -66,13 +84,36 @@ def build_evidence_list(cards: Iterable[Any]) -> list[dict]:
         source = str(_get(card, "source", "") or "")
         at = _get(card, "fetched_at")
         at_text = at.isoformat() if isinstance(at, (datetime, date)) else str(at or "")
-        key = (source, at_text[:16])
+        chunk_id = str(_get(card, "chunk_id", "") or "")
+        key = (source, at_text[:16], chunk_id)
         group = groups.setdefault(key, {"source": source, "fetched_at": at_text, "values": []})
-        group["values"].append({"field": str(_get(card, "field", "")), "value": _safe_value(value)})
+        if chunk_id:
+            for name in CHUNK_CARD_FIELDS:
+                extra = _get(card, name)
+                if extra not in (None, ""):
+                    group[name] = _safe_value(extra, 300) if name != "url" else str(extra)
+        group["values"].append({"field": str(_get(card, "field", "")), "value": _safe_value(value, _value_limit(card))})
     items = list(groups.values())
     for n, item in enumerate(items, 1):
         item["id"] = f"E{n}"
     return items
+
+
+def chunk_cards(hits: Iterable[Any], fetched_at: str) -> list[dict]:
+    """search_knowledge가 모델에게 준 조각(SearchHit)을 근거 카드로 만든다 (v2-rag.md 8절). build_evidence_list에 넣는다.
+    카드: source=knowledge:<source_path>, 값 한 칸 passage=<조각 글>, 그리고 chunk_id, source_path, heading_path, last_verified, corpus_id,
+    url(조각의 source_url 첫 값, 있으면). hits의 chunk는 ChunkRecord다. 이 파일은 rag 모듈을 import하지 않고 칸 이름으로만 읽는다.
+    fetched_at: 검색 시각(도구 결과의 fetched_at과 같은 글)."""
+    cards = []
+    for hit in hits:
+        chunk = hit.chunk
+        urls = tuple(getattr(chunk, "source_url", ()) or ())
+        cards.append({
+            "source": f"{KNOWLEDGE_SOURCE}{chunk.source_path}", "field": "passage", "value": chunk.text, "fetched_at": fetched_at,
+            "chunk_id": chunk.chunk_id, "source_path": chunk.source_path, "heading_path": chunk.heading_path,
+            "last_verified": chunk.last_verified, "corpus_id": chunk.corpus_id, "url": urls[0] if urls else None,
+        })
+    return cards
 
 
 def evidence_prompt_block(evidence: list[dict]) -> str:

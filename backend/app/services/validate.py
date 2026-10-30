@@ -396,7 +396,7 @@ GENERAL_TERMS = ("마스터 하우스 포워더 선사 화주 수하인 선하�
 
 def check_chat_reply(reply: str, grounded: str, user_text: str, earlier: list[str] | None = None,
                      quote: str | None = None, skills_text: str | None = None,
-                     extra_words: set[str] | None = None, copy_allowed: str = "") -> list[Violation]:
+                     extra_words: set[str] | None = None, copy_allowed: str = "", rag: bool = False) -> list[Violation]:
     """채팅 에이전트가 직접 쓴 답 문장 검사 (services/chat.py). 후속 답의 V7·V9·V10과 같은 기준이다.
 
     이 문장은 판정 흐름을 거치지 않고 화면에 간다 (실무 질문 답, 읽기 전용 도구 결과 요약). 그래서 근거 글(grounded)에
@@ -409,6 +409,8 @@ def check_chat_reply(reply: str, grounded: str, user_text: str, earlier: list[st
       숫자 검사(V7)는 그대로 엄격하다: grounded에 고정 문구뿐이면 사용자가 쓰지 않은 숫자는 모두 걸린다
     - V14: skills_text를 주면(도구 없이 Skill 문서로 답한 경우) quote가 그 원문에 그대로 있어야 한다 (quote_found).
       Skill 문서에 없는 조언을 LLM이 지어내는 것을 막는 장치다. 지시문은 근거로 치지 않는다: 지시문은 도메인 지식의 출처가 아니다
+      rag: 채팅 RAG 모드(v2-rag.md 8절). 대조 대상은 그대로 skills_text(호출하는 쪽이 검색된 조각의 파일 전문을 준다)이고, 모델에게 보내는
+      위반 설명 문장만 "search_knowledge가 돌려준 조각"을 가리킨다 (그 모드의 프롬프트에는 Skill 문서 묶음이 없다). 규칙 번호와 판정은 같다
     """
     found = []
     allowed_numbers = set(_numbers(grounded)) | set(_numbers(user_text))
@@ -429,10 +431,11 @@ def check_chat_reply(reply: str, grounded: str, user_text: str, earlier: list[st
         found.append(Violation("V13", "Your reply repeats an earlier assistant answer from history. History is context only. "
                                       "Answer the current message: call the tool it needs (ask_cargo for the cargo on screen, "
                                       "search_arrivals for ships coming from a place), or answer it from the Skill documents."))
+    docs = "the passages returned by search_knowledge" if rag else "the Skill documents"
     if skills_text is not None and not quote_found(quote or "", skills_text):
-        found.append(Violation("V14", "skill_quote is missing or is not copied exactly from the Skill documents. "
-                                      "Copy one sentence or table cell from the Skill documents that supports your reply, "
-                                      "and say only what that text says. If the Skill documents do not cover the question, "
+        found.append(Violation("V14", f"skill_quote is missing or is not copied exactly from {docs}. "
+                                      f"Copy one sentence or table cell from {docs} that supports your reply, "
+                                      f"and say only what that text says. If {docs} do not cover the question, "
                                       "set answer_kind to not_in_skills."))
     elif skills_text is not None and not quote_supports(reply, quote or "", skills_text, user_text):
         found.append(Violation("V14", "skill_quote does not support the reply: none of the reply's key words appear in or next to "

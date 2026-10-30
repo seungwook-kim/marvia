@@ -174,7 +174,8 @@ def test_practical_question_calls_search_and_ends_as_skill(monkeypatch, rag_on, 
     assert "error" not in result and result["source"] == "knowledge" and result["fetched_at"]
     assert any(h["source_path"] == "skills/import-basics/SKILL.md" for h in result["hits"])
     for hit in result["hits"]:
-        assert set(hit) == {"heading_path", "source_path", "last_verified", "text"}  # 점수, 조각 id는 모델에 가지 않는다
+        # 점수, chunk_id는 모델에 가지 않는다. [E#] 표시에 쓰는 evidence_id만 더해진다 (R13)
+        assert set(hit) == {"heading_path", "source_path", "last_verified", "text", "evidence_id"}
 
 
 def test_search_query_is_built_from_masked_text_only(monkeypatch, rag_on):
