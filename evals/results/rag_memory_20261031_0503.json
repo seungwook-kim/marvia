@@ -1,0 +1,357 @@
+{
+  "what": "deploy/render/Dockerfile 이미지의 메모리 단계별 실측 (REPLAY_MODE=true, 키 없음)",
+  "measured_at": "2026-10-31T05:03:03+09:00",
+  "image": "marvia-r14-mem:tmp",
+  "limits_requested": {
+    "memory": "512m",
+    "cpus": "0.1"
+  },
+  "limits_applied": {
+    "memory_bytes": 536870912,
+    "nano_cpus": 100000000
+  },
+  "host": {
+    "platform": "Windows-10-10.0.26300-SP0",
+    "docker_server": "29.7.2"
+  },
+  "ready_after_sec": 47.3,
+  "oom_killed": true,
+  "steps": [
+    {
+      "label": "a_idle",
+      "container_mb": 106.0,
+      "anon_mb": 94.6,
+      "file_cache_mb": 1.2,
+      "uvicorn_rss_mb": 126.5,
+      "worker_rss_mb": null,
+      "kiwi_loaded_in_server": false,
+      "processes": [
+        {
+          "pid": 1,
+          "rss_mb": 126.5,
+          "cmd": "/usr/local/bin/python3.12 /usr/local/bin/uvicorn backend.app.main:app"
+        }
+      ]
+    },
+    {
+      "label": "b_after_demo_lookup",
+      "container_mb": 156.3,
+      "anon_mb": 145.5,
+      "file_cache_mb": 2.1,
+      "uvicorn_rss_mb": 185.0,
+      "worker_rss_mb": null,
+      "kiwi_loaded_in_server": false,
+      "processes": [
+        {
+          "pid": 1,
+          "rss_mb": 185.0,
+          "cmd": "/usr/local/bin/python3.12 /usr/local/bin/uvicorn backend.app.main:app"
+        }
+      ]
+    },
+    {
+      "label": "b2_after_chat_question",
+      "container_mb": 156.3,
+      "anon_mb": 145.5,
+      "file_cache_mb": 2.1,
+      "uvicorn_rss_mb": 185.0,
+      "worker_rss_mb": null,
+      "kiwi_loaded_in_server": false,
+      "processes": [
+        {
+          "pid": 1,
+          "rss_mb": 185.0,
+          "cmd": "/usr/local/bin/python3.12 /usr/local/bin/uvicorn backend.app.main:app"
+        }
+      ]
+    },
+    {
+      "label": "c_after_ocr_1",
+      "container_mb": 264.0,
+      "anon_mb": 250.2,
+      "file_cache_mb": 2.7,
+      "uvicorn_rss_mb": 341.4,
+      "worker_rss_mb": null,
+      "kiwi_loaded_in_server": false,
+      "processes": [
+        {
+          "pid": 1,
+          "rss_mb": 341.4,
+          "cmd": "/usr/local/bin/python3.12 /usr/local/bin/uvicorn backend.app.main:app"
+        }
+      ]
+    }
+  ],
+  "rag_inside_process_runs": [
+    {
+      "label": "limit_default_kiwi",
+      "kiwi": "default",
+      "memory": "512m",
+      "result": {
+        "incomplete": true,
+        "marks": [
+          {
+            "label": "s0_python_start",
+            "process_rss_mb": 25.2,
+            "process_peak_mb": 25.3,
+            "container_mb": 16.2
+          },
+          {
+            "label": "s0b_backend_imported",
+            "process_rss_mb": 42.1,
+            "process_peak_mb": 45.1,
+            "container_mb": 29.2
+          },
+          {
+            "label": "s1_kiwi_created",
+            "process_rss_mb": 311.3,
+            "process_peak_mb": 323.4,
+            "container_mb": 303.7
+          }
+        ]
+      }
+    },
+    {
+      "label": "nolimit_default_kiwi",
+      "kiwi": "default",
+      "memory": "4g",
+      "result": {
+        "marks": [
+          {
+            "label": "s0_python_start",
+            "process_rss_mb": 25.4,
+            "process_peak_mb": 25.4,
+            "container_mb": 16.6
+          },
+          {
+            "label": "s0b_backend_imported",
+            "process_rss_mb": 42.1,
+            "process_peak_mb": 45.1,
+            "container_mb": 29.9
+          },
+          {
+            "label": "s1_kiwi_created",
+            "process_rss_mb": 311.4,
+            "process_peak_mb": 322.0,
+            "container_mb": 306.8
+          },
+          {
+            "label": "s1b_kiwi_first_tokenize",
+            "process_rss_mb": 531.5,
+            "process_peak_mb": 540.3,
+            "container_mb": 531.7
+          },
+          {
+            "label": "s2_bm25_searcher_built",
+            "process_rss_mb": 571.1,
+            "process_peak_mb": 571.1,
+            "container_mb": 562.2
+          },
+          {
+            "label": "s3_after_queries",
+            "process_rss_mb": 571.1,
+            "process_peak_mb": 571.1,
+            "container_mb": 562.4
+          }
+        ],
+        "kiwi_load_sec": 7.4,
+        "searcher_build_sec": 20.2,
+        "chunks": 55,
+        "bm25_tool_latency": {
+          "single": {
+            "n": 115,
+            "p50_ms": 0.31,
+            "p95_ms": 0.83,
+            "max_ms": 94.15,
+            "mean_ms": 3.49
+          },
+          "pairs": {
+            "n": 110,
+            "p50_ms": 0.47,
+            "p95_ms": 89.9,
+            "max_ms": 93.68,
+            "mean_ms": 6.33
+          }
+        },
+        "hybrid_possible_in_image": {
+          "onnxruntime_installed": true,
+          "model_dir_present": false
+        }
+      }
+    },
+    {
+      "label": "limit_no_multi_kiwi",
+      "kiwi": "no_multi",
+      "memory": "512m",
+      "result": {
+        "marks": [
+          {
+            "label": "s0_python_start",
+            "process_rss_mb": 25.5,
+            "process_peak_mb": 25.5,
+            "container_mb": 15.7
+          },
+          {
+            "label": "s0b_backend_imported",
+            "process_rss_mb": 42.5,
+            "process_peak_mb": 45.4,
+            "container_mb": 28.7
+          },
+          {
+            "label": "s1_kiwi_created",
+            "process_rss_mb": 245.1,
+            "process_peak_mb": 287.6,
+            "container_mb": 237.1
+          },
+          {
+            "label": "s1b_kiwi_first_tokenize",
+            "process_rss_mb": 352.7,
+            "process_peak_mb": 355.9,
+            "container_mb": 347.1
+          },
+          {
+            "label": "s2_bm25_searcher_built",
+            "process_rss_mb": 393.4,
+            "process_peak_mb": 394.6,
+            "container_mb": 368.0
+          },
+          {
+            "label": "s3_after_queries",
+            "process_rss_mb": 393.4,
+            "process_peak_mb": 394.6,
+            "container_mb": 368.0
+          }
+        ],
+        "kiwi_load_sec": 5.09,
+        "searcher_build_sec": 68.0,
+        "chunks": 55,
+        "bm25_tool_latency": {
+          "single": {
+            "n": 115,
+            "p50_ms": 0.21,
+            "p95_ms": 0.6,
+            "max_ms": 92.53,
+            "mean_ms": 2.59
+          },
+          "pairs": {
+            "n": 110,
+            "p50_ms": 0.32,
+            "p95_ms": 0.76,
+            "max_ms": 93.4,
+            "mean_ms": 3.64
+          }
+        },
+        "hybrid_possible_in_image": {
+          "onnxruntime_installed": true,
+          "model_dir_present": false
+        }
+      }
+    },
+    {
+      "label": "nolimit_no_multi_kiwi",
+      "kiwi": "no_multi",
+      "memory": "4g",
+      "result": {
+        "marks": [
+          {
+            "label": "s0_python_start",
+            "process_rss_mb": 25.5,
+            "process_peak_mb": 25.5,
+            "container_mb": 14.9
+          },
+          {
+            "label": "s0b_backend_imported",
+            "process_rss_mb": 42.5,
+            "process_peak_mb": 45.6,
+            "container_mb": 28.2
+          },
+          {
+            "label": "s1_kiwi_created",
+            "process_rss_mb": 244.8,
+            "process_peak_mb": 286.0,
+            "container_mb": 237.0
+          },
+          {
+            "label": "s1b_kiwi_first_tokenize",
+            "process_rss_mb": 352.7,
+            "process_peak_mb": 355.9,
+            "container_mb": 345.1
+          },
+          {
+            "label": "s2_bm25_searcher_built",
+            "process_rss_mb": 392.6,
+            "process_peak_mb": 392.6,
+            "container_mb": 364.9
+          },
+          {
+            "label": "s3_after_queries",
+            "process_rss_mb": 392.6,
+            "process_peak_mb": 392.6,
+            "container_mb": 364.9
+          }
+        ],
+        "kiwi_load_sec": 8.4,
+        "searcher_build_sec": 12.7,
+        "chunks": 55,
+        "bm25_tool_latency": {
+          "single": {
+            "n": 115,
+            "p50_ms": 0.23,
+            "p95_ms": 0.56,
+            "max_ms": 91.31,
+            "mean_ms": 2.59
+          },
+          "pairs": {
+            "n": 110,
+            "p50_ms": 0.39,
+            "p95_ms": 0.75,
+            "max_ms": 91.35,
+            "mean_ms": 4.53
+          }
+        },
+        "hybrid_possible_in_image": {
+          "onnxruntime_installed": true,
+          "model_dir_present": false
+        }
+      }
+    }
+  ],
+  "joint_run": {
+    "label": "joint_in_server_container_no_multi_kiwi",
+    "server_survived": false,
+    "oom_killed": true,
+    "inside_marks": [
+      {
+        "label": "s0_python_start",
+        "process_rss_mb": 25.2,
+        "process_peak_mb": 25.3,
+        "container_mb": 277.2
+      },
+      {
+        "label": "s0b_backend_imported",
+        "process_rss_mb": 42.8,
+        "process_peak_mb": 45.1,
+        "container_mb": 290.4
+      }
+    ],
+    "inside_finished": false
+  },
+  "notes": [
+    "POST /api/agent DEMOQD2610001 -> HTTP 200",
+    "POST /api/chat (실무 질문) -> HTTP 200",
+    "재생 모드에서는 서버에 Kiwi(V14)가 올라오지 않았다: Kiwi 비용은 --inside 측정의 s1 증가분으로 따로 본다",
+    "POST /api/document (notice_phone.jpg) -> HTTP 200",
+    "RAG 측정 컨테이너(kiwi=default, memory=512m): OOMKilled=True, ExitCode=137",
+    "--inside가 끝까지 가지 못했다. 마지막 출력: 'nd_imported\", \"process_rss_mb\": 42.1, \"process_peak_mb\": 45.1, \"container_mb\": 29.2}\\nMARK {\"label\": \"s1_kiwi_created\", \"process_rss_mb\": 311.3, \"process_peak_mb\": 323.4, \"container_mb\": 303.7}\\nKilled\\n'",
+    "RAG 측정 컨테이너(kiwi=default, memory=4g): OOMKilled=False, ExitCode=0",
+    "RAG 측정 컨테이너(kiwi=no_multi, memory=512m): OOMKilled=False, ExitCode=0",
+    "RAG 측정 컨테이너(kiwi=no_multi, memory=4g): OOMKilled=False, ExitCode=0"
+  ],
+  "sdd_6_8_reference": {
+    "idle_mb": 154,
+    "after_demo_lookup_mb": 178,
+    "after_ocr_1_mb": 201,
+    "source": "docs/Marvia_SDD.md 6.8 메모리 줄"
+  },
+  "caveat": "Docker Desktop(WSL2) 위의 값이다. Render의 Linux 호스트와 다를 수 있다. hybrid는 이미지에 모델이 없어 잴 수 없다."
+}
