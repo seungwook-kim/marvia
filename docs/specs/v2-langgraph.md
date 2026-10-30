@@ -1,6 +1,6 @@
 # Spec: v2 LangGraph 이전 (판정 흐름 그래프, 되묻기 interrupt, Postgres 체크포인터, 지켜보기 병렬)
 
-상태: 초안 (2026-10-30). 구현 전. 코드는 아직 v1(태그 `v1-skill-mcp`, 커밋 119aaad)이다. 아래 "정할 것" Q1~Q12를 확인한 뒤 SDD 3.6, 3.8, 3.9, 4, 5.7, 5.10, 5.11을 먼저 고치고, 작업 리스트 "V2" 절에 H* 표를 옮긴다(CLAUDE.md "새 결정은 SDD를 먼저"). 사용자가 2026-10-30에 정한 것은 다시 열지 않는다: 전체 흐름을 LangGraph로 옮기되 등급, days_margin, 1층 신호, trusted_eta, freshness는 노드 안에서도 코드가 계산하고 LLM이 낸 값은 덮어쓴다(PRD 6.1). 순서는 (1) 판정 흐름 골격, (2) 채팅 실무 질문 RAG(`docs/specs/v2-rag.md`, 이 문서 범위 밖), (3) 서류 파이프라인 그래프(나중, 별도 Spec), (4) 평가 묶음이다. 체크포인터는 Postgres(같은 `DATABASE_URL`), 설치는 `langgraph`와 Postgres 체크포인터 패키지뿐이고 LLM SDK는 `services/llm.py`에만 둔다.
+상태: 구현 중 (H0~H9, H11, H12 완료, H10은 배포 확인 뒤). 기본 경로는 그래프(AGENT_GRAPH=on), v1은 AGENT_GRAPH=off와 태그 `v1-skill-mcp`(커밋 119aaad). 아래 "정할 것" Q1~Q12를 확인한 뒤 SDD 3.6, 3.8, 3.9, 4, 5.7, 5.10, 5.11을 먼저 고치고, 작업 리스트 "V2" 절에 H* 표를 옮긴다(CLAUDE.md "새 결정은 SDD를 먼저"). 사용자가 2026-10-30에 정한 것은 다시 열지 않는다: 전체 흐름을 LangGraph로 옮기되 등급, days_margin, 1층 신호, trusted_eta, freshness는 노드 안에서도 코드가 계산하고 LLM이 낸 값은 덮어쓴다(PRD 6.1). 순서는 (1) 판정 흐름 골격, (2) 채팅 실무 질문 RAG(`docs/specs/v2-rag.md`, 이 문서 범위 밖), (3) 서류 파이프라인 그래프(나중, 별도 Spec), (4) 평가 묶음이다. 체크포인터는 Postgres(같은 `DATABASE_URL`), 설치는 `langgraph`와 Postgres 체크포인터 패키지뿐이고 LLM SDK는 `services/llm.py`에만 둔다.
 
 이 문서에서 "확인했다"고 쓴 것은 임시 가상환경에 실제로 설치하고 작은 예제 그래프(Marvia 코드 아님)로 돌려 본 것이다. 실제 Postgres에 붙인 확인과 Marvia 그래프를 돌린 확인은 아직 없다. 지연, 비용, 정확도 숫자는 하나도 적지 않았다.
 

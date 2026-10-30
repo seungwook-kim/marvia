@@ -72,7 +72,7 @@ routers/extract.py
 
 이 파일이 책임지는 것: 출력 계약 검증(Pydantic) · 실패 시 재시도와 폴백 · Langfuse 트레이스.
 
-현재: 모아 두는 원칙은 지켰다. `backend/app/services/llm.py`만 LLM SDK를 import하고 라우터·MCP 도구·워커·프론트는 부르지 않는다. 검증 규칙(V1~V15)은 `validate.py`와 `routers/agent.py`에 있고 재시도 3단계 뒤 판정 표 등급으로 폴백한다. v1은 RAG를 쓰지 않았고(태그 `v1-skill-mcp`), v2에서 채팅 실무 질문 경로에 넣는다(`docs/specs/v2-rag.md`, PRD 6.4).
+현재: 모아 두는 원칙은 지켰다. `backend/app/services/llm.py`만 LLM SDK를 import하고 라우터·MCP 도구·워커·프론트는 부르지 않는다. 검증 규칙(V1~V15)은 `validate.py`와 `routers/agent.py`에 있고 재시도 3단계 뒤 판정 표 등급으로 폴백한다. v1은 RAG를 쓰지 않았고(태그 `v1-skill-mcp`), v2에서 채팅 실무 질문 경로에 넣었다(`RAG_MODE`, 기본 꺼짐, `docs/specs/v2-rag.md`, PRD 6.4).
 
 ### `skills/SKILL.md`
 

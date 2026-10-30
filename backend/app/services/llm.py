@@ -1751,7 +1751,8 @@ def route_chat(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
 # chat_agent는 LLM이 도구를 골라 부르고, 결과를 보고 다음 도구를 또 고른다 (_ask_json의 도구 루프, 상한 MAX_TOOL_ROUNDS).
 # 도구 목록과 실행은 services/chat.py가 준다: 화물 조회·화물 질문·입항 선박 검색 + 읽기 전용 MCP 도구.
 # 등급·여유 일수는 코드가 정한다. B/L은 가린 토큰만 온다 (CLAUDE.md).
-# Skill 문서를 통째로 넣는다: 도구가 필요 없는 실무 질문은 이 문서 안에서만 답하게 한다 (RAG 아님).
+# Skill 문서를 통째로 넣는다(RAG_MODE=off, 기본): 도구가 필요 없는 실무 질문은 이 문서 안에서만 답하게 한다.
+# RAG_MODE가 켜지면 chat_agent(rag=True)가 SKILL.md를 빼고 search_knowledge 조각으로 받는다 (docs/specs/v2-rag.md 7절).
 
 CHAT_AGENT_PROMPT = "marvia-chat-agent"
 # RAG_MODE가 bm25/hybrid이고 검색을 쓸 수 있을 때만 쓰는 프롬프트 (v2-rag.md 7절). 1층 규칙이 SKILL.md 대신 search_knowledge 조각을 가리킨다.

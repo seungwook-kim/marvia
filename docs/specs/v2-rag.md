@@ -1,6 +1,6 @@
 # Spec: v2 채팅 실무 질문에 RAG 넣기 (코퍼스 A 검색, 하이브리드, 근거 칸 확장)
 
-상태: 제안 (2026-10-30 작성). 사용자가 같은 날 확정한 결정 5개는 "확정 결정" 절에 그대로 적었고 다시 열지 않는다. 아래 "정할 것" Q1~Q12는 아직 답이 없다. 코드는 아직 없고, 이 Spec이 승인되면 SDD를 먼저 고친 뒤(CLAUDE.md "새 결정을 해야 한다" 절차) R1부터 구현한다. 짝 Spec: `docs/specs/v2-langgraph.md`(LangGraph가 먼저 들어온다). 이 Spec이 그 Spec과 어떻게 맞물리는지는 How 11절 "LangGraph Spec과의 접점"에 적었고, 맞지 않는 부분은 Q11~Q12로 남겼다.
+상태: 구현 중 (2026-10-30 작성). R1~R8, R10, R13, R14는 코드에 있고 R9(게이트 값), R11·R12(평가), R15는 아직이다. 사용자가 같은 날 확정한 결정 5개는 "확정 결정" 절에 그대로 적었고 다시 열지 않는다. 아래 "정할 것" Q1~Q12의 현재 답은 각 행을 본다(Q5는 R14 실측 뒤 Render `RAG_MODE=off`로 정해졌고 SDD 6.8과 이 문서 R14 구현 메모에 있다). SDD는 R0에서 구현 상태에 맞춰 고쳤다. 짝 Spec: `docs/specs/v2-langgraph.md`(LangGraph가 먼저 들어온다). 이 Spec이 그 Spec과 어떻게 맞물리는지는 How 11절 "LangGraph Spec과의 접점"에 적었고, 맞지 않는 부분은 Q11~Q12로 남겼다.
 
 ## 확정 결정 (2026-10-30, 재론 안 함)
 
@@ -278,7 +278,7 @@ END $$;
 | 환경 | `RAG_MODE` | 임베딩 | 이유 |
 |---|---|---|---|
 | 로컬 compose, 평가, 개발 | `hybrid` | 로컬 ONNX (e5-small int8 + sentencepiece 기본 후보) | 메모리 제한 없음 |
-| Render 무료(512 MB, api+worker 한 컨테이너) | `bm25` (밀집 끔, R14 실측 전 기본값) | 모델을 올리지 않음 | 위 판단. BM25는 이미 로드되는 Kiwi를 공유해 모델 메모리가 추가되지 않는다. 색인은 pgvector에서 조각 글만 읽는다. R14에서 모델이 들어간다고 확인되면 `hybrid`로 바꾼다 |
+| Render 무료(512 MB, api+worker 한 컨테이너) | `off` (R14 실측 결과. 아래 R14 구현 메모) · 실측 전 제안은 `bm25` (밀집 끔) | 모델을 올리지 않음 | 위 판단. BM25는 이미 로드되는 Kiwi를 공유해 모델 메모리가 추가되지 않는다. 색인은 pgvector에서 조각 글만 읽는다. R14에서 모델이 들어간다고 확인되면 `hybrid`로 바꾼다 |
 | Render 유료 또는 별도 서버(나중) | `hybrid` | 로컬 ONNX | 필요하면 |
 | 테스트, `REPLAY_MODE` | `off` 또는 `hybrid` + `fake` | 가짜 임베더 | 아래 |
 
@@ -469,7 +469,7 @@ SDD 3절을 같이 고치지 않고 계약 파일만 바꾸지 않는다.
 | R11 | `RagEvalRecord` + `run_rag_eval.py` (검색 지표, 실패 유형, 변형 비교) | (a) 사용자가 쓴 문항 파일이 스키마를 통과 (b) `answerable`인데 gold가 없거나 너무 많은 문항을 거부 (c) 알려진 정답이 있는 작은 합성 코퍼스에서 Recall@k/MRR/nDCG 값이 손계산과 같음 (d) 결과 파일에 지문·커밋 포함, 키 없이 실행됨 |
 | R12 | 생성 평가 + A/B (RAGAS 채점기, 거절 별도, 선택 judge-retrieval) | (a) 거절 문항에 faithfulness를 계산하지 않고 거절 지표만 냄 (b) 채점 모델이 서비스 모델과 같으면 채점 건너뜀 (c) v1/v2-bm25/v2-hybrid 세 팔이 같은 문항으로 한 파일에 기록 (d) 합성 `TestsetGenerator`를 import하지 않음(테스트) |
 | R13 | V14 변경 + 근거 카드 칸 추가 | (a) 조각 경계에서 잘린 인용이 파일 전문 대조로 통과 (b) 검색 안 한 `skill` 답이 V14로 걸림 (c) 다른 파일 문장을 quote로 낸 답이 걸림 (d) `build_evidence_list`가 서로 다른 `chunk_id` 카드를 합치지 않음, 조각 속 숫자가 [E#] 숫자 검사에 쓰임 (e) `RAG_MODE=off`의 `test_validate`·`test_citations`·`test_chat_citations` 변경 없이 통과 (f) 계약 대조 `npm run test:contracts` 통과 구현 메모(R13): (a)(b)(c)의 V14 파일 전문 대조와 EC-08은 R8에서 이미 들어갔고 `test_rag_chat.py`가 본다. R13이 더한 것: (1) 검색 조각 카드: `citations.chunk_cards`가 만들고 `build_evidence_list`가 `chunk_id`마다 따로 묶어 `chunk_id`, `source_path`, `heading_path`, `last_verified`(있을 때), `corpus_id`, `url`(있을 때) 칸을 싣는다. 값 길이 상한은 조각 카드만 `rag_chunk_max_chars`다(그 밖은 200자 그대로). (2) `chat.py`의 `search_knowledge` 실행이 조각을 근거 목록에 등록(모델에 보인 것으로)하고 도구 결과 hits에 `evidence_id`, 결과에 제목 경로만 든 `evidence` 칸을 더한다. 조각 글은 hits에만 있다. `chunk_id`와 점수는 모델에 가지 않는다. (3) 조각 카드는 `skill` 답이 나갈 때만 `evidence_items`에 남는다(고정 안내나 다른 종류의 답에는 남기지 않는다). (4) V14 위반 설명은 RAG 모드에서만 "the passages returned by search_knowledge"를 가리킨다(`check_chat_reply(..., rag=True)`). 대조 대상 원문과 판정은 같다. (5) 웹은 `web/lib/evidenceTypes.ts`의 `EvidenceItem`에 선택 칸만 더했다(`npm run typecheck`, `npm run test:contracts` 통과). 프롬프트 `marvia-chat-agent-rag`는 `evidence_id`/`evidence` 칸을 아직 말하지 않는다(프롬프트는 이 작업에서 바꾸지 않았다. 모델이 [E#]를 달지 않으면 표시가 없고 카드만 남는다). |
-| R14 | Linux 컨테이너 메모리 실측과 배치 확정 | `deploy/render/Dockerfile` 이미지를 `--memory 512m`로 돌려 (a) 대기 (b) 첫 V14(Kiwi 로드) 뒤 (c) 서류 OCR 뒤 (d) 임베딩 모델 로드·질의 뒤 RSS를 SDD 6.8의 기존 실측(154/178/201 MB)과 같은 방식으로 재서 표로 적음. 이 표로 `RAG_MODE` 배포값(bm25 또는 hybrid)을 확정. Render 공식 인스턴스 표 링크를 SDD 6.8에 달고 "공식 페이지 미확인" 표시를 지움 |
+| R14 | Linux 컨테이너 메모리 실측과 배치 확정 | `deploy/render/Dockerfile` 이미지를 `--memory 512m`로 돌려 (a) 대기 (b) 첫 V14(Kiwi 로드) 뒤 (c) 서류 OCR 뒤 (d) 임베딩 모델 로드·질의 뒤 RSS를 SDD 6.8의 기존 실측(154/178/201 MB)과 같은 방식으로 재서 표로 적음. 이 표로 `RAG_MODE` 배포값(bm25 또는 hybrid)을 확정. Render 공식 인스턴스 표 링크를 SDD 6.8에 달고 "공식 페이지 미확인" 표시를 지움 구현 메모(R14): `scripts/measure_rag_memory.py`, 결과 `evals/results/rag_memory_20261031_0503.json`(Docker Desktop/WSL2 한 번 실행). (a)(b)(c)는 REPLAY_MODE 서버에서, Kiwi와 (d)는 재생 모드가 RAG를 끄고 서버가 Kiwi를 올리지 않아 같은 이미지의 별도 프로세스에서 쟀다. 기본 `Kiwi()`는 첫 분석 뒤 프로세스 RSS 531.5MB로 512MB 한도에 걸렸고(한도 실행은 OOM) `Kiwi(load_multi_dict=False)`는 352.7MB였으나 서류 OCR 뒤 서버와 같이 올리면 서버가 OOM으로 죽었다. hybrid는 Render 이미지에 모델이 없어 잴 수 없다. 결론: Render `RAG_MODE=off`(SDD 6.8). `validate._kiwi()`의 Kiwi 설정은 바꾸지 않았고 사용자 결정 사항이다. Render 공식 인스턴스 표는 이번에도 확인하지 못했다. |
 | R15 | (나중, 조건부) 리랭크, 어휘 줄이기 단어표, 공개 문서 편입 | 각각 별도 Spec. 실패 유형이 순위 밀림 위주일 때만 리랭크. 줄인 단어표는 평가셋에서 원본과 Recall@k 비교 후에만 |
 
 ## AC (Given-When-Then)
@@ -532,7 +532,7 @@ SDD 3절을 같이 고치지 않고 계약 파일만 바꾸지 않는다.
 | Q2 | `rules.md` 본문(키 설명 표)도 코퍼스에서 제외하나. 사용자 결정은 "프론트매터 제외"까지만 말했다 | 본문도 제외(코드가 읽는 재료의 설명이라 사용자 질문의 답이 아니다). 통관 단계 뜻 질문은 평가에서 회귀 여부를 따로 본다 | |
 | Q3 | cargo-verdict SKILL.md(등급·되묻기 설명법)를 검색 대상에 넣는 것이 맞나 | 넣는다(결정 그대로). 평가 문항에 사용자가 그 주제 질문을 몇 개 쓰고, 오검색(다른 질문에 끼어듦)을 실패 유형으로 따로 센다 | |
 | Q4 | `skill_unsupported`(Kiwi 근거 없는 낱말)의 대조 대상: 검색된 파일만 vs 코퍼스 A 전체 | 검색된 파일만(모델이 본 글만 근거). 더 많이 2층으로 내려가면 평가에서 보이고, 과하면 전체로 바꾼다 | |
-| Q5 | (R14 컨테이너 실측 뒤 확정) Render 무료 배포 설정: 밀집 검색 없이 `bm25`로 낼까, 어휘 줄인 모델(미검증) 쓸까, 유료 인스턴스, 임베딩 전용 별도 서버(로컬 모델을 서울 Cloud Run 같은 곳에 두는 것이 "임베딩 API 없음" 결정에 맞는지 포함) | 실측 전 기본값은 배포 `bm25`, 로컬·평가 `hybrid`. 이유: 후보 중 가장 작은 모델도 로드 후 250 MB 안팎(Windows 수치)이라 512 MB 안에서 api, worker, Kiwi, OCR과 같이 올라가는지 컨테이너로 재 봐야 안다. 들어간다고 나오면 배포도 `hybrid` | 배포는 bm25, 로컬·평가는 hybrid (2026-10-31 사용자). R14 실측 뒤 다시 본다 |
+| Q5 | (R14 컨테이너 실측 뒤 확정) Render 무료 배포 설정: 밀집 검색 없이 `bm25`로 낼까, 어휘 줄인 모델(미검증) 쓸까, 유료 인스턴스, 임베딩 전용 별도 서버(로컬 모델을 서울 Cloud Run 같은 곳에 두는 것이 "임베딩 API 없음" 결정에 맞는지 포함) | **R14 결과: 배포는 `off`**(R14 구현 메모, SDD 6.8). 실측 전 기본값은 배포 `bm25`, 로컬·평가 `hybrid`였다. 이유: 후보 중 가장 작은 모델도 로드 후 250 MB 안팎(Windows 수치)이라 512 MB 안에서 api, worker, Kiwi, OCR과 같이 올라가는지 컨테이너로 재 봐야 안다. 들어간다고 나오면 배포도 `hybrid` | 배포는 bm25, 로컬·평가는 hybrid (2026-10-31 사용자). R14 실측 뒤 다시 본다 |
 | Q6 | 후보 모델 확정 | e5-small int8 + sentencepiece를 1순위, MiniLM은 비교용(MiniLM은 아직 `MODEL_SPECS`에 등록하지 않았다: 받을 ONNX 파일과 해시를 확인하지 못해 `rag_min_score` 키도 없다. 등록할 때 둘을 같이 더한다. 게이트 키는 HF 저장소 이름이 아니라 `MODEL_SPECS`의 id(`multilingual-e5-small-int8`)다). 최종은 사용자가 쓴 평가셋의 Recall@k로(R11). 한국어 질의 품질은 이번에 재지 않았다 | |
 | Q7 | 평가셋 크기와 종류별 최소 수, dev/test 분할 비율 | 질문 종류 9개 각각 최소 몇 개 이상, `out_of_corpus` 문항은 전체의 일정 비율 이상. 숫자는 사용자가 쓰기 전에 정한다 (문항이 너무 적으면 비교 결과를 확정하지 않는 규칙이 이미 있다) | 36문항, 질문 종류 9개 x 4, dev 18 / test 18. 문항은 사용자가 쓴다 (2026-10-31 사용자) |
 | Q8 | LLM이 질의를 직접 쓰게 허용할까(질의 재작성) | 허용하지 않는다(주입 경로와 호출 수 감소). 후속 질문 정확도가 낮으면 `rag_query_turns`로 먼저 대응 | |

@@ -1,10 +1,10 @@
 # Marvia DB ERD
 
-기준: `backend/app/db/migrations/001~026` (파일 30개). 027~031(파일 5개)의 표·칸 반영은 아직이고 SDD 3.9 표에 한 줄씩 있다. 032는 v2 그래프 체크포인트 표(checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations)용 번호로 예약했고(예정, H7, 아직 파일 없음) 만들 때 이 문서에 표를 더한다 (`docs/specs/v2-langgraph.md` 4절). 서버(`backend/app/main.py`)와 worker가 뜰 때 `db.apply_migrations`가 이름 순서대로 한 번씩 적용한다 (SDD 3.9, `backend/app/db/__init__.py`). 전체를 pg advisory lock으로 감싸고 파일 하나를 한 트랜잭션으로 묶어, 두 프로세스가 동시에 떠도 같은 파일을 두 번 적용하지 않는다.
+기준: `backend/app/db/migrations/001~026` (파일 30개). 027~031(파일 5개)의 표·칸 반영은 아직이고 SDD 3.9 표에 한 줄씩 있다. 032(v2 그래프 체크포인트 표 네 개, `docs/specs/v2-langgraph.md` 4절)와 033(채팅 RAG 색인 표 두 개, `docs/specs/v2-rag.md` 4절)은 아래 6절에 표를 적었다. 이 두 파일까지 합쳐 `001~033`(파일 37개)이다. 서버(`backend/app/main.py`)와 worker가 뜰 때 `db.apply_migrations`가 이름 순서대로 한 번씩 적용한다 (SDD 3.9, `backend/app/db/__init__.py`). 전체를 pg advisory lock으로 감싸고 파일 하나를 한 트랜잭션으로 묶어, 두 프로세스가 동시에 떠도 같은 파일을 두 번 적용하지 않는다.
 번호가 겹치는 파일이 있다: 016(kakao_links, token_usage), 017(cargo_watch, watch_positions), 018(conversations, db_cleanup), 021(cargo_vessel_name, watch_positions_purge). 이름 순으로 적용하므로 문제 없다. 023~026은 겹치지 않는다.
 DB는 Supabase Postgres(운영·개발)와 compose의 로컬 postgres다. 모든 표에 RLS를 켜고 규칙은 두지 않는다. 공개 키(Data API)로는 못 읽고, 백엔드만 표 주인 계정으로 읽고 쓴다 (005, 이후 새 표도 모두 같은 줄을 넣었다). pg_cron이 없는 DB(compose의 로컬 postgres)에서는 각 마이그레이션이 cron 등록만 건너뛰고 지우기 함수는 만든다. worker도 실행할 때 같은 지우기 함수를 부른다.
 
-외래 키(FOREIGN KEY)는 두 곳뿐이다: `conversation_messages`→`conversations`(018, 대화를 지우면 말풍선도 함께), `user_cargo.lc_id`→`user_lc`(019, 신용장을 지워도 화물 줄은 남기려고 SET NULL). 나머지 선은 같은 값으로 이어 읽는 논리 연결이다.
+외래 키(FOREIGN KEY)는 세 곳뿐이다: `rag_chunks.index_id`→`rag_index`(033, 색인을 지우면 조각도 함께), `conversation_messages`→`conversations`(018, 대화를 지우면 말풍선도 함께), `user_cargo.lc_id`→`user_lc`(019, 신용장을 지워도 화물 줄은 남기려고 SET NULL). 나머지 선은 같은 값으로 이어 읽는 논리 연결이다.
 `user_id`는 Supabase 로그인 사용자 ID(UUID 글자)이고, 사용자 표 자체는 Supabase Auth(`auth.users`)에 있다.
 
 ```mermaid
@@ -186,6 +186,46 @@ erDiagram
                     text actor_email_masked
                     text reason
                     timestamptz created_at }
+    rag_index ||--o{ rag_chunks : "index_id (FK, 033)"
+    rag_index { text index_id PK
+                text fingerprint
+                text embed_model
+                int embed_dim
+                jsonb chunking
+                timestamptz built_at
+                boolean is_active }
+    rag_chunks { text index_id PK
+                 text chunk_id PK
+                 text corpus_id
+                 text source_path
+                 text heading_path
+                 text anchor
+                 int ordinal
+                 date last_verified
+                 text_array source_url
+                 text text
+                 text embed_text
+                 vector384 embedding }
+    checkpoints { text thread_id PK
+                  text checkpoint_ns PK
+                  text checkpoint_id PK
+                  text parent_checkpoint_id
+                  text type
+                  jsonb checkpoint
+                  jsonb metadata }
+    checkpoint_blobs { text thread_id PK
+                       text checkpoint_ns PK
+                       text channel PK
+                       text version PK
+                       text type
+                       bytea blob }
+    checkpoint_writes { text thread_id PK
+                        text checkpoint_ns PK
+                        text checkpoint_id PK
+                        text task_id PK
+                        int idx PK
+                        text channel
+                        bytea blob }
 ```
 
 `user_cargo`는 칸이 많아 그림에는 일부만 그렸다. 전체는 아래 표에 있다. `user_cargo`·`vessel_watch`와 `watch_positions`의 선은 FK가 아니라 MMSI 값 비교다. `token_usage.owner`와 `vessel_detail_usage.user_key`는 로그인 사용자면 user_id이고, 로그인이 꺼진 환경에서는 각각 session_id, `'anonymous'`다.
@@ -224,6 +264,8 @@ erDiagram
 | 024 | eta_time_bl_type_vessel_usage | `user_cargo.last_eta_at`, `user_cargo.bl_type` NULL 허용, `vessel_detail_usage` |
 | 025 | vessel_detail_usage_purge | `purge_old_vessel_detail_usage()` 7일 + pg_cron |
 | 026 | doc_facts_provenance | `user_cargo.doc_facts_at`, `doc_facts_source` |
+| 032 | graph_checkpoints | `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`(LangGraph `PostgresSaver`와 같은 모양, RLS 켬), `purge_old_graph_checkpoints(keep_days)` |
+| 033 | rag_chunks | `rag_index`, `rag_chunks`(pgvector 필요, RLS 켬). 확장이 없는 DB에서는 표를 만들지 않고 끝남 |
 
 ## 소스 사용 현황 (코드의 SQL 기준)
 
@@ -597,6 +639,30 @@ name·flag·dest·eta는 판정 값이 아니라 사용자가 화면에서 본 �
 |---|---|---|
 | name | TEXT PK | 마이그레이션 파일 이름 (예: 026_doc_facts_provenance.sql) |
 | applied_at | TIMESTAMPTZ | 적용 시각 |
+
+## 6. v2 그래프 체크포인트와 채팅 RAG 색인
+
+### checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations: 그래프 체크포인트 (032)
+LangGraph `PostgresSaver`가 쓰는 표다. 라이브러리가 쓰는 모양을 그대로 마이그레이션 032가 만들었고, 되묻기 interrupt 뒤 이어 가기에만 쓴다(`GRAPH_CHECKPOINT`, `backend/app/graph/checkpoint.py`). 네 표 모두 RLS를 켜고 규칙은 두지 않는다. 표끼리 FK는 없고 `thread_id` 값으로 이어 읽는다.
+
+| 표 | 칸 | 설명 |
+|---|---|---|
+| checkpoints | thread_id, checkpoint_ns, checkpoint_id (PK 셋), parent_checkpoint_id, type, checkpoint JSONB, metadata JSONB | 체크포인트 한 시점. `checkpoint` JSONB에는 최상위 문자열·숫자·불리언 값이 평문으로 들어가므로 State의 그런 칸은 평문 허용 목록(`graph/state.py PLAINTEXT_FIELDS`)에 있는 것만 허용한다 |
+| checkpoint_blobs | thread_id, checkpoint_ns, channel, version (PK 넷), type, blob BYTEA | 객체·리스트 값. B/L 열쇠(Fernet)로 잠근 암호문만 들어간다 |
+| checkpoint_writes | thread_id, checkpoint_ns, checkpoint_id, task_id, idx (PK 다섯), channel, type, blob BYTEA, task_path | 아직 확정되지 않은 쓰기. blob은 같은 방식으로 잠근다 |
+| checkpoint_migrations | v INTEGER PK | 라이브러리가 기대하는 내부 버전(0~9). 이 마이그레이션이 미리 채운다 |
+
+세 표에 `thread_id` 인덱스가 있다. `thread_id`는 `verdict:{사용자 해시 앞 16자}:{B/L의 HMAC 지문 앞 32자}` 모양이라 원문 B/L을 담지 않는다(`graph/threads.py`). `purge_old_graph_checkpoints(keep_days)`가 마지막 체크포인트가 `keep_days`일보다 오래된 스레드를 지운다(워커가 `graph_checkpoint_retention_days`를 넘겨 부른다). 계정·기록 삭제도 그 사용자의 스레드를 지운다.
+
+### rag_index, rag_chunks: 채팅 RAG 색인 (033)
+코퍼스 A(skills/의 SKILL.md)를 조각으로 나눈 색인이다. 사용자 데이터, B/L, 연락처는 들어가지 않는다. pgvector 확장이 없는 DB(로컬 일반 postgres)에서는 033이 두 표를 만들지 않고 알림만 남기고 끝나며, 서버는 `docs/rag/index/` 파일 색인으로 검색한다. 두 표 모두 RLS를 켠다.
+
+| 표 | 칸 | 설명 |
+|---|---|---|
+| rag_index | index_id TEXT PK, fingerprint TEXT, embed_model TEXT, embed_dim INT, chunking JSONB, built_at TIMESTAMPTZ, is_active BOOLEAN | 색인 한 벌. `index_id`는 manifest 지문 앞 12자. 읽는 쪽은 `is_active`인 색인만 본다. `fingerprint`가 `docs/rag/index_manifest.json`과 다르면 RAG를 쓰지 않는다 |
+| rag_chunks | index_id, chunk_id (PK 둘), corpus_id, source_path, heading_path, anchor, ordinal, last_verified DATE, source_url TEXT[], text, embed_text, embedding `vector(384)` | 조각 한 개. `index_id`→`rag_index` FK(색인을 지우면 조각도). `chunk_id`는 글이 바뀌면 바뀌는 증거용 id, `anchor`는 글이 바뀌어도 같은 자리를 가리키는 키, `embed_text`는 임베딩·BM25에 넣은 글(제목 경로 포함) |
+
+조각이 수십 개라 ANN 인덱스는 만들지 않고 정확 검색(순차 스캔)이다. 모델의 차원이 바뀌면 같은 칸을 다시 쓰지 않고 다음 번호 마이그레이션에서 새 표나 칸을 만든다.
 
 ## DB에 넣지 않는 것
 - B/L 원본 평문 (가린 값, 잠근 값, 지문만)

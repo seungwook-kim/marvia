@@ -2,7 +2,7 @@
   "_about": "Marvia 배포 단위 기록. 프롬프트 버전만이 아니라 모델·평가셋·채점기·배포 설정을 한 묶음으로 적는다. 프롬프트를 바꾸면 이 파일도 같이 바꾼다. 되돌리기 절차는 rollback 항목.",
   "release": "r4",
   "code": {
-    "migration": "001~026 (backend/app/db/migrations)",
+    "migration": "001~033 (backend/app/db/migrations). 032는 v2 그래프 체크포인트, 033은 채팅 RAG 색인",
     "api": "/api/watch/vessels (GET/POST/DELETE) 포함. 채팅 계약: ChatRequest.on_screen, ChatResponse.evidence_items·citations",
     "verification": "pytest backend/tests mcp_server/tests, web tsc, verify-contract, e2e 데모(scripts/verify.mjs)로 확인한다"
   },
@@ -39,11 +39,15 @@
     "marvia-doc-extract": "2 (팀 6)",
     "marvia-doc-vision": "1 (팀 1)",
     "marvia-chat-title": "1 (팀 1)",
-    "marvia-memory-write": "1 (팀 프로젝트에서는 미등록, 레포 파일로 동작)"
+    "marvia-memory-write": "1 (팀 프로젝트에서는 미등록, 레포 파일로 동작)",
+    "marvia-chat-agent-rag": "Langfuse 미등록, 레포 파일로 동작 (RAG_MODE가 켜졌을 때만 쓰는 사본)"
   },
   "knowledge": {
     "skills": "skills/*/*.md",
-    "sha256_12": "dd37753b906c"
+    "sha256_12": "dd37753b906c",
+    "rag_index_fingerprint": "9b92139f49045d6ad0ee57ef0ebf6aefdc39c22281ab0683d9c78d4928eec1b0",
+    "rag_index_source": "docs/rag/index_manifest.json (index_id 9b92139f4904, 조각 55개). 채팅 RAG 색인이 어느 코퍼스·청킹·모델로 만들어졌는지의 지문",
+    "rag_mode_deployed": "off (Render 무료 512MB. evals/results/rag_memory_20261031_0503.json, SDD 6.8)"
   },
   "evaluation": {
     "dataset": {

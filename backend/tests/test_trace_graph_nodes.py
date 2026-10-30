@@ -320,7 +320,7 @@ def test_without_keys_nothing_is_traced_and_graph_still_runs(fake, monkeypatch):
 
 
 def test_v1_path_creates_no_node_spans(fake, lf, monkeypatch):
-    """AGENT_GRAPH=off(기본)의 run_agent는 node span을 만들지 않는다. generation 부모는 요청 루트 그대로다.
+    """AGENT_GRAPH=off(v1 경로)의 run_agent는 node span을 만들지 않는다. generation 부모는 요청 루트 그대로다.
     run_agent가 요청 루트 span을 직접 열므로 이 테스트는 바깥에서 따로 열지 않는다."""
     monkeypatch.setenv("AGENT_GRAPH", "off")
     _setup_judge(fake, monkeypatch, [JUDGED])

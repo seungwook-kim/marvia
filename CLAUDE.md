@@ -28,7 +28,7 @@ B/L 번호(판매 예정일은 선택)를 받아 "내 화물, 지금 신경 써�
 
 ## 하지 말 것
 
-- v2 방향(2026-10-30 결정, 강의에서 배운 RAG·LangGraph를 적용): 전체 판정 흐름을 LangGraph 그래프로 옮기고, 채팅의 실무 질문 경로에 RAG를 넣는다. 문서 처리는 나중에 그래프로 옮긴다. v1(Skill 통째 주입 + MCP + 라우터 순서)은 태그 v1-skill-mcp로 남기고 평가 비교 기준으로 쓴다. 명세는 docs/specs/v2-langgraph.md, docs/specs/v2-rag.md다. 명세에 없는 v2 코드는 만들지 않는다. 그 전까지 지금 코드는 v1이다. 지켜야 할 선은 아래다
+- v2 방향(2026-10-30 결정, 강의에서 배운 RAG·LangGraph를 적용): 전체 판정 흐름을 LangGraph 그래프로 옮기고, 채팅의 실무 질문 경로에 RAG를 넣는다. 문서 처리는 나중에 그래프로 옮긴다. v1(Skill 통째 주입 + MCP + 라우터 순서)은 태그 v1-skill-mcp로 남기고 평가 비교 기준으로 쓴다. 명세는 docs/specs/v2-langgraph.md, docs/specs/v2-rag.md다. 명세에 없는 v2 코드는 만들지 않는다. 코드 상태: 그래프(H0~H9, H11, H12)와 채팅 RAG(R1~R8, R10, R13, R14)는 들어 있고 `AGENT_GRAPH=off`, `RAG_MODE=off`(기본)는 v1 동작이다. 결과 없음 게이트 값(R9)과 검색·생성 평가(R11, R12)는 아직이다. 지켜야 할 선은 아래다
   - 설치는 langgraph와 Postgres 체크포인터(langgraph-checkpoint-postgres)뿐이다. langchain, langchain-anthropic 같은 상위 패키지는 설치하지 않는다. langchain-core와 langsmith는 langgraph가 필수 의존성으로 끌고 오는 것이라 같이 들어오지만, 레포 코드는 import하지 않고 LangSmith 트레이싱 환경변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다. langgraph import는 backend/app/graph/와 worker/ 안에서만 한다 (backend/tests/test_import_policy.py가 검사)
   - 그래프 노드 안에서도 등급, days_margin, 1층 신호, trusted_eta, freshness는 코드가 계산하고 LLM이 낸 값은 덮어쓴다. LLM 호출은 노드가 services/llm.py의 함수를 불러서만 한다
   - RAG는 채팅 실무 질문 경로에만 붙는다: 로컬 오픈소스 임베딩 모델, Supabase pgvector, Kiwi 형태소 BM25, RRF로 합치기, 결과 없음 게이트(점수 미달이면 검색 근거 없이 답하지 않고 포워더·선사 확인 안내). judge()는 Skill 통째 주입을 유지하고, 검색 주입은 평가 A/B 실험으로만 해 본다 (PRD 6.4)
@@ -85,13 +85,13 @@ marvia/
   Dockerfile.railway    이전 Railway 배포용 API 이미지 (app 단계만). 기본 Dockerfile의 base·app을 고치면 같이 고친다
   render.yaml           Render Blueprint (api + 워커, 무료). deploy/render/Dockerfile을 쓴다 (SDD 6.8)
   deploy/               render/Dockerfile, README.md(무료 배포 절차와 환경변수)
-  docker-compose.yml    api(/mcp 포함), worker, db(postgres 16) (SDD 6.1). docker-compose.override.yml은 로컬 전용, 커밋하지 않는다
+  docker-compose.yml    api(/mcp 포함), worker, db(postgres 16, pgvector 이미지) (SDD 6.1). docker-compose.override.yml은 로컬 전용, 커밋하지 않는다
   .dockerignore  .env.example(C8)  .gitignore
   .github/              workflows/secret-scan.yml(gitleaks), workflows/tests.yml(pytest), workflows/keepalive.yml(Render · Supabase 깨워 두기), PULL_REQUEST_TEMPLATE.md
   docs/                 Marvia_PRD.md, Marvia_SDD.md, Marvia_개발_작업_리스트.md, ERD.md, release_manifest.json,
-                        prompt_versions.md, SCAFFOLD.md, specs/(v2-langgraph.md, v2-rag.md는 v2 명세, 코드는 예정), evidence/(Langfuse 집계, MCP 연결 캡처), mockups/
+                        prompt_versions.md, SCAFFOLD.md, specs/(v2-langgraph.md, v2-rag.md는 v2 명세), rag/(corpus.yaml, index_manifest.json, index/ 채팅 RAG 색인), evidence/(Langfuse 집계, MCP 연결 캡처), mockups/
   backend/
-    requirements.txt    app, worker 공통. requirements-doc.txt는 서류 사진 OCR용이라 app 이미지에만
+    requirements.txt    app, worker 공통. requirements-doc.txt는 서류 사진 OCR용, requirements-rag.txt는 채팅 RAG 임베딩용이라 app 이미지에만
     app/
       main.py           FastAPI 앱, 라우터 13개 등록, 미들웨어(구조화 로그, CORS), /health, 기동 때 마이그레이션 적용, /mcp 마운트
       auth.py crypto.py Supabase 로그인 토큰 확인, B/L·개인정보 암호화
@@ -104,21 +104,23 @@ marvia/
       services/         판정 쪽: customs, identify, signals, verdict, llm, validate, evidence, rules, guard, port_facts, mrn_fallback
                         화면 기능 쪽: chat, citations, conversations, memory, cargo, doc_facts, doc_ocr, watch, vessel_watch,
                         vessel_pick, kakao, quota, referrals, operators, cargo_sheet, port_traffic 등
+                        rag/: chunker, corpus, config, query, bm25, embed, store, search, index_build, runtime (채팅 RAG, RAG_MODE)
+      graph/            v2 LangGraph: state, nodes, routes, build, chat_graph, watch_graph, checkpoint, threads, facade, observe (langgraph import는 여기와 worker/만)
       clients/          shipfinder.py, mof.py, kakao.py, portwatch.py, supabase_admin.py, replay.py, cache.py, retry.py
       observability/    langfuse.py, logging.py
       db/migrations/    001~033 *.sql. 서버가 켜질 때 DATABASE_URL이 있으면 순서대로 자동 적용 (SDD 3.9). 032는 v2 그래프 체크포인트, 033은 RAG 조각(pgvector 없으면 표를 만들지 않음)
-      prompts/          Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 (marvia-*.md 10개)
+      prompts/          Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 (marvia-*.md 12개. marvia-chat-agent-rag는 사본만 있다)
     tests/              pytest. 키 없이 돈다
   relay/                해수부 API 릴레이 (서울 Cloud Run, FastAPI). 해외 서버에서 해수부 연결이 막혀서 둔다
   mcp_server/           server.py(FastMCP, /mcp, Bearer 토큰), auth.py, tools/(도구 4종), schemas.py(C4), tests/
   worker/               collector.py(위치·입항 실적 수집), watch.py(지켜보는 화물 재판정), aisstream.py(시험 수집, 기본 꺼짐), run.py
-  skills/               폴더마다 SKILL.md + rules.md(import-basics/는 SKILL.md만). ais-reliability/, customs-stages/, port-busan/, cargo-verdict/, referrals/, import-basics/
+  skills/               폴더마다 SKILL.md + rules.md(import-basics/는 SKILL.md만). ais-reliability/, customs-stages/, port-busan/, cargo-verdict/, referrals/, import-basics/, rag-search/(rules.md만, 채팅 RAG 재료)
   evals/                schema.py(C7), dataset.jsonl, doc_dataset.jsonl, fixtures/, results/, baseline_rules.py, run_eval.py,
-                        judge.py, contract_rate.py, push_dataset.py, replay_fixtures.py
+                        judge.py, contract_rate.py, push_dataset.py, replay_fixtures.py, compare_runs.py, rag_authoring.md
   web/                  Next.js 16. Vercel 프로젝트 marvia(Root Directory web)가 빌드하므로 compose 밖
                         app/(경로 /, /today, /watch, /cargo, /history, /settings, /settings/kakao, /admin, /metrics, /about),
                         components/, lib/(api, auth, tour, theme, docAttach, fixtures 등), public/basemap/
-  scripts/              손으로 돌리는 스크립트 (make_demo, demo_live, mcp_check, langfuse_evidence, 실제 API 호출 저장 등)
+  scripts/              손으로 돌리는 스크립트 (make_demo, demo_live, mcp_check, langfuse_evidence, build_rag_index, measure_rag_latency, measure_rag_memory, 실제 API 호출 저장 등)
 ```
 
 | 폴더 | 책임 | 하지 않는 것 | SDD |

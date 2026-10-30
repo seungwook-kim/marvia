@@ -20,9 +20,9 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 
 ## 설계 변경 기록 (v1 → v2)
 
-> 상태: 진행 예정 (2026-10-30 결정). 아직 v2 코드는 없고, 아래 비교 표도 비어 있습니다. 결정 내용은 구현 전에 SDD와 PRD에 먼저 고쳐 적습니다.
+> 상태: 진행 중 (2026-10-30 결정). 판정·채팅·지켜보기의 LangGraph 그래프와 채팅 실무 질문 RAG(검색, 근거 카드, V14)가 코드에 들어 있습니다. 결과 없음 게이트 값과 검색·생성 평가는 아직 하지 않았고, 아래 비교 표는 `evals/results/`에 파일이 있는 칸만 채웠습니다. 결정 내용은 SDD와 PRD에 먼저 고쳐 적었습니다.
 
-**v1 (지금 이 레포).** 도메인 지식은 `skills/` 문서를 호출마다 시스템 프롬프트에 통째로 넣고, 실시간 데이터는 MCP 도구로 가져옵니다. LangGraph 없이 라우터가 처리 순서를 정합니다. 이렇게 한 이유는 PRD 6.4절(Skill 통째 주입, v1은 RAG 아님)과 SDD 설계 원칙 표에 있습니다. v1에서는 PRD 4절 "안 만드는 것"에 LangGraph·RAG가 있었고, v2 결정으로 그 줄을 뺐습니다. 지식 문서가 작아서 통째로 넣을 수 있었고, 출력 검증 V14(근거 조각 검사)가 원문 전체를 전제하기 때문입니다.
+**v1 (태그 `v1-skill-mcp`).** 도메인 지식은 `skills/` 문서를 호출마다 시스템 프롬프트에 통째로 넣고, 실시간 데이터는 MCP 도구로 가져옵니다. LangGraph 없이 라우터가 처리 순서를 정했습니다. 이 레포의 main은 v2이고, `AGENT_GRAPH=off`와 `RAG_MODE=off`(기본)로 같은 v1 동작을 켤 수 있습니다. 이렇게 한 이유는 PRD 6.4절(Skill 통째 주입, v1은 RAG 아님)과 SDD 설계 원칙 표에 있습니다. v1에서는 PRD 4절 "안 만드는 것"에 LangGraph·RAG가 있었고, v2 결정으로 그 줄을 뺐습니다. 지식 문서가 작아서 통째로 넣을 수 있었고, 출력 검증 V14(근거 조각 검사)가 원문 전체를 전제하기 때문입니다.
 
 **바꾸는 이유.** 2026년 10월 강의에서 RAG, LangGraph, 문서 파이프라인, 멀티에이전트를 배우고 있습니다. 배운 것을 실제 프로젝트에 넣어 보려고, **RAG를 배우면서 넣어 봤다**는 기록으로 v2를 만듭니다. 같은 평가로 v1과 v2를 견주어 무엇이 달라졌는지 숫자로 남기는 것도 목적입니다. v1이 틀려서 바꾸는 것이 아닙니다.
 
@@ -30,15 +30,27 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 
 **v1 기준 코드.** 태그 [`v1-skill-mcp`](https://github.com/seungwook-kim/marvia/tree/v1-skill-mcp). 태그를 올린 뒤부터 이 링크가 열립니다. v2를 만들어도 이 기준으로 전후를 비교합니다.
 
-**전후 비교 (측정 전).** 숫자는 `evals/results/`에 실제로 있는 파일에서만 채웁니다. 그 전에는 적지 않습니다.
+**전후 비교 (일부만 측정).** 숫자는 `evals/results/`에 실제로 있는 파일에서만 채웁니다. 파일이 없는 칸은 측정 전입니다.
 
 | 항목 | v1 | v2 |
 |---|---|---|
-| 판정 정확도 | 측정 전 | 측정 전 |
+| 판정 정확도 | (a) 규칙만 29/30, 등급 정확도 1.0 (`a_20261031_0446`, `AGENT_GRAPH=off`). 서비스 모델 (b)(c)는 측정 전 | (a) 규칙만 29/30, 등급 정확도 1.0 (`a_20261031_0444`, 그래프). v1과 문항별 차이 0건. 서비스 모델 (b)(c)는 측정 전 |
 | 검색 Recall, MRR, nDCG | 측정 전 | 측정 전 |
 | RAGAS faithfulness 등 | 측정 전 | 측정 전 |
 | p95 지연 | 측정 전 | 측정 전 |
 | 호출 비용 | 측정 전 | 측정 전 |
+
+(a)는 LLM을 부르지 않아, 그래프로 옮겨도 코드가 정하는 값(식별, 신호, 등급)이 그대로인지만 보여 줍니다. 모델 품질 비교가 아닙니다(`EVAL_REPORT.md` 10절).
+
+**RAG 측정 (검색 지연, Render 무료 조건 메모리).** 아래는 v1과의 비교가 아니라 v2 RAG 자체를 잰 값입니다.
+
+| 항목 | 값 | 파일 |
+|---|---|---|
+| 검색 도구 한 번의 지연 (개발 PC, 질의 하나, 코퍼스 55조각) | bm25 p50 0.23ms, p95 0.5ms. hybrid(로컬 임베딩) p50 5.11ms, p95 13.99ms | `evals/results/rag_latency_20261031_0428.json` |
+| Render 무료 조건(`--memory 512m --cpus 0.1`, Docker Desktop) 서류 OCR 1장 뒤 | 컨테이너 264.0MB, uvicorn RSS 341.4MB | `evals/results/rag_memory_20261031_0503.json` |
+| 기본 Kiwi(형태소 분석기)의 첫 분석 뒤 프로세스 RSS (별도 프로세스, 한도 없이) | 531.5MB. 512m 한도 실행은 OOM으로 죽음 | 같은 파일 |
+
+그래서 Render 무료 배포는 `RAG_MODE=off`로 둡니다(SDD 6.8). 검색 Recall·MRR·nDCG와 RAGAS는 평가셋을 사람이 쓴 뒤에 잽니다.
 
 ---
 
@@ -102,7 +114,7 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 - **판정은 2층입니다.** 1층은 코드가 신호 7종(위치 6시간 끊김, AIS ETA와 해수부 예정 12시간 차이, 부산 인근 24시간 정박, 목적지 변경·깨짐, 항해상태·속도 불일치, 통관 검사·보류, 신뢰 ETA가 판매 예정일을 넘김)을 triggered / clear / unknown으로 판정합니다. 등급(순항·주의·긴급)은 코드 판정 표가 정하고, LLM은 신호가 어긋날 때 어느 출처를 왜 믿는지와 할 일을 설명합니다. LLM은 회색 지대에서만 등급을 표 이상으로 올릴 수 있습니다.
 - **숫자는 코드가 계산합니다.** 여유 일수, 거리, freshness, 신뢰 ETA는 코드가 계산하고 LLM은 덮어쓰지 못합니다. 임계값은 `skills/*/rules.md` 프론트매터가 원본입니다.
 - **코드가 LLM을 막는 울타리가 있습니다.** 위치가 오래됐으면 "현재 위치" 표현 금지, 식별 불확정이면 판정 금지, 근거에 없는 숫자 거부 등 출력 검증 규칙(V1~V15)을 두고, 위반하면 재시도 3단계 후 판정 표 등급 + 고정 문구로 폴백합니다.
-- **지식은 RAG가 아니라 Skill 문서로, 데이터는 MCP 도구로 가져옵니다.** v1에서는 LangGraph와 RAG를 쓰지 않습니다(위 "설계 변경 기록" 참고). v2에서 LangGraph를 넣어도 설치는 `langgraph`와 Postgres 체크포인터뿐입니다. `langchain`, `langchain-anthropic` 같은 상위 패키지는 설치하지 않고, langgraph가 필수로 끌고 오는 `langchain-core`·`langsmith`는 코드에서 import하지 않으며 LangSmith 트레이싱 환경변수는 켜지 않습니다.
+- **지식은 Skill 문서로, 데이터는 MCP 도구로 가져옵니다.** 판정은 Skill 문서를 통째로 프롬프트에 넣고(RAG 아님), 채팅 실무 질문만 `RAG_MODE`를 켜면 같은 문서를 조각으로 검색합니다. v1은 둘 다 통째 주입이었고(위 "설계 변경 기록" 참고), Render 무료 배포는 메모리 때문에 RAG를 꺼 둡니다. LangGraph를 써도 설치는 `langgraph`와 Postgres 체크포인터뿐입니다. `langchain`, `langchain-anthropic` 같은 상위 패키지는 설치하지 않고, langgraph가 필수로 끌고 오는 `langchain-core`·`langsmith`는 코드에서 import하지 않으며 LangSmith 트레이싱 환경변수는 켜지 않습니다.
 - **B/L은 LLM에 넘기지 않습니다.** UNI-PASS는 코드가 직접 조회하고, 중량·세관명·화주 정보는 LLM과 DB에 넣지 않습니다. 채팅 속 B/L·MRN·컨테이너 번호는 `[BL1]`·`[MRN]`·`[CNTR1]` 같은 가린 표시로만 LLM에 갑니다. 품명(goods_name)은 저장하고 채팅 에이전트에는 주지만 판정 LLM에는 주지 않습니다. 트레이스와 로그의 B/L은 가운데 절반을 가립니다(예: `TE****01`).
 
 ## 4. 아키텍처
@@ -168,10 +180,10 @@ worker의 재판정은 worker 프로세스 안에서 판정 흐름을 그대로 
 ├── Dockerfile.railway    이전 Railway 배포용 API 이미지 (app 단계만)
 ├── render.yaml           Render Blueprint (무료 배포, SDD 6.8)
 ├── deploy/               render/Dockerfile(api + 워커 한 컨테이너), README.md(무료 배포 절차)
-├── docker-compose.yml    api(/mcp 포함) + worker + postgres 16
+├── docker-compose.yml    api(/mcp 포함) + worker + postgres 16(pgvector 이미지)
 ├── .env.example          필요한 키 목록 (값 없음)
 ├── backend/
-│   ├── requirements.txt · requirements-doc.txt (서류 OCR, app 이미지에만)
+│   ├── requirements.txt · requirements-doc.txt (서류 OCR) · requirements-rag.txt (임베딩, app 이미지에만)
 │   ├── app/
 │   │   ├── main.py        앱, 라우터 13개, /health, /mcp 마운트, 기동 때 마이그레이션
 │   │   ├── auth.py · crypto.py   Supabase 로그인 토큰 확인, B/L·개인정보 암호화
@@ -179,23 +191,25 @@ worker의 재판정은 worker 프로세스 안에서 판정 흐름을 그대로 
 │   │   │                  account, admin, kakao, watch, cargo_sheet, port
 │   │   ├── schemas/       agent, signals, customs, document, memory (계약 C1~C5)
 │   │   ├── services/      customs, identify, signals, verdict, llm, validate, evidence, chat,
-│   │   │                  citations, memory, watch, vessel_watch, port_facts, quota, referrals 등
+│   │   │                  citations, memory, watch, vessel_watch, port_facts, quota, referrals 등,
+│   │   │                  rag/ (채팅 실무 질문 검색: 청킹, BM25, 임베딩, 저장소, 색인 빌드)
+│   │   ├── graph/         LangGraph 판정·채팅·지켜보기 그래프, 암호화 체크포인트
 │   │   ├── clients/       shipfinder, mof, kakao, portwatch, supabase_admin, replay, cache, retry
 │   │   ├── observability/ Langfuse 트레이스, 구조화 로그
-│   │   ├── db/migrations/ 001~031 SQL. DATABASE_URL이 있으면 서버가 켜질 때 자동 적용
-│   │   └── prompts/       Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 10개
+│   │   ├── db/migrations/ 001~033 SQL. DATABASE_URL이 있으면 서버가 켜질 때 자동 적용
+│   │   └── prompts/       Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 12개
 │   └── tests/             pytest (키 없이 돈다)
 ├── mcp_server/           FastMCP 도구 4종 (tools/), schemas.py(C4), auth.py
 ├── worker/               collector.py(위치·입항 실적 수집), watch.py(재판정), aisstream.py(시험 수집), run.py
 ├── relay/                해수부 API 릴레이 (Cloud Run 서울)
-├── skills/               ais-reliability, customs-stages, port-busan, cargo-verdict, referrals (SKILL.md + rules.md)
+├── skills/               ais-reliability, customs-stages, port-busan, cargo-verdict, referrals, import-basics (SKILL.md + rules.md), rag-search (rules.md만)
 ├── evals/                평가셋 30건·서류 12건, fixtures/(재생 파일), results/, 실행기·채점
 ├── scripts/              손으로 돌리는 스크립트 (make_demo, demo_live, mcp_check, langfuse_evidence 등)
 ├── web/                  Next.js 16
 │   ├── app/              /, /today, /watch, /cargo, /history, /settings(+kakao), /admin, /metrics, /about
 │   ├── components/ · lib/ (api, auth, tour, theme, docAttach 등)
 │   └── public/basemap/   미리 구워 둔 지도 타일
-└── docs/                 PRD, SDD, 작업 리스트, ERD, release_manifest.json, prompt_versions.md, specs/, evidence/
+└── docs/                 PRD, SDD, 작업 리스트, ERD, release_manifest.json, prompt_versions.md, specs/, evidence/, rag/ (코퍼스 목록, 색인 manifest, 파일 색인)
 ```
 
 ## 6. 실행
@@ -208,7 +222,7 @@ cp .env.example .env     # 키를 채운다 (아래 표 참고)
 docker compose up        # api :8000 (/api/agent, /mcp, /docs), worker, postgres
 ```
 
-DB 표(마이그레이션 001~031)는 서버가 켜질 때 `DATABASE_URL`이 있으면 자동으로 만들어집니다(`backend/app/main.py` → `db.apply_migrations`). DB가 없거나 실패해도 서버는 뜹니다. 배포 DB는 Supabase, 로컬 compose는 postgres 16입니다.
+DB 표(마이그레이션 001~033)는 서버가 켜질 때 `DATABASE_URL`이 있으면 자동으로 만들어집니다(`backend/app/main.py` → `db.apply_migrations`). DB가 없거나 실패해도 서버는 뜹니다. 배포 DB는 Supabase, 로컬 compose는 postgres 16입니다.
 
 worker는 `WORKER_SCHEDULE=off`(기본)이면 안내 한 줄을 남기고 바로 끝납니다(`Exited (0)`). 고장이 아닙니다.
 
