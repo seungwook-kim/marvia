@@ -349,16 +349,13 @@ def test_follow_up_path(fake, monkeypatch):
 # ── 플래그 ──
 
 def test_flag_off_never_touches_the_graph(fake, monkeypatch):
-    """AGENT_GRAPH가 꺼져 있으면(기본, 빈 값 포함) 퍼사드를 부르지 않는다."""
+    """AGENT_GRAPH가 꺼져 있으면(off, 빈 값, 알 수 없는 값) 퍼사드를 부르지 않는다. 정하지 않았을 때의 기본은 켜짐이다(H9, 아래 test_graph_is_the_default...)."""
     from backend.app.graph import facade
 
     fake(candidates=[_candidate(440999001)], position=POSITION, judge=JUDGED)
     monkeypatch.setattr(facade, "run_graph", lambda *a, **k: pytest.fail("꺼져 있는데 그래프를 돌렸다"))
-    for value in (None, "", "off", "no"):
-        if value is None:
-            monkeypatch.delenv("AGENT_GRAPH", raising=False)
-        else:
-            monkeypatch.setenv("AGENT_GRAPH", value)
+    for value in ("", "off", "no"):
+        monkeypatch.setenv("AGENT_GRAPH", value)
         assert agent_router.graph_enabled() is False
         assert agent_router.run_agent(_req(), user_id=None).status in ("ok", "partial")
 
@@ -373,3 +370,16 @@ def test_flag_on_calls_the_facade(fake, monkeypatch, value):
     monkeypatch.setattr(facade, "run_graph", lambda request, user_id: seen.append((request.bl_no, user_id)) or "응답")
     assert agent_router.run_agent(_req(), user_id="user-1") == "응답"
     assert seen == [("TESTMBL0000001", "user-1")]
+
+
+# ── 기본값 전환 (H9) ──
+
+@pytest.mark.parametrize("value,expected", [(None, True), ("on", True), ("TRUE", True), ("1", True),
+                                            ("off", False), ("false", False), ("0", False), ("", False), ("garbage", False)])
+def test_graph_is_the_default_and_off_selects_v1(monkeypatch, value, expected):
+    """AGENT_GRAPH를 정하지 않으면 그래프로 돈다(H9). off, false, 0, 빈 값, 알 수 없는 값은 v1 경로다 (H10에서 스위치째 지운다)."""
+    if value is None:
+        monkeypatch.delenv("AGENT_GRAPH", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_GRAPH", value)
+    assert agent_router.graph_enabled() is expected

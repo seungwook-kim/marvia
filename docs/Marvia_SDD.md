@@ -525,7 +525,7 @@ class EvalRecord(BaseModel):
 | 서비스 | `ALLOWED_ORIGINS`, `MCP_TOKEN`, `REPLAY_MODE`, `DEMO_REFRESH` |
 | 호출 조정 | `SHIPFINDER_TIMEOUT_SEC`, `MOF_TIMEOUT_SEC`, `PORTWATCH_TIMEOUT_SEC`, `HTTP_MAX_ATTEMPTS`, `HTTP_BACKOFF_SEC`, `MOF_BASE_URL`·`MOF_RELAY_TOKEN`(릴레이 연결) |
 | 워커 | `WORKER_SCHEDULE`, `WORKER_INTERVAL_HOURS`, `WORKER_SHIPFINDER_CALLS_PER_RUN`, `WATCH_ENABLED` |
-| v2 그래프 (예정, 아직 코드가 읽지 않음) | `AGENT_GRAPH`(off/on, 이전 중 전환 스위치, H10에서 제거), `GRAPH_CHECKPOINT`(auto/off/memory/postgres), `GRAPH_DB_POOL_MAX`(체크포인트용 DB 풀 최대 연결 수). LangSmith 트레이싱 변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다 |
+| v2 그래프 | `AGENT_GRAPH`(on/off, 기본 on(H9부터), off면 v1 경로, 비교용 전환 스위치라 H10에서 제거), `GRAPH_CHECKPOINT`(auto/off/memory/postgres), `GRAPH_DB_POOL_MAX`(체크포인트용 DB 풀 최대 연결 수). LangSmith 트레이싱 변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다 |
 | 컨테이너가 정함 | `MCP_URL`, `PORT` (6.2). `MCP_HOST`·`MCP_PORT`는 `python -m mcp_server.server` 단독 실행용 |
 | web (빌드 때 번들) | `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
 | relay | `RELAY_TOKEN` (relay 서비스 쪽) |

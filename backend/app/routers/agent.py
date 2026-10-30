@@ -216,7 +216,7 @@ def run_agent(request: AgentRequest,
             db_token = _db_state.set({"failed": False})
             try:
                 if graph_enabled():
-                    # AGENT_GRAPH=on: 같은 일을 LangGraph 그래프로 돌린다 (v2-langgraph.md 10절 H2).
+                    # AGENT_GRAPH=on(기본): 같은 일을 LangGraph 그래프로 돌린다 (v2-langgraph.md 10절 H2, H9).
                     # facade를 모듈 맨 위에서 import하지 않는다: graph/nodes.py가 이 모듈을 import하므로 순환이 되고,
                     # 꺼져 있을 때 langgraph를 읽지 않으려는 뜻도 있다. 그래서 켜졌을 때 여기서만 불러 온다
                     # (graph/nodes.py가 이 모듈의 함수를 호출 시점에 모듈 속성으로 읽는 이유와 같은 짝이다)
@@ -228,9 +228,9 @@ def run_agent(request: AgentRequest,
 
 
 def graph_enabled() -> bool:
-    """AGENT_GRAPH가 켜졌나. 기본은 꺼짐이라 v1 순서(_run)로 돈다. 요청마다 읽어서 테스트와 배포가 켜고 끌 수 있다.
-    이전 중 전환 스위치이고 H10에서 지운다 (v2-langgraph.md Q2, .env.example AGENT_GRAPH)."""
-    return os.environ.get("AGENT_GRAPH", "off").strip().lower() in ("on", "true", "1")
+    """AGENT_GRAPH가 켜졌나. 기본은 켜짐이라 판정 그래프로 돈다(H9). off/false/0이면 v1 순서(_run)로 돈다. 요청마다 읽어서 테스트와 배포가 켜고 끌 수 있다.
+    비교용 전환 스위치이고 H10에서 지운다 (v2-langgraph.md Q2, .env.example AGENT_GRAPH). 알 수 없는 값은 끈 것으로 본다."""
+    return os.environ.get("AGENT_GRAPH", "on").strip().lower() in ("on", "true", "1")
 
 
 def _run(request: AgentRequest, user_id: str | None) -> AgentResponse:
