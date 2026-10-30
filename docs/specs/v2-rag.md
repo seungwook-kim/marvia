@@ -359,6 +359,53 @@ class RagEvalRecord(BaseModel):
 - 종류: 직접 묻기 / 우회 표현(키워드 겹침 없음) / 약어(B/L, D/O, A/N) / 여러 절에 걸침 / 표 한 행 / 후속 질문(직전 말 필요) / 문서에 없음(수입 실무인데 코퍼스 밖. 날씨 같은 쉬운 무관 질문은 앞단 고정 답이 이미 거르므로 이 종류의 본질이 아니다) / 세액·관세사 주제 / 조각 주입 문장이 든 질문. 종류별 최소 문항 수와 전체 크기는 Q7.
 - 표본 크기 주의: 강의 4~5문항은 "방법"일 뿐 결론이 아니었다. 문항 수가 작으면 모든 비교에 문항 수와 구간 또는 "차이 확정 못 함"을 같이 적는다.
 
+**작성 양식 변환 규칙** (사용자 양식 `evals/rag_authoring.md` -> `evals/rag_dataset.jsonl`, R11이 변환기를 맡는다)
+
+사용자 양식에는 질문, 절 번호, 선택 낱말, 선택 모범 답만 있다. 아래 기계 칸은 변환기가 채운다. 변환기는 옮겨 적기만 하고 질문과 답을 만들거나 고치지 않는다. 양식 번호가 비어 있거나 규칙에 어긋나면 고치지 않고 거부한다.
+
+절 번호 -> `source_path` + `heading_path_prefix` (`heading_path`는 `# 문서 제목 > ## 절` 모양)
+
+| 번호 | source_path | heading_path_prefix |
+|---|---|---|
+| 1 | `skills/ais-reliability/SKILL.md` | `# AIS 신뢰도 Skill > ## 이 도메인은 무엇을 다루나` |
+| 2 | `skills/ais-reliability/SKILL.md` | `# AIS 신뢰도 Skill > ## 신호 7종` |
+| 3 | `skills/ais-reliability/SKILL.md` | `# AIS 신뢰도 Skill > ## 출처 우선순위` |
+| 4 | `skills/ais-reliability/SKILL.md` | `# AIS 신뢰도 Skill > ## 위치가 안 바뀔 때, '정박'일 때 (하정운 함정 AIS 판독 경험, 10-06)` |
+| 5 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 등급의 뜻` |
+| 6 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 표 등급을 설명할 때` |
+| 7 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 회색 지대에서 등급을 올렸을 때` |
+| 8 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 판매 예정일이 없을 때` |
+| 9 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 날짜 말하기` |
+| 10 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 목적지가 어긋날 때 (dest_changed)` |
+| 11 | `skills/cargo-verdict/SKILL.md` | `# 화물 등급 설명 Skill > ## 코드가 낸 되묻기·보류·실패 결과` |
+| 12 | `skills/customs-stages/SKILL.md` | `# 통관 단계 Skill > ## 단계 목록 읽는 법` |
+| 13 | `skills/customs-stages/SKILL.md` | `# 통관 단계 Skill > ## 통관 단계를 말할 때 (plain_explanation, answer, actions 모두)` |
+| 14 | `skills/customs-stages/SKILL.md` | `# 통관 단계 Skill > ## 관세사 확인이 필요할 때` |
+| 15 | `skills/customs-stages/SKILL.md` | `# 통관 단계 Skill > ## 하지 말아야 할 것` |
+| 16 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 답하는 원칙` |
+| 17 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 1. B/L 번호 찾기` |
+| 18 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 2. A/N(도착통지서)` |
+| 19 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 3. 통관 끝난 뒤 반출` |
+| 20 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 4. 체화료·보관료` |
+| 21 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 5. 혼자 수입신고, 검사` |
+| 22 | `skills/import-basics/SKILL.md` | `# 수입 실무 기초 Skill > ## 하지 말아야 할 것` |
+| 23 | `skills/port-busan/SKILL.md` | `# 부산항 부두 Skill > ## 부두·정박지 개요` |
+| 24 | `skills/port-busan/SKILL.md` | `# 부산항 부두 Skill > ## 하역 장소 문장 규칙` |
+| 25 | `skills/port-busan/SKILL.md` | `# 부산항 부두 Skill > ## 하지 말아야 할 것` |
+
+변환기 규칙
+
+- 번호 `0` -> `answerable=false`, `gold=[]`. 번호가 1개 이상이면 `answerable=true`. `0`과 다른 번호가 섞이면 거부한다.
+- 번호가 여러 개 -> `gold` 원소가 번호마다 하나. 각 원소는 위 표의 `source_path`와 `heading_path_prefix`를 쓴다.
+- 선택 낱말(양식 묶음 5, `table_row`에만 있다) -> 그 문항 `gold` 원소의 `must_include`. 비었으면 빈 목록. 다른 묶음은 항상 빈 목록.
+- 후속 질문(묶음 6, `followup`): `RagEvalRecord`에 칸을 더하지 않는다(결정: 새 스키마 칸 없음, 계약 변경 없음). `question`에 "앞:" 줄과 "이번:" 줄을 줄바꿈으로 이어 그대로 넣는다. 평가 실행기는 이 두 줄을 서비스의 `rag_query_turns` 입력(직전 사용자 말, 이번 말)으로 나눠 쓴다.
+- `id`는 양식 묶음 순서대로 `R01`~`R36`. 묶음 1~9의 `qtype`은 차례로 `direct`, `paraphrase`, `abbrev`, `multi_section`, `table_row`, `followup`, `out_of_corpus`, `broker_topic`, `inject_passage`.
+- `split`: 묶음마다 1, 2번 행은 `dev`, 3, 4번 행은 `test` (종류마다 dev 2 + test 2, 합계 dev 18 / test 18, Q7).
+- `labeler`: 사용자 이름을 변환기가 채운다. `label_reason`: 양식에는 칸이 없다. 비어 있으면 "작성자가 직접 고름"으로 채운다(`min_length=1` 충족). `labeled_at`: 변환 시각이 아니라 null로 두고 사용자가 확정할 때 채운다.
+- `reference_answer`: 질문 바로 아래 `답: ...` 줄이 있으면 그 글을 그대로, 없으면 null.
+- `match`: 항상 기본값 `either`.
+- 변환 뒤 검증: id 중복 없음, 종류별 dev 2 + test 2, `answerable` 규칙(R11 완료 기준 (b)). 변환된 파일은 사용자가 열어 보고 확정하기 전에 `run_rag_eval.py`로 결과를 내지 않는다.
+
 **검색 지표** (`evals/run_rag_eval.py`, 모델 호출 없이 키 없이 돈다. 외부 의존 없음)
 
 - Recall@k(k=1,3,5, `rag_top_k`), MRR, nDCG@k. 정답이 여럿이면 Recall은 덮은 비율. `answerable=False` 문항은 검색 지표에서 빼고 게이트 지표(거짓 통과/거짓 거절)로 센다.
