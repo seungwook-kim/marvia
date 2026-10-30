@@ -28,6 +28,8 @@ aisstream_refresh_minutes: 10
 # 지켜보기 워커 운영값 (services/watch.py, worker/collector.py, worker/aisstream.py, 10-08 QA). 판정에는 안 쓴다
 watch_pause_after_failures: 3
 watch_notify_retry_hours: 24
+# 지켜보기 재판정을 판정 그래프로 돌 때(AGENT_GRAPH=on) 화물을 동시에 판정하는 최대 건수 (graph/watch_graph.py). 1이면 순서대로 돈다
+watch_parallel_max: 3
 position_future_tolerance_minutes: 60
 ---
 
@@ -57,4 +59,5 @@ position_future_tolerance_minutes: 60
 | aisstream_refresh_minutes | 지켜보는 배 목록을 다시 읽어 구독을 갱신하는 간격(분) | worker/aisstream.py |
 | watch_pause_after_failures | 지켜보는 화물의 자동 재판정이 이 횟수만큼 잇달아 실패(예외·판정 없음)하면 자동 확인을 멈춘다. 사용자가 다시 조회하거나 지켜보기를 다시 켜면 풀린다 | services/watch.py |
 | watch_notify_retry_hours | 카카오톡 알림이 일시 오류(네트워크 등)로 못 나가면 다음 실행에서 다시 보낸다. 처음 실패한 뒤 이 시간이 지나면 더 보내지 않는다(낡은 알림) | services/watch.py |
+| watch_parallel_max | 지켜보는 화물을 판정 그래프로 다시 판정할 때(AGENT_GRAPH=on) 동시에 돌리는 최대 건수. ShipFinder 동시 호출이 늘면 속도 제한(23·29)이 날 수 있어 이 값으로 조절한다. 1이면 한 건씩 순서대로 돈다. 한 번에 몇 건을 판정하는지(RUN_LIMIT, 워커 예산)는 바꾸지 않는다 | graph/watch_graph.py |
 | position_future_tolerance_minutes | 위치 보고 시각이 지금보다 이 분 넘게 미래면 시계가 틀린 보고로 보고 버린다. 안 버리면 그 점이 영원히 "현재 위치"가 된다 | services/watch.py (usable_position_time), worker/collector.py, worker/aisstream.py |

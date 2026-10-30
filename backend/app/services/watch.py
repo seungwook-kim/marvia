@@ -7,6 +7,7 @@
   pending_changes()  아직 안 본 판정·도착 예정 변화 목록 ("다음 접속 때 표시" 띠). 지켜보는 화물만
   mark_seen()        화면에 보여 줬으니 "봤음"으로 바꾸기
   run_watch()        지켜보는 화물을 다시 판정하고, 등급이 바뀌었으면 기록하고 카카오톡으로 알린다 (워커가 부른다).
+                     AGENT_GRAPH=on이면 화물별 판정을 병렬로 돌리고 반영은 차례로 한다(graph/watch_graph.py). 판정(assess_cargo)과 반영(apply_assessment)을 나눠 둔 까닭이다
                      도착 예정이 기준(rules.md eta_change_alert_hours) 이상 바뀌었으면 그것도 알림 글에 적고 띠에도 남긴다.
                      잇달아 실패한 화물은 자동 확인을 멈추고(rules.md watch_pause_after_failures), 일시 오류로 못 보낸 알림은
                      다음 실행에서 다시 보낸다(rules.md watch_notify_retry_hours)
@@ -530,22 +531,30 @@ WHERE user_id = %s AND cargo_key = %s
 """
 
 
-def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, str | None]:
-    """화물 한 건을 다시 판정한다. (판정이 나왔나, 등급이 바뀌었나, 알림 결과)를 돌려준다.
-    알림 결과는 _send의 "sent"/"held"/"dropped", 알릴 것이 없으면 None. 실패는 예외로 올려 부르는 쪽이 센다."""
-    user_id, key, bl_encrypted, bl_masked, label, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, old, last_eta, *rest = row
-    last_eta_at = rest[0] if rest else None  # 신뢰 ETA 시각 칸. 있으면 시간 단위로 센다
+def _row_request(row: tuple, now: datetime) -> AgentRequest:
+    """저장된 화물 줄로 판정 요청을 만든다. B/L은 여기서 열고(복호화) 요청 객체에만 둔다. 열 수 없으면 WatchError("no_bl").
+    범위 검사(10-08 QA B2)가 생기기 전에 저장된 터무니없는 판매 예정일(예: 1900-01-01)은 재판정에 쓰지 않는다:
+    사용자 조회는 그런 날짜를 되묻지만, 워커는 _assess를 바로 불러 그 검사를 거치지 않으므로 날짜 없이 배 상태로만 판정한다."""
+    _, _, bl_encrypted, _, _, bl_type, sale_due, forwarder_eta, voyage_no, mmsi, *_ = row
     bl_no = crypto.decrypt(bl_encrypted) if bl_encrypted else None
     if bl_no is None:  # 잠근 값이 비었거나 열쇠가 바뀌어 못 연다. 원문 없이는 조회할 수 없다
         raise WatchError("no_bl")
-    from backend.app.routers.agent import is_released, previous_eta, sale_due_out_of_range, trusted_vessel  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
+    from backend.app.routers.agent import sale_due_out_of_range  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
 
-    # 범위 검사(10-08 QA B2)가 생기기 전에 저장된 터무니없는 판매 예정일(예: 1900-01-01)은 재판정에 쓰지 않는다.
-    # 사용자 조회는 그런 날짜를 되묻지만, 워커는 _assess를 바로 불러 그 검사를 거치지 않는다. 날짜 없이 배 상태로만 판정한다
     if sale_due_out_of_range(sale_due):
         sale_due = None
-    request = AgentRequest(bl_no=bl_no, bl_type=bl_type, sale_due_date=sale_due, forwarder_eta=forwarder_eta,
-                           voyage_no=voyage_no, resolved_mmsi=mmsi, session_id=f"watch-{now:%Y%m%d}")
+    return AgentRequest(bl_no=bl_no, bl_type=bl_type, sale_due_date=sale_due, forwarder_eta=forwarder_eta,
+                        voyage_no=voyage_no, resolved_mmsi=mmsi, session_id=f"watch-{now:%Y%m%d}")
+
+
+def assess_cargo(row: tuple, now: datetime, assess) -> tuple[AgentRequest, object]:
+    """화물 한 건의 (요청, 판정 응답)을 받아 온다(DB 쓰기 없음). 요청은 반영(apply_assessment)이 같은 객체로 화물 표를 쓰라고 함께 돌려준다. 순차 길(_check_one)과 병렬 길(graph/watch_graph.py의 assess_one)이 같이 쓴다.
+    DB 연결을 받지 않는 것이 병렬의 조건이다: 공유 연결은 뒤쪽 apply_assessment에서만 쓴다 (v2-langgraph.md 6절).
+    실패는 예외로 올린다. 한도 소진이면 WatchError("quota")."""
+    user_id, last_eta, last_eta_at = row[0], row[11], (row[12] if len(row) > 12 else None)  # 신뢰 ETA 시각 칸. 있으면 시간 단위로 센다
+    mmsi = row[9]
+    request = _row_request(row, now)
+    from backend.app.routers.agent import previous_eta, trusted_vessel  # 순환 방지
 
     # 지켜보기 재판정도 그 사용자의 LLM 사용량이다 (docs/specs/token-quota.md).
     # user_id를 넘겨야 토큰이 그 사람 몫으로 쌓이고 Langfuse 트레이스에도 user_id가 붙는다 (SDD 5.11).
@@ -554,19 +563,31 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, str
         quota.ensure_allowed(None, user_id)
     except quota.QuotaExceeded as e:
         raise WatchError("quota") from e
-    # 저장된 확정 배(vessel_mmsi)는 후보 확인 검색 없이 쓴다. 워커 예산은 화물당 ShipFinder 1회라서다 (routers/agent.py trusted_vessel)
+    # 저장된 확정 배(vessel_mmsi)는 후보 확인 검색 없이 쓴다. 워커 예산은 화물당 ShipFinder 1회라서다 (routers/agent.py trusted_vessel).
+    # ContextVar는 부른 스레드의 문맥에만 꽂는다. 병렬 길에서는 건마다 다른 스레드(문맥 복사본)라 서로의 값을 보지 않는다
     trust = trusted_vessel.set(mmsi)
     # 지난 확인 때 저장한 신뢰 ETA 날짜를 판정 흐름에 넘긴다. 판정 흐름이 바뀐 만큼을 eta_change로 센다 (routers/agent.previous_eta)
     before = previous_eta.set(last_eta_at or last_eta)
     try:
         with session_scope(request.session_id, user_id):
-            response = assess(request, None)
+            return request, assess(request, None)
     finally:
         previous_eta.reset(before)
         trusted_vessel.reset(trust)
+
+
+def apply_assessment(conn, row: tuple, now: datetime, response, request: AgentRequest | None = None) -> tuple[bool, bool, str | None]:
+    """판정 응답을 화물 표에 반영하고 필요하면 알린다. (판정이 나왔나, 등급이 바뀌었나, 알림 결과)를 돌려준다.
+    알림 결과는 _send의 "sent"/"held"/"dropped", 알릴 것이 없으면 None. 실패는 예외로 올려 부르는 쪽이 센다.
+    병렬 길에서도 이 함수는 한 스레드에서 차례로 부른다(공유 연결 conn을 여러 스레드가 쓰지 않게)."""
+    user_id, key, _, bl_masked, label, *_ = row
+    old = row[10]
+    from backend.app.routers.agent import is_released  # 순환 방지
+
     new = response.verdict
     if new is None:  # 판정이 없는 결과로 기준 등급을 지우지 않는다 (모듈 설명 "설계 이유")
         return False, False, None
+    request = request or _row_request(row, now)
     cargo.upsert_assessment(conn, user_id, request, response, released=is_released(response), now=now)
     moved = getattr(response, "eta_change", None)  # 판정 흐름이 센 도착 예정 변화. 없으면 None
     changed = old is not None and old != new
@@ -580,6 +601,45 @@ def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, str
                               now, user_id, key])
     return True, changed, _notify(conn, user_id, key, label or bl_masked, old if changed else None,
                                   new if changed else None, now, moved)
+
+
+def _check_one(conn, row: tuple, now: datetime, assess) -> tuple[bool, bool, str | None]:
+    """화물 한 건을 다시 판정하고 반영한다(순차 길). assess_cargo 다음 apply_assessment다. 반환은 apply_assessment와 같다."""
+    request, response = assess_cargo(row, now, assess)
+    return apply_assessment(conn, row, now, response, request)
+
+
+def error_kind(e: Exception) -> str:
+    """실패 종류 이름. WatchError는 자기 종류, 그 밖은 예외 클래스 이름. 로그에는 이것만 남긴다."""
+    return e.kind if isinstance(e, WatchError) else type(e).__name__
+
+
+def start_run(conn, now: datetime, known_vessel_only: bool) -> dict:
+    """한 번 실행의 시작: 요약 딕셔너리를 만들고, 지난 실행에서 못 보낸 알림을 먼저 다시 보낸다.
+    알림을 먼저 보내는 까닭: 이번 재판정이 같은 줄에 새 알림을 남기면 그 글로 바뀐다. 순차 길과 병렬 길(select_due 노드)이 같이 쓴다."""
+    summary = {"checked": 0, "changed": 0, "notified": 0, "failed": 0, "unjudged": 0, "notify_held": 0}
+    summary.update(_resend_pending(conn, now))
+    if known_vessel_only:
+        summary["skipped_no_vessel"] = _no_vessel_count(conn)
+    return summary
+
+
+def count_failure(conn, row: tuple, now: datetime, summary: dict, kind: str) -> None:
+    """화물 한 건의 실패를 센다. 로그에는 종류만 남기고, 시도 시각을 남겨 다음 실행에서 뒤로 보낸다.
+    한도(quota)는 화물 탓이 아니라 연속 실패로 세지 않는다."""
+    log_failure("watch_cargo", kind)
+    summary["failed"] += 1
+    _record_attempt(conn, row[0], row[1], now, ok=False, count_failure=kind != "quota")
+
+
+def count_result(conn, row: tuple, now: datetime, summary: dict, judged: bool, changed: bool, notice: str | None) -> None:
+    """화물 한 건의 성공(판정이 비어 돌아온 경우 포함)을 요약에 센다."""
+    _record_attempt(conn, row[0], row[1], now, ok=judged)
+    summary["checked"] += 1
+    summary["unjudged"] += not judged
+    summary["changed"] += changed
+    summary["notified"] += notice == "sent"
+    summary["notify_held"] += notice == "held"
 
 
 def run_watch(conn, *, limit: int = RUN_LIMIT, now: datetime | None = None, assess=None,
@@ -598,33 +658,25 @@ def run_watch(conn, *, limit: int = RUN_LIMIT, now: datetime | None = None, asse
     notify_held: 일시 오류로 못 보내 다음 실행에 다시 보낼 알림 수. renotified: 지난 실행에서 못 보낸 알림을 이번에 보낸 수.
     notify_dropped: 너무 오래돼 다시 보내지 않고 지운 알림 수 (rules.md watch_notify_retry_hours).
     """
+    from backend.app.routers import agent  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
     if assess is None:
-        from backend.app.routers import agent  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
         if agent.graph_enabled():
             # AGENT_GRAPH=on: 같은 판정을 그래프로 돈다. 저장한 확정 배와 지난 ETA가 State로 들어간다 (v2-langgraph.md 10절 H3)
             from backend.app.graph.facade import assess_graph as assess
         else:
             from backend.app.routers.agent import _assess as assess
     now = now or datetime.now(timezone.utc)
-    summary = {"checked": 0, "changed": 0, "notified": 0, "failed": 0, "unjudged": 0, "notify_held": 0}
-    summary.update(_resend_pending(conn, now))  # 먼저 보낸다: 이번 재판정이 같은 줄에 새 알림을 남기면 그 글로 바뀐다
-    if known_vessel_only:
-        summary["skipped_no_vessel"] = _no_vessel_count(conn)
+    if agent.graph_enabled():
+        # AGENT_GRAPH=on: 화물마다 판정을 병렬로 돌리고 결과 반영은 차례로 한다 (graph/watch_graph.py, v2-langgraph.md 6절).
+        # 끄면 아래 순차 길이 그대로 돈다
+        from backend.app.graph.watch_graph import run_watch_graph  # langgraph를 쓰는 모듈이라 켠 때만 불러온다
+        return run_watch_graph(conn, limit=limit, now=now, assess=assess, known_vessel_only=known_vessel_only)
+    summary = start_run(conn, now, known_vessel_only)
     for row in _due_rows(conn, limit, known_vessel_only):
-        user_id, key = row[0], row[1]
         try:
             judged, changed, notice = _check_one(conn, row, now, assess)
         except Exception as e:  # 한 건 실패가 다른 사람의 감시를 막지 않는다. 종류만 남긴다
-            kind = e.kind if isinstance(e, WatchError) else type(e).__name__
-            log_failure("watch_cargo", kind)
-            summary["failed"] += 1
-            # 시도 시각을 남겨 다음 실행에서 뒤로 보낸다. 한도(quota)는 화물 탓이 아니라 연속 실패로 세지 않는다
-            _record_attempt(conn, user_id, key, now, ok=False, count_failure=kind != "quota")
+            count_failure(conn, row, now, summary, error_kind(e))
             continue
-        _record_attempt(conn, user_id, key, now, ok=judged)
-        summary["checked"] += 1
-        summary["unjudged"] += not judged
-        summary["changed"] += changed
-        summary["notified"] += notice == "sent"
-        summary["notify_held"] += notice == "held"
+        count_result(conn, row, now, summary, judged, changed, notice)
     return summary
