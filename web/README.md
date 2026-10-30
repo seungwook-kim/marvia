@@ -14,7 +14,7 @@ npm run dev
 
 브라우저에서 <http://localhost:3000>을 엽니다. 체험 모드에는 키, `.env`, Docker, Python이 필요 없습니다. 첫 실행은 정상 예시 화물을 자동으로 보여줍니다. 글꼴은 로컬 번들입니다. `/watch` 지도는 CesiumJS 위성 지구본(EOX 위성 바탕 `tiles.maps.eox.at`, 못 받으면 EOX 지도 바탕, 그것도 안 되면 Natural Earth 해안선 구)이고 WebGL이 안 되면 Leaflet 평면 지도로 되돌립니다(docs/specs/watch-globe.md). 그 밖의 지도는 Leaflet이고 바탕을 OpenFreeMap(`tiles.openfreemap.org`)에서 받으며 못 받으면 미리 구운 타일(`public/basemap/`)과 Natural Earth 해안선으로 그립니다.
 
-`npm run dev`와 `npm run build` 앞에 `scripts/copy-maplibre-worker.mjs`가 MapLibre 워커 파일을 `public/maplibre/`로, `scripts/copy-cesium-assets.mjs`가 Cesium 파일(Workers, Assets, ThirdParty, Widgets)을 `public/cesium/`으로 복사합니다. `public/cesium/`은 `.gitignore`에 있고 `/watch`에 들어갈 때만 받습니다.
+`npm run dev`와 `npm run build` 앞에 `scripts/copy-maplibre-worker.mjs`가 MapLibre 워커 파일을 `public/maplibre/`로, `scripts/copy-cesium-assets.mjs`가 Cesium 파일(Cesium.js 본체, Workers, Assets, ThirdParty, Widgets)을 `public/cesium/`으로 복사합니다. 본체는 번들하지 않고 `/cesium/Cesium.js`를 `<script>`로 불러옵니다. Turbopack이 묶어 줄인 Cesium은 운영 빌드에서 템플릿 문자열의 8진 이스케이프가 깨져 청크가 안 읽히기 때문입니다. `public/cesium/`은 `.gitignore`에 있고 `/watch`에 들어갈 때만 받습니다.
 
 프로덕션 확인:
 

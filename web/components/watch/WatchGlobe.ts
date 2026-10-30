@@ -1,6 +1,6 @@
 /** 지켜보기 지도의 Cesium 위성 지구본 그리기 (docs/specs/watch-globe.md).
  * - WatchMap.tsx가 넘긴 RenderInput(배·경로·부산항)을 지구본 위에 그린다. 지도 쪽은 이 파일이 지구본인지 평면인지 모른다 (types.ts WatchRenderer)
- * - 어떤 단계에서든 던지면(WebGL 없음, Cesium 파일 못 받음) 호출한 쪽이 Leaflet 평면 지도로 되돌린다 (spec EC-01, EC-02)
+ * - 어떤 단계에서든 던지면(WebGL 없음, Cesium.js 못 받음, window.Cesium 없음) 호출한 쪽이 Leaflet 평면 지도로 되돌린다 (spec EC-01, EC-02)
  * - 핀·클러스터·부산항·말풍선은 HTML 요소를 지구본 위 겹침 층에 띄우고 매 그리기 뒤(scene.postRender)에 화면 좌표로 옮긴다.
  *   기존 CSS(.watch-pin, .watch-cluster, .watch-tooltip)와 말풍선 HTML을 그대로 쓰려는 것이다 (spec "그리기 방식")
  * - 경로 선과 점은 Cesium 개체로 그리고 scene.pick으로 가리키기·누르기를 받는다
@@ -14,6 +14,8 @@ type CesiumModule = typeof import('cesium');
 // --- 불러오기 ---
 const CESIUM_BASE = '/cesium/';  // Workers·Assets·Widgets가 서 있는 주소 (scripts/copy-cesium-assets.mjs가 public/cesium/에 복사)
 const CESIUM_CSS = `${CESIUM_BASE}Widgets/widgets.css`;
+const CESIUM_JS = `${CESIUM_BASE}Cesium.js`;  // 미리 빌드된 본체. 번들러에 넣지 않고 <script>로 불러온다 (loadCesium)
+const SCRIPT_TIMEOUT_MS = 30_000;  // 본체(약 6MB)를 이 시간 안에 못 받으면 실패로 보고 Leaflet으로 되돌린다 (spec EC-02)
 
 // --- 바탕 (spec "바탕" 표). 둘 다 EOX WGS84 타일이라 GeographicTilingScheme을 쓴다 ---
 const SAT_URL = 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020/default/WGS84/{z}/{y}/{x}.jpg';
@@ -79,6 +81,30 @@ function ensureCss() {
   document.head.appendChild(link);
 }
 
+/** public/cesium/Cesium.js를 <script>로 한 번만 불러오고 전역 Cesium을 돌려준다. 같은 약속을 모두가 나눠 쓴다.
+ * 왜 번들하지 않나: Turbopack이 npm cesium을 묶어 줄이면 템플릿 문자열의 8진 이스케이프가 깨져 운영 빌드에서 청크 구문 오류가 난다.
+ * 개발 모드에서만 멀쩡해 놓치기 쉬우므로, 미리 빌드된 공식 파일을 그대로 내려 주고 번들러는 손대지 않는다 (spec "Cesium 불러오기").
+ * 오류, 시간 초과, 로드 뒤 window.Cesium 없음은 모두 던진다. 실패한 약속은 비워 다음 시도가 다시 받게 한다 */
+let cesiumLoad: Promise<CesiumModule> | null = null;
+function loadCesium(): Promise<CesiumModule> {
+  const ready = (window as unknown as {Cesium?: CesiumModule}).Cesium;
+  if (ready) return Promise.resolve(ready);
+  if (cesiumLoad) return cesiumLoad;
+  cesiumLoad = new Promise<CesiumModule>((resolve, reject) => {
+    const el = document.createElement('script');
+    const fail = (why: string) => { clearTimeout(timer); el.remove(); cesiumLoad = null; reject(new Error(why)); };
+    const timer = setTimeout(() => fail('Cesium.js load timed out'), SCRIPT_TIMEOUT_MS);
+    el.src = CESIUM_JS; el.async = true;
+    el.onload = () => {
+      const C = (window as unknown as {Cesium?: CesiumModule}).Cesium;
+      if (C) { clearTimeout(timer); resolve(C); } else fail('Cesium.js loaded but window.Cesium is missing');
+    };
+    el.onerror = () => fail('Cesium.js failed to load');
+    document.head.appendChild(el);
+  });
+  return cesiumLoad;
+}
+
 /** 타일 한 장을 제한 시간 안에 받을 수 있는지 본다. 바탕을 바꿀지 정하는 근거 (spec EC-03) */
 async function probe(url: string): Promise<boolean> {
   const ac = new AbortController();
@@ -88,12 +114,12 @@ async function probe(url: string): Promise<boolean> {
   finally { clearTimeout(timer); }
 }
 
-/** 지구본 그리기. 실패하면 던진다 (호출한 쪽이 Leaflet으로 되돌린다) */
+/** 지구본 그리기. Cesium 본체는 loadCesium으로 받는다. 실패하면 던진다 (호출한 쪽이 Leaflet으로 되돌린다) */
 export const createGlobe: CreateRenderer = async (host, input, cb) => {
   if (typeof window === 'undefined') throw new Error('globe needs a browser');
   (window as unknown as {CESIUM_BASE_URL?: string}).CESIUM_BASE_URL = CESIUM_BASE;
   ensureCss();
-  const Cesium = await import('cesium');
+  const Cesium = await loadCesium();
   return build(Cesium, host, input, cb);
 };
 

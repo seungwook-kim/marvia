@@ -74,8 +74,12 @@
 **Cesium 불러오기**
 
 - npm `cesium`을 정확한 버전으로 고정해 설치한다(작성 시점 최신 1.146.0). CDN은 쓰지 않는다. 지금도 글꼴·지도 자료를 로컬로 번들한다(`next.config.ts`).
-- `Build/Cesium`의 `Workers`, `Assets`, `ThirdParty`, `Widgets`를 `public/cesium/`으로 복사하는 스크립트를 `scripts/copy-maplibre-worker.mjs`처럼 predev/prebuild에 붙이고, `public/cesium/`은 `.gitignore`에 넣는다. `window.CESIUM_BASE_URL = '/cesium/'`.
-- 브라우저에서만 동적 import 한다. `/watch`에 들어갈 때만 받으므로 다른 화면 첫 로딩은 무거워지지 않는다.
+- `Build/Cesium`의 `Cesium.js`(본체), `Workers`, `Assets`, `ThirdParty`, `Widgets`를 `public/cesium/`으로 복사하는 스크립트를 `scripts/copy-maplibre-worker.mjs`처럼 predev/prebuild에 붙이고, `public/cesium/`은 `.gitignore`에 넣는다. `window.CESIUM_BASE_URL = '/cesium/'`.
+- 본체는 번들러에 넣지 않는다. `WatchGlobe.ts`의 `loadCesium`이 `/cesium/Cesium.js`를 `<script>` 하나로 한 번만 불러와(30초 제한) 전역 `window.Cesium`을 쓴다. npm `cesium`은 타입(`import type`)으로만 쓴다.
+  - 이유: Turbopack이 npm `cesium`을 묶어 줄이면 템플릿 문자열의 8진 이스케이프가 깨져, 운영 빌드의 그 청크가 "Octal escape sequences are not allowed in template strings"로 안 읽힌다. 개발 모드(`npm run dev`)에서는 멀쩡해 e2e가 놓쳤다. 공식 미리 빌드 파일은 이 문제가 없다.
+  - 파일 못 받음, 시간 초과, 불러온 뒤 `window.Cesium` 없음, 지구본 만들기 중 오류는 모두 EC-02로 Leaflet이 이어받고 `data-renderer="leaflet"`가 붙는다. 청크가 안 읽혀 동적 import가 끝나지 않는 경우에 대비해 지구본 만들기 전체에도 45초 안전판이 있다(`components/watch/index.ts`).
+- `/watch` 화면 코드(`WatchGlobe.ts`)는 동적 import 한다. `Cesium.js`는 `/watch`에 들어갈 때만 받으므로 다른 화면 첫 로딩은 무거워지지 않는다.
+- 운영 빌드에서 확인한다: `npm run build` 뒤 `.next/static/chunks/*.js`를 모두 `new Function(src)`로 읽어 구문 오류가 없어야 하고, e2e에 `/cesium/Cesium.js`를 막았을 때 Leaflet으로 되돌아가는 확인이 있다.
 - Viewer 옵션: `baseLayer: false`, 타원체 지형, 위젯(타임라인, 애니메이션, 지오코더, 홈, 장면 모드, 도움말, 전체 화면, infoBox, 선택 표시) 모두 끔. `requestRenderMode: true`.
 
 **문서·라이선스**

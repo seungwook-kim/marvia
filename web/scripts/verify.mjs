@@ -422,6 +422,20 @@ try {
     await context.close();
   }
 
+  // EC-02: WebGL은 되지만 Cesium.js를 못 받으면(네트워크 오류, 운영 번들 문제) 빈 칸이 아니라 Leaflet 평면 지도와 핀이 나온다
+  {
+    const context = await watchContext(); const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
+    await context.route('**/cesium/Cesium.js', route => route.abort());
+    await openWatch(page, 'leaflet'); await ready(page);
+    await page.locator('.watch-map .leaflet-container').waitFor({timeout: 15_000});
+    assert.equal(await page.locator('.watch-map .watch-globe').count(), 0, 'no globe element when Cesium.js is blocked');
+    const found = await coverage(page, LOCATED_SHIPS);
+    assert.equal(found.pins + found.clustered, LOCATED_SHIPS, `blocked Cesium.js: pins (${found.pins}) + clustered ships (${found.clustered}) must cover the ${LOCATED_SHIPS} located ships`);
+    assert.equal(found.ports, 1, 'blocked Cesium.js: one port marker');
+    check('watch fallback when Cesium.js is blocked: Leaflet map with pins, port marker');
+    await context.close();
+  }
+
   /* ===== Live mode against the fake API: roles, real SSE stages, fallback, error ===== */
   if (!live) {
     skip('live mode (roles, SSE stages, fallback, error, history unavailable)', 'MARVIA_LIVE_TEST_URL not set');
