@@ -11,6 +11,7 @@ judge <-> validate 루프(H4): judge가 LLM을 한 번 부르고, 호출이 실�
 validate 뒤 엣지 함수(routes.after_validate)가 통과면 finalize, 다시 묻기면 judge, 접기(상한·시간 예산)면 fallback_partial로 보낸다.
 기억 읽기(load_memory)를 화물 줄 읽기(load_saved)보다 먼저 두는 것은 v1 _run의 순서를 지키려는 것이다:
 기억 읽기가 실패하면 화물 줄 읽기는 DB에 다시 붙지 않는다 (10-08 QA B7, test_qa_1008_verdict.py). spec 표의 순서와 다르다.
+노드마다 node_span으로 감싸 올린다(H6, Langfuse span "node:<이름>", 키가 없으면 아무 일도 안 한다).
 체크포인터는 H7에서 붙인다. H2는 None이라 노드 사이 값은 메모리에서만 움직이고 저장되지 않는다.
 
 간선 표(FIXED, BRANCHES)를 한 곳에 두고, 시작 노드(entry)에서 닿는 노드만 그래프에 올린다. 판정만의 그래프(entry="fetch_customs")에
@@ -21,6 +22,7 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from backend.app.graph import nodes, routes
+from backend.app.graph.observe import node_span
 from backend.app.graph.state import AgentState
 
 # 갈림길 없는 간선: 노드 -> 다음 노드(또는 END)
@@ -83,7 +85,7 @@ def build_graph(checkpointer=None, *, entry: str = "guard_input"):
     graph = StateGraph(AgentState)
     reachable = _reachable(entry)
     for name in reachable:
-        graph.add_node(name, getattr(nodes, name))
+        graph.add_node(name, node_span(name)(getattr(nodes, name)))
 
     graph.add_edge(START, entry)
     for name in reachable:

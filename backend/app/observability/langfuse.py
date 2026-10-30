@@ -126,15 +126,21 @@ def start_generation(name: str, input: Any, prompt: Any = None) -> Any:
 # ContextVar라 라우터가 부른 스레드풀·chat_stream의 복사 문맥으로도 따라간다. 요청 밖(스크립트·워커)은 None
 _root_var: ContextVar[Any] = ContextVar("langfuse_root_span", default=None)
 
+# 지금 실행 중인 그래프 노드의 span (node_span이 채운다). 노드 안에서 여는 관측(generation, tool)은 이것을 부모로 삼는다.
+# 요청 루트(_root_var)보다 안쪽 문맥이라 우선한다. 그래프 밖(v1 경로, AGENT_GRAPH=off)에서는 늘 None이라 동작이 그대로다 (v2-langgraph.md 7절)
+_node_var: ContextVar[Any] = ContextVar("langfuse_node_span", default=None)
+
 
 def _start_observation(name: str, as_type: str, input: Any, **extra: Any) -> Any:
     """generation·tool·span 기록을 여는 공통 부분. 같은 요청의 기록을 한 트레이스로 묶는다.
 
     start_generation()·start_tool()·request_span()이 같이 쓴다. 키가 없거나 실패하면 None (트레이스만 빠진다).
     부모를 정하는 순서:
-      1. 요청 루트 span이 열려 있으면 그 트레이스에 그 span의 자식으로 붙인다
-      2. 없고 요청 ID가 있으면 요청 ID를 씨앗으로 한 trace_id (루트 없이 같은 트레이스로만 묶인다)
-      3. 둘 다 없으면 SDK의 현재 문맥을 따른다. 평가 실행기에서는 SDK가 만든 experiment-item-run 아래로 간다
+      1. 그래프 노드 span이 열려 있으면 그 span의 자식으로 붙인다 (노드 안의 LLM·도구 호출이 그 노드 아래에 걸린다)
+      2. 요청 루트 span이 열려 있으면 그 트레이스에 그 span의 자식으로 붙인다
+      3. 없고 요청 ID가 있으면 요청 ID를 씨앗으로 한 trace_id (루트 없이 같은 트레이스로만 묶인다)
+      4. 모두 없으면 SDK의 현재 문맥을 따른다. 평가 실행기에서는 SDK가 만든 experiment-item-run 아래로 간다
+    노드 span 자신도 이 함수로 열리는데 그때는 _node_var가 아직 비어 있어(node_span이 연 뒤에 채운다) 요청 루트 아래에 붙는다.
     """
     if not _keys_set():
         return None
@@ -143,8 +149,11 @@ def _start_observation(name: str, as_type: str, input: Any, **extra: Any) -> Any
 
         client = get_client()
         request_id = current_request_id()
+        node = _node_var.get()
         root = _root_var.get()
-        if root is not None:
+        if node is not None:
+            trace_context = {"trace_id": node.trace_id, "parent_span_id": node.id}
+        elif root is not None:
             trace_context = {"trace_id": root.trace_id, "parent_span_id": root.id}
         else:
             trace_context = {"trace_id": client.create_trace_id(seed=request_id)} if request_id else None
@@ -159,7 +168,7 @@ def _start_observation(name: str, as_type: str, input: Any, **extra: Any) -> Any
 
 
 class _SpanHandle:
-    """request_span·tool_span이 with 안에 넘겨 주는 칸. 안에서 status, 결과, 오류를 적으면 끝날 때 span에 실린다."""
+    """request_span·node_scope·tool_span이 with 안에 넘겨 주는 칸. 안에서 status, 결과, 오류를 적으면 끝날 때 span에 실린다."""
 
     def __init__(self) -> None:
         self.metadata: dict[str, Any] = {}
@@ -202,6 +211,43 @@ def request_span(path: str, method: str = "POST"):
                 if handle.status >= 500:
                     fields["level"] = "ERROR"
                     fields["status_message"] = handle.error or f"status {handle.status}"
+                span.update(**fields)
+                span.end()
+            except Exception as e:
+                log_failure("langfuse_trace_end", type(e).__name__)
+
+
+@contextmanager
+def node_scope(name: str):
+    """그래프 노드 하나의 실행을 span 하나로 감싼다. 이름은 "node:<노드 이름>" (v2-langgraph.md 7절, SDD 5.11). graph/observe.node_span이 부른다.
+
+    이 안에서 여는 generation·tool 관측은 이 span의 자식이 된다(_node_var). 노드가 끝나면 문맥을 되돌린다.
+    input·output은 비운다: State 값(B/L, 컨테이너 번호, 연락처, LLM 문장)이 span에 가지 않게 하려는 것이다 (SDD 3.5).
+    metadata는 node(이름), request_id, latency_ms와, 호출한 쪽이 handle.metadata에 적은 안전한 값(시도 번호, 갈림길 이름)뿐이다.
+    노드에서 예외가 나가면 handle.error에 예외 종류만 적고 level=ERROR로 남기며 예외는 그대로 올린다.
+    키가 없거나 Langfuse가 실패하면 span 없이 그대로 지나간다. 판정은 막히지 않는다.
+    """
+    handle = _SpanHandle()
+    started = time.perf_counter()
+    span = _start_observation(f"node:{name}", "span", None, metadata={"node": name})
+    token = _node_var.set(span) if span is not None else None
+    try:
+        yield handle
+    except BaseException as e:
+        handle.error = handle.error or type(e).__name__
+        raise
+    finally:
+        if token is not None:
+            _node_var.reset(token)
+        if span is not None:
+            try:
+                fields: dict[str, Any] = {"metadata": {
+                    "request_id": current_request_id() or None, "node": name,
+                    "latency_ms": round((time.perf_counter() - started) * 1000, 1), **handle.metadata,
+                }}
+                if handle.error:
+                    fields["level"] = "ERROR"
+                    fields["status_message"] = handle.error
                 span.update(**fields)
                 span.end()
             except Exception as e:
