@@ -19,7 +19,7 @@ RAG_KEYS = {"rag_corpus_folders", "rag_chunk_target_chars", "rag_chunk_max_chars
             "rag_candidates", "rag_top_k", "rag_rrf_k", "rag_bm25_k1", "rag_bm25_b", "rag_query_turns", "rag_query_max_chars",
             "rag_min_score", "rag_min_terms", "rag_search_timeout_ms", "rag_ann_min_chunks"}
 # 숫자 검사 대상 (R1, R2, R6 파일). 임베더·저장소처럼 모델 규격 숫자(차원 등)가 정당하게 있는 파일은 각 작업이 따로 본다
-CODE_FILES = ("chunker.py", "corpus.py", "config.py", "query.py", "bm25.py", "search.py", "index_build.py")
+CODE_FILES = ("chunker.py", "corpus.py", "config.py", "query.py", "bm25.py", "search.py", "index_build.py", "runtime.py")
 # Spec 6절이 "미정"이라 한 값은 null이다. 값을 지어 쓰지 않는다
 UNDECIDED = {"rag_min_terms", "rag_search_timeout_ms", "rag_ann_min_chunks"}
 

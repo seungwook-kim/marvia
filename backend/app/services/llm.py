@@ -889,6 +889,7 @@ class LLMAnswer:
 #   port-busan       부두 이름 뜻, 하역 장소 문장, 부산 기준값
 #   cargo-verdict    등급 판정 표(rules.md), 등급 뜻·결과 설명법·되묻기와 실패 결과 설명법
 #   import-basics   소규모 수입자의 실무 질문(B/L 번호, A/N, 반출, 보관료, 직접 신고)과 공식 출처. 채팅 · 후속 질문에만 넣는다
+SKILL_DOC_NAME = "SKILL.md"  # 폴더마다 있는 도메인 지식 문서의 파일 이름. 채팅 RAG 모드는 이 파일을 주입에서 빼고 검색으로 준다
 AIS, CUSTOMS, PORT, VERDICT = "ais-reliability", "customs-stages", "port-busan", "cargo-verdict"
 IMPORT = "import-basics"
 ALL_SKILLS = (AIS, CUSTOMS, PORT, VERDICT)
@@ -898,17 +899,20 @@ FOLLOW_UP_SKILLS = ALL_SKILLS + (IMPORT,)  # 이전 응답 전체(등급 · 통�
 GRADE_SKILLS = (CUSTOMS,)               # 통관 해설 채점은 통관 단계 목록(customs-stages/rules.md)만 기준으로 한다 (평가 때만)
 
 
-def skills_reference(folders: tuple[str, ...] = ALL_SKILLS, prompt_name: str | None = None) -> str:
+def skills_reference(folders: tuple[str, ...] = ALL_SKILLS, prompt_name: str | None = None, rules_only: bool = False) -> str:
     """검증 V9·V10(validate.py)이 "답에 써도 되는 낱말"의 출처로 쓰는 원문: LLM이 받은 Skill 문서와 지시문.
     지시문 낱말을 넣는 이유: 모델이 지시문의 영어 낱말(예: "cargo")을 한국어 답에 섞으면 V9에 걸린다.
-    지시문에 있는 낱말은 주입이 끼워 넣은 표식이 아니다."""
-    return _skills_text(folders) + ("\n\n" + get_prompt(prompt_name).text if prompt_name else "")
+    지시문에 있는 낱말은 주입이 끼워 넣은 표식이 아니다.
+    rules_only: SKILL.md를 뺀 글만 (채팅 RAG 프롬프트가 받는 주입분, v2-rag.md 7절)."""
+    return _skills_text(folders, rules_only) + ("\n\n" + get_prompt(prompt_name).text if prompt_name else "")
 
 
-def _skills_text(folders: tuple[str, ...] = ALL_SKILLS) -> str:
-    """고른 Skill 폴더의 .md를 파일 이름과 함께 이어 붙인다. RAG 없이 통째로 넣는다 (CLAUDE.md)."""
+def _skills_text(folders: tuple[str, ...] = ALL_SKILLS, rules_only: bool = False) -> str:
+    """고른 Skill 폴더의 .md를 파일 이름과 함께 이어 붙인다. RAG 없이 통째로 넣는다 (CLAUDE.md).
+    rules_only면 SKILL.md는 빼고 나머지(rules.md 등)만 붙인다: 채팅 RAG 모드에서 SKILL.md는 검색으로 받는다 (v2-rag.md 7절, Q1)."""
     parts = []
-    for path in sorted(p for folder in folders for p in (SKILL_DIR / folder).rglob("*.md")):
+    for path in sorted(p for folder in folders for p in (SKILL_DIR / folder).rglob("*.md")
+                       if not (rules_only and p.name == SKILL_DOC_NAME)):
         # relative_to()를 그대로 쓰면 Windows에서 역슬래시가 되어 LLM이 보는 파일 이름이 OS마다 달라진다.
         # as_posix()로 어느 OS에서든 "/"로 맞춘다
         parts.append(f"# 파일: skills/{path.relative_to(SKILL_DIR).as_posix()}\n\n{path.read_text(encoding='utf-8')}")
@@ -997,13 +1001,15 @@ def _loose_json(content: str | None, output_model: type[BaseModel]) -> str | Non
 def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dict,
               output_model: type[BaseModel], model: str | None, feedback: str | None = None,
               skills: tuple[str, ...] = ALL_SKILLS, tools: list[dict] | None = None,
-              run_tool: Callable[[str, dict], dict] | None = None, context: str | None = None) -> LLMAnswer:
+              run_tool: Callable[[str, dict], dict] | None = None, context: str | None = None,
+              skills_rules_only: bool = False) -> LLMAnswer:
     """여러 함수가 같이 쓰는 한 번의 문답. 지시문(Langfuse) + skills 문서를 system에, 자료를 user에 넣고
     구조화 출력으로 받은 JSON을 output_model로 검사한다.
     skills는 넣을 Skill 폴더다 (JUDGE_SKILLS 등). 빈 튜플이면 넣지 않는다: 판단 기준이 필요 없는 호출(서류 칸 옮겨 적기)용.
     tools·run_tool: LLM이 직접 부를 도구 목록(OpenAI 형식)과, 부른 도구를 실제로 실행하는 함수 (후속 질문·채팅 에이전트).
     run_tool(이름, 인자)는 도구 결과 dict를 돌려준다. 부른 기록은 LLMAnswer.tool_calls에 담는다.
     context: 로그인 사용자의 기억 블록(<user_cargo>·<user_memory>, services/memory.compose_blocks). 판정·후속 질문만 쓴다.
+    skills_rules_only: Skill 폴더에서 SKILL.md를 빼고 넣는다 (채팅 RAG 프롬프트 전용, v2-rag.md 7절). 기본은 통째로.
     순서는 지시문 + Skill(system, 고정) → 기억 블록 → 이번 자료 (docs/specs/memory.md 읽기 흐름 2). 고정된 앞부분이
     제공사 캐시에 걸리게 하고, 이번 자료(user_content)는 녹화 답 재생의 대조 키라 섞지 않고 따로 보낸다.
 
@@ -1014,7 +1020,7 @@ def _ask_json(prompt_name: str, user_content: str, schema_name: str, schema: dic
     if replay.replay_enabled() and not (model or os.environ.get("LLM_MODEL")):
         return _replay_answer(prompt_name, user_content, output_model)
     prompt = get_prompt(prompt_name)
-    system = f"{prompt.text}\n\n{_skills_text(skills)}" if skills else prompt.text
+    system = f"{prompt.text}\n\n{_skills_text(skills, skills_rules_only)}" if skills else prompt.text
     messages = [{"role": "system", "content": system}]
     if context:
         messages.append({"role": "user", "content": context})
@@ -1748,6 +1754,9 @@ def route_chat(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
 # Skill 문서를 통째로 넣는다: 도구가 필요 없는 실무 질문은 이 문서 안에서만 답하게 한다 (RAG 아님).
 
 CHAT_AGENT_PROMPT = "marvia-chat-agent"
+# RAG_MODE가 bm25/hybrid이고 검색을 쓸 수 있을 때만 쓰는 프롬프트 (v2-rag.md 7절). 1층 규칙이 SKILL.md 대신 search_knowledge 조각을 가리킨다.
+# 이름으로 Langfuse에서 가져오고 못 가져오면 backend/app/prompts/ 사본을 쓴다 (다른 프롬프트와 같다)
+CHAT_AGENT_RAG_PROMPT = "marvia-chat-agent-rag"
 CHAT_AGENT_SKILLS = FOLLOW_UP_SKILLS  # 되묻기 설명법(cargo-verdict), 통관 단계, AIS, 부두, 수입 실무 기초를 모두 물을 수 있다
 # 도구 없이 답할 때의 근거 칸: 실무 질문 답에 Skill 문서에 없는 조언("판매처에 문의")이 섞여 나올 수 있는데,
 # 숫자·영문·옮긴 낱말만 보는 V7·V9·V10으로는 못 잡는다. 그래서 답의 종류(answer_kind)와 근거 문장(skill_quote)을 받는다.
@@ -1790,8 +1799,12 @@ class ChatAgentOutput(BaseModel):
 
 def chat_agent(masked_message: str, bl_refs: list[str], has_current_cargo: bool, today: str, history: list[dict],
                tools: list[dict], run_tool: Callable[[str, dict], dict], *, model: str | None = None,
-               feedback: str | None = None, on_screen: dict | None = None, evidence: str | None = None) -> LLMAnswer:
+               feedback: str | None = None, on_screen: dict | None = None, evidence: str | None = None,
+               rag: bool = False) -> LLMAnswer:
     """가린 문장과 최근 대화를 받아 도구를 골라 쓰고 답 한 칸을 낸다. output은 ChatAgentOutput.
+
+    rag: 채팅 RAG 모드(v2-rag.md 7절). True면 프롬프트 marvia-chat-agent-rag, 주입 Skill은 SKILL.md를 뺀 rules.md 등만이다.
+    SKILL.md의 내용은 도구 search_knowledge(tools에 services/chat.py가 넣는다)로 받는다. 기본(False)은 지금과 한 글자도 다르지 않다.
 
     on_screen: 화면에 지금 떠 있는 배들 {"vessel", "arrivals"}. services/chat._masked_screen이 가리고 거른 자료다.
     자료일 뿐이다 (프롬프트 Trust boundary). 없으면 입력 JSON에 칸 자체를 넣지 않는다.
@@ -1809,6 +1822,10 @@ def chat_agent(masked_message: str, bl_refs: list[str], has_current_cargo: bool,
         data["on_screen"] = on_screen
     if evidence:
         data["evidence"] = evidence
+    if rag:
+        return _ask_json(CHAT_AGENT_RAG_PROMPT, json.dumps(data, ensure_ascii=False), "chat_agent", CHAT_AGENT_SCHEMA,
+                         ChatAgentOutput, model, feedback=feedback, skills=CHAT_AGENT_SKILLS, tools=tools, run_tool=run_tool,
+                         skills_rules_only=True)
     return _ask_json(CHAT_AGENT_PROMPT, json.dumps(data, ensure_ascii=False), "chat_agent", CHAT_AGENT_SCHEMA,
                      ChatAgentOutput, model, feedback=feedback, skills=CHAT_AGENT_SKILLS, tools=tools, run_tool=run_tool)
 
