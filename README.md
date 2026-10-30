@@ -102,7 +102,7 @@ AI Human 7기 2차 팀 프로젝트(5조) · 도메인 특화 LLM 서비스 · 2
 - **판정은 2층입니다.** 1층은 코드가 신호 7종(위치 6시간 끊김, AIS ETA와 해수부 예정 12시간 차이, 부산 인근 24시간 정박, 목적지 변경·깨짐, 항해상태·속도 불일치, 통관 검사·보류, 신뢰 ETA가 판매 예정일을 넘김)을 triggered / clear / unknown으로 판정합니다. 등급(순항·주의·긴급)은 코드 판정 표가 정하고, LLM은 신호가 어긋날 때 어느 출처를 왜 믿는지와 할 일을 설명합니다. LLM은 회색 지대에서만 등급을 표 이상으로 올릴 수 있습니다.
 - **숫자는 코드가 계산합니다.** 여유 일수, 거리, freshness, 신뢰 ETA는 코드가 계산하고 LLM은 덮어쓰지 못합니다. 임계값은 `skills/*/rules.md` 프론트매터가 원본입니다.
 - **코드가 LLM을 막는 울타리가 있습니다.** 위치가 오래됐으면 "현재 위치" 표현 금지, 식별 불확정이면 판정 금지, 근거에 없는 숫자 거부 등 출력 검증 규칙(V1~V15)을 두고, 위반하면 재시도 3단계 후 판정 표 등급 + 고정 문구로 폴백합니다.
-- **지식은 RAG가 아니라 Skill 문서로, 데이터는 MCP 도구로 가져옵니다.** v1에서는 LangGraph와 RAG를 쓰지 않습니다(위 "설계 변경 기록" 참고).
+- **지식은 RAG가 아니라 Skill 문서로, 데이터는 MCP 도구로 가져옵니다.** v1에서는 LangGraph와 RAG를 쓰지 않습니다(위 "설계 변경 기록" 참고). v2에서 LangGraph를 넣어도 설치는 `langgraph`와 Postgres 체크포인터뿐입니다. `langchain`, `langchain-anthropic` 같은 상위 패키지는 설치하지 않고, langgraph가 필수로 끌고 오는 `langchain-core`·`langsmith`는 코드에서 import하지 않으며 LangSmith 트레이싱 환경변수는 켜지 않습니다.
 - **B/L은 LLM에 넘기지 않습니다.** UNI-PASS는 코드가 직접 조회하고, 중량·세관명·화주 정보는 LLM과 DB에 넣지 않습니다. 채팅 속 B/L·MRN·컨테이너 번호는 `[BL1]`·`[MRN]`·`[CNTR1]` 같은 가린 표시로만 LLM에 갑니다. 품명(goods_name)은 저장하고 채팅 에이전트에는 주지만 판정 LLM에는 주지 않습니다. 트레이스와 로그의 B/L은 가운데 절반을 가립니다(예: `TE****01`).
 
 ## 4. 아키텍처
@@ -182,7 +182,7 @@ worker의 재판정은 worker 프로세스 안에서 판정 흐름을 그대로 
 │   │   │                  citations, memory, watch, vessel_watch, port_facts, quota, referrals 등
 │   │   ├── clients/       shipfinder, mof, kakao, portwatch, supabase_admin, replay, cache, retry
 │   │   ├── observability/ Langfuse 트레이스, 구조화 로그
-│   │   ├── db/migrations/ 001~026 SQL. DATABASE_URL이 있으면 서버가 켜질 때 자동 적용
+│   │   ├── db/migrations/ 001~031 SQL. DATABASE_URL이 있으면 서버가 켜질 때 자동 적용
 │   │   └── prompts/       Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 10개
 │   └── tests/             pytest (키 없이 돈다)
 ├── mcp_server/           FastMCP 도구 4종 (tools/), schemas.py(C4), auth.py
@@ -208,7 +208,7 @@ cp .env.example .env     # 키를 채운다 (아래 표 참고)
 docker compose up        # api :8000 (/api/agent, /mcp, /docs), worker, postgres
 ```
 
-DB 표(마이그레이션 001~026)는 서버가 켜질 때 `DATABASE_URL`이 있으면 자동으로 만들어집니다(`backend/app/main.py` → `db.apply_migrations`). DB가 없거나 실패해도 서버는 뜹니다. 배포 DB는 Supabase, 로컬 compose는 postgres 16입니다.
+DB 표(마이그레이션 001~031)는 서버가 켜질 때 `DATABASE_URL`이 있으면 자동으로 만들어집니다(`backend/app/main.py` → `db.apply_migrations`). DB가 없거나 실패해도 서버는 뜹니다. 배포 DB는 Supabase, 로컬 compose는 postgres 16입니다.
 
 worker는 `WORKER_SCHEDULE=off`(기본)이면 안내 한 줄을 남기고 바로 끝납니다(`Exited (0)`). 고장이 아닙니다.
 

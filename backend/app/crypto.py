@@ -90,3 +90,30 @@ def encrypt_pii(text: str) -> str | None:
 def decrypt_pii(token: str) -> str | None:
     """PII 열쇠로 연다. 열쇠가 없거나 다른 열쇠로 잠갔으면 None."""
     return decrypt(token, PII_KEY_ENV)
+
+
+# ── 바이트용 (docs/specs/v2-langgraph.md 4절 "마스킹과 암호화" 1) ──
+# 그래프 체크포인트의 직렬화 결과(bytes)를 잠그는 데 쓴다 (graph/checkpoint.py FernetCipher).
+# 열쇠 처리와 로그는 encrypt/decrypt와 같다(_fernet). 달라진 것은 입출력이 글자가 아니라 바이트라는 점뿐이다.
+# 열쇠가 없으면 None이고, 부르는 쪽은 평문으로 저장하지 않는다.
+
+def encrypt_bytes(data: bytes, key_env: str = BL_KEY_ENV) -> bytes | None:
+    """바이트를 Fernet 토큰(바이트)으로 잠근다. 열쇠가 없으면 None."""
+    fernet = _fernet(key_env)
+    if fernet is None:
+        log_failure("crypto_encrypt_bytes", "no_key")
+        return None
+    return fernet.encrypt(data)
+
+
+def decrypt_bytes(token: bytes, key_env: str = BL_KEY_ENV) -> bytes | None:
+    """Fernet 토큰(바이트)을 원본 바이트로 연다. 열쇠가 없거나, 다른 열쇠로 잠갔거나, 바뀌었으면 None."""
+    fernet = _fernet(key_env)
+    if fernet is None:
+        log_failure("crypto_decrypt_bytes", "no_key")
+        return None
+    try:
+        return fernet.decrypt(token)
+    except InvalidToken:  # 열쇠가 다르거나 누가 바이트를 고쳤다. 위조 검사가 여기서 잡는다
+        log_failure("crypto_decrypt_bytes", "invalid_token")
+        return None

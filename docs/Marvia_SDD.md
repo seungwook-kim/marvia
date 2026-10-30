@@ -1,6 +1,6 @@
 # Marvia SDD
 
-기준: PRD, 개발 작업 리스트, 그리고 레포에 실제로 있는 코드와 설정 파일(마이그레이션 001~026). 각 절은 "무엇이 있고, 입력·출력이 무엇이고, 무엇이 되면 완료인가"를 적는다. 코드 주석이 "SDD 5.4"처럼 절 번호로 이 문서를 가리키므로 절 번호는 바꾸지 않는다.
+기준: PRD, 개발 작업 리스트, 그리고 레포에 실제로 있는 코드와 설정 파일(마이그레이션 001~031, 032는 v2 그래프 체크포인트용 예약). 각 절은 "무엇이 있고, 입력·출력이 무엇이고, 무엇이 되면 완료인가"를 적는다. 코드 주석이 "SDD 5.4"처럼 절 번호로 이 문서를 가리키므로 절 번호는 바꾸지 않는다.
 
 ## 1. 개요와 범위
 
@@ -32,7 +32,7 @@
 
 **v2 변경 (2026-10-30 결정, 구현 전).** 처리 순서(4절)를 라우터 대신 LangGraph 그래프로 옮기고, 채팅 실무 질문(4.5)에 RAG를 붙인다. 문서 처리(4.7)는 나중에 그래프로 옮긴다. 상세는 `docs/specs/v2-langgraph.md`(그래프, Postgres 체크포인터)와 `docs/specs/v2-rag.md`(로컬 임베딩, Supabase pgvector, Kiwi BM25, RRF, 결과 없음 게이트, 검색 평가)다. 이 문서의 4절과 5절은 두 명세가 확정되고 구현되기 전까지 v1 동작을 적는다. 바뀌지 않는 선은 아래다.
 
-- 설치는 langgraph와 Postgres 체크포인터뿐, langchain 계열은 없다. LLM SDK import는 `services/llm.py`만이고 그래프 노드도 그 함수를 부른다
+- 설치는 langgraph와 Postgres 체크포인터(`langgraph-checkpoint-postgres`)뿐이다. `langchain`, `langchain-anthropic` 같은 상위 패키지는 설치하지 않는다. `langchain-core`와 `langsmith`는 langgraph가 필수 의존성으로 끌고 오므로 같이 들어오지만 레포 코드는 import하지 않고, LangSmith 트레이싱 환경변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다. langgraph import는 `backend/app/graph/`와 `worker/`만이다(`backend/tests/test_import_policy.py`). LLM SDK import는 `services/llm.py`만이고 그래프 노드도 그 함수를 부른다
 - 등급, days_margin, 1층 신호, trusted_eta, freshness는 그래프 노드 안에서도 코드가 계산하고 LLM 값은 덮어쓴다. 검증 V1~V15와 partial 폴백도 그대로다
 - B/L은 LLM, 검색 질의, 임베딩, 체크포인트 평문, 트레이스에 넣지 않는다
 - 임계값(검색 top_k, 최소 점수, 청크 크기)은 `skills/*/rules.md` 프론트매터에 둔다
@@ -130,7 +130,7 @@ marvia/
       prompts/              Langfuse 프롬프트의 로컬 사본 10개: marvia-judge, -judge-eval, -pick-vessel, -follow-up,
                             -doc-extract, -memory-write, -chat-agent, -chat-route, -chat-title, -port-match
       db/__init__.py        연결, 마이그레이션 적용기, 조회 이력·위치 읽기 함수
-      db/migrations/        001~026 *.sql (3.9)
+      db/migrations/        001~031 *.sql (3.9). 032는 그래프 체크포인트용 예약(예정)
     tests/                  pytest, 키·DB 없이 fixture로. conftest.py가 실제 DB 접속을 막는다
   mcp_server/
     server.py               FastMCP 앱, MountedMCP, 도구 4개 등록(읽기 전용 표시)
@@ -485,9 +485,9 @@ LLM에 넘기는 범위:
 | 파일 | 키 |
 | --- | --- |
 | `ais-reliability/rules.md` | `position_stale_hours`, `eta_conflict_hours`, `anchor_speed_kn`, `anchor_wait_hours`, `priority`, `navstat_moored_max_kn`, `navstat_underway_min_kn`, `api_cache_ttl_hours`, `position_reuse_minutes`, `flag_cache_ttl_days`, `vessel_recent_days`, `vessel_detail_daily_limit`, `eta_change_alert_hours` |
-| `port-busan/rules.md` | `busan_ref`, `busan_radius_nm`, `busan_port_code`, `port_schedule_lookback_days`, `port_schedule_lookahead_days`, `port_schedule_name_match_ratio`, `anchor_event_kinds`, `weigh_anchor_event_kinds`, `berth_event_kinds`, `portwatch_port_id`, `port_traffic_recent_days`, `port_traffic_base_days`, `port_traffic_busy_ratio`, `port_traffic_quiet_ratio`, `port_traffic_cache_hours`, `port_traffic_retry_minutes`, `aisstream_bbox_busan`, `aisstream_bbox_wide`, `aisstream_max_mmsi`, `aisstream_refresh_minutes` |
+| `port-busan/rules.md` | `busan_ref`, `busan_radius_nm`, `busan_port_code`, `port_schedule_lookback_days`, `port_schedule_lookahead_days`, `port_schedule_name_match_ratio`, `anchor_event_kinds`, `weigh_anchor_event_kinds`, `berth_event_kinds`, `portwatch_port_id`, `port_traffic_recent_days`, `port_traffic_base_days`, `port_traffic_busy_ratio`, `port_traffic_quiet_ratio`, `port_traffic_cache_hours`, `port_traffic_retry_minutes`, `aisstream_bbox_busan`, `aisstream_bbox_wide`, `aisstream_max_mmsi`, `aisstream_refresh_minutes`, `watch_parallel_max`(예정, v2 H6) |
 | `customs-stages/rules.md` | `customs_hold_words`, `customs_subject_words`, `customs_assessment_words`, `customs_done_words`, `customs_done_except_words`, `customs_done_stages`, `customs_stages`(10단계: name·meaning·next·todo) |
-| `cargo-verdict/rules.md` | `margin_act_days`, `act_signals`, `gray_signals`, `ignore_signals`, `ignore_dest_values`, V15 낱말(`sale_date_words`, `sale_passed_words`, `plan_compare_words`, `sale_compare_words`) |
+| `cargo-verdict/rules.md` | `margin_act_days`, `act_signals`, `gray_signals`, `ignore_signals`, `ignore_dest_values`, V15 낱말(`sale_date_words`, `sale_passed_words`, `plan_compare_words`, `sale_compare_words`), `judge_max_attempts`·`judge_budget_sec`·`graph_pause_ttl_hours`·`graph_recursion_limit`·`graph_checkpoint_retention_days`(예정, v2 H2~H7. 값은 코드가 아니라 이 파일이 원본이 된다) |
 | `referrals/rules.md` | `signal_referrals`, `referral_order`, `referral_max`, `referral_prefix`, `signal_referral_links`, `broker_referral`, `out_of_scope` |
 
 값은 코드에 적지 않는다. 숫자를 확인하려면 해당 파일 프론트매터를 본다.
@@ -525,6 +525,7 @@ class EvalRecord(BaseModel):
 | 서비스 | `ALLOWED_ORIGINS`, `MCP_TOKEN`, `REPLAY_MODE`, `DEMO_REFRESH` |
 | 호출 조정 | `SHIPFINDER_TIMEOUT_SEC`, `MOF_TIMEOUT_SEC`, `PORTWATCH_TIMEOUT_SEC`, `HTTP_MAX_ATTEMPTS`, `HTTP_BACKOFF_SEC`, `MOF_BASE_URL`·`MOF_RELAY_TOKEN`(릴레이 연결) |
 | 워커 | `WORKER_SCHEDULE`, `WORKER_INTERVAL_HOURS`, `WORKER_SHIPFINDER_CALLS_PER_RUN`, `WATCH_ENABLED` |
+| v2 그래프 (예정, 아직 코드가 읽지 않음) | `AGENT_GRAPH`(off/on, 이전 중 전환 스위치, H10에서 제거), `GRAPH_CHECKPOINT`(auto/off/memory/postgres), `GRAPH_DB_POOL_MAX`(체크포인트용 DB 풀 최대 연결 수). LangSmith 트레이싱 변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다 |
 | 컨테이너가 정함 | `MCP_URL`, `PORT` (6.2). `MCP_HOST`·`MCP_PORT`는 `python -m mcp_server.server` 단독 실행용 |
 | web (빌드 때 번들) | `NEXT_PUBLIC_API_BASE`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
 | relay | `RELAY_TOKEN` (relay 서비스 쪽) |
@@ -533,7 +534,7 @@ class EvalRecord(BaseModel):
 
 ### 3.9 DB 스키마
 
-마이그레이션은 `backend/app/db/migrations/001~026 *.sql`(파일 30개, 번호 016·017·018·021은 두 파일씩)이고, 서버가 켜질 때 `DATABASE_URL`이 있으면 `main._migrate` → `db.apply_migrations`가 이름 순서로 한 번씩 적용한다(`schema_migrations` 표에 기록). worker도 켜질 때 같은 함수를 부른다. 전체를 `pg_advisory_lock`으로 감싸 api와 worker가 동시에 떠도 두 번 적용하지 않고, 파일 하나를 한 트랜잭션으로 묶는다. DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다. 모든 표에 RLS를 켠다(005 이후 새 표는 각 파일에서).
+마이그레이션은 `backend/app/db/migrations/001~031 *.sql`(파일 35개, 번호 016·017·018·021은 두 파일씩. 032는 v2 그래프 체크포인트용으로 예약했고 H7에서 만든다)이고, 서버가 켜질 때 `DATABASE_URL`이 있으면 `main._migrate` → `db.apply_migrations`가 이름 순서로 한 번씩 적용한다(`schema_migrations` 표에 기록). worker도 켜질 때 같은 함수를 부른다. 전체를 `pg_advisory_lock`으로 감싸 api와 worker가 동시에 떠도 두 번 적용하지 않고, 파일 하나를 한 트랜잭션으로 묶는다. DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다. 모든 표에 RLS를 켠다(005 이후 새 표는 각 파일에서).
 
 해수부 수집은 `arrival_reports`·`control_events`·`targets` 세 표로 나뉘고, API 응답 캐시는 DB가 아니라 프로세스 메모리(`clients/cache.py`)다.
 
@@ -563,6 +564,12 @@ class EvalRecord(BaseModel):
 | 024 | eta_time_bl_type_vessel_usage | `user_cargo.last_eta_at`(신뢰 ETA 시각, ETA 변화를 시간 단위로), `user_cargo.bl_type` NULL 허용, `vessel_detail_usage`(user_key, day, count: 선박 자세히 보기 하루 횟수) |
 | 025 | vessel_detail_usage_purge | `purge_old_vessel_detail_usage()` 7일 + pg_cron |
 | 026 | doc_facts_provenance | `user_cargo.doc_facts_at`, `doc_facts_source`(CHECK 'B/L', 'A/N', 'document'): 서류 사진에서 저장한 B/L 조건의 시각과 출처 |
+| 027 | withdrawn_users | 탈퇴한 user_id와 시각만 남겨 이미 받은 로그인 출입증을 막는 표와 정리 함수 (파일 머리 주석) |
+| 028 | watch_retry_eta_change | 지켜보기 재판정 시도·실패 기록 칸과 정리 함수 보완 (파일 머리 주석) |
+| 029 | vessel_detail_recent | `vessel_detail_usage.recent`: 선박 자세히 보기에서 최근에 본 배 열쇠와 시각 |
+| 030 | memory_seq_pruned | 메모장 번호 단조 증가(`next_seq`)와 자동 정리 기록(`pruned_count`, `pruned_at`) |
+| 031 | watch_positions_source | `watch_positions.source`: 감시·지도 위치가 어디서 왔는지(worker, aisstream, seed, lookup) |
+| 032 | graph_checkpoints | 예정(v2 H7, 아직 파일 없음). `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations` 네 표(라이브러리 `PostgresSaver`와 같은 모양, RLS 켬)와 정리 함수 `purge_old_graph_checkpoints(days integer)`. `docs/specs/v2-langgraph.md` 4절 |
 
 - 개인정보 저장 원칙: B/L 원본·회원 정보·카카오 토큰·대화 글·메모장 전화번호·운영자 이메일은 서버에서 잠근 글자(`crypto.encrypt`, `encrypt_pii`)만 DB에 둔다. 열쇠가 없으면 원문을 저장하지 않는다. 화주 정보·중량·세관명은 저장하지 않는다. 조회 이력은 `bl_masked`만 화면에 나간다.
 - 보관 기간은 SQL 함수로 정한다(`purge_old_*`, `purge_done_cargo`). Supabase의 pg_cron이 있으면 마이그레이션이 일정을 등록하고, worker가 실행될 때도 같은 함수를 부른다(`worker/run.py`).

@@ -29,7 +29,7 @@ B/L 번호(판매 예정일은 선택)를 받아 "내 화물, 지금 신경 써�
 ## 하지 말 것
 
 - v2 방향(2026-10-30 결정, 강의에서 배운 RAG·LangGraph를 적용): 전체 판정 흐름을 LangGraph 그래프로 옮기고, 채팅의 실무 질문 경로에 RAG를 넣는다. 문서 처리는 나중에 그래프로 옮긴다. v1(Skill 통째 주입 + MCP + 라우터 순서)은 태그 v1-skill-mcp로 남기고 평가 비교 기준으로 쓴다. 명세는 docs/specs/v2-langgraph.md, docs/specs/v2-rag.md다. 명세에 없는 v2 코드는 만들지 않는다. 그 전까지 지금 코드는 v1이다. 지켜야 할 선은 아래다
-  - 설치는 langgraph와 Postgres 체크포인터뿐이다. langchain 계열은 설치하지 않는다
+  - 설치는 langgraph와 Postgres 체크포인터(langgraph-checkpoint-postgres)뿐이다. langchain, langchain-anthropic 같은 상위 패키지는 설치하지 않는다. langchain-core와 langsmith는 langgraph가 필수 의존성으로 끌고 오는 것이라 같이 들어오지만, 레포 코드는 import하지 않고 LangSmith 트레이싱 환경변수(`LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2`)는 `.env.example`과 배포 환경에 두지 않는다. langgraph import는 backend/app/graph/와 worker/ 안에서만 한다 (backend/tests/test_import_policy.py가 검사)
   - 그래프 노드 안에서도 등급, days_margin, 1층 신호, trusted_eta, freshness는 코드가 계산하고 LLM이 낸 값은 덮어쓴다. LLM 호출은 노드가 services/llm.py의 함수를 불러서만 한다
   - RAG는 채팅 실무 질문 경로에만 붙는다: 로컬 오픈소스 임베딩 모델, Supabase pgvector, Kiwi 형태소 BM25, RRF로 합치기, 결과 없음 게이트(점수 미달이면 검색 근거 없이 답하지 않고 포워더·선사 확인 안내). judge()는 Skill 통째 주입을 유지하고, 검색 주입은 평가 A/B 실험으로만 해 본다 (PRD 6.4)
   - top_k, 최소 점수, 청크 크기는 skills/*/rules.md 프론트매터에 둔다. 코드에 숫자로 적지 않는다
@@ -106,7 +106,7 @@ marvia/
                         vessel_pick, kakao, quota, referrals, operators, cargo_sheet, port_traffic 등
       clients/          shipfinder.py, mof.py, kakao.py, portwatch.py, supabase_admin.py, replay.py, cache.py, retry.py
       observability/    langfuse.py, logging.py
-      db/migrations/    001~026 *.sql. 서버가 켜질 때 DATABASE_URL이 있으면 순서대로 자동 적용 (SDD 3.9)
+      db/migrations/    001~031 *.sql. 서버가 켜질 때 DATABASE_URL이 있으면 순서대로 자동 적용 (SDD 3.9). 032는 v2 그래프 체크포인트용으로 예약(예정, H7)
       prompts/          Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 (marvia-*.md 10개)
     tests/              pytest. 키 없이 돈다
   relay/                해수부 API 릴레이 (서울 Cloud Run, FastAPI). 해외 서버에서 해수부 연결이 막혀서 둔다

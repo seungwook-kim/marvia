@@ -1,6 +1,6 @@
 # Marvia DB ERD
 
-기준: `backend/app/db/migrations/001~026` (파일 30개). 서버(`backend/app/main.py`)와 worker가 뜰 때 `db.apply_migrations`가 이름 순서대로 한 번씩 적용한다 (SDD 3.9, `backend/app/db/__init__.py`). 전체를 pg advisory lock으로 감싸고 파일 하나를 한 트랜잭션으로 묶어, 두 프로세스가 동시에 떠도 같은 파일을 두 번 적용하지 않는다.
+기준: `backend/app/db/migrations/001~026` (파일 30개). 027~031(파일 5개)의 표·칸 반영은 아직이고 SDD 3.9 표에 한 줄씩 있다. 032는 v2 그래프 체크포인트 표(checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations)용 번호로 예약했고(예정, H7, 아직 파일 없음) 만들 때 이 문서에 표를 더한다 (`docs/specs/v2-langgraph.md` 4절). 서버(`backend/app/main.py`)와 worker가 뜰 때 `db.apply_migrations`가 이름 순서대로 한 번씩 적용한다 (SDD 3.9, `backend/app/db/__init__.py`). 전체를 pg advisory lock으로 감싸고 파일 하나를 한 트랜잭션으로 묶어, 두 프로세스가 동시에 떠도 같은 파일을 두 번 적용하지 않는다.
 번호가 겹치는 파일이 있다: 016(kakao_links, token_usage), 017(cargo_watch, watch_positions), 018(conversations, db_cleanup), 021(cargo_vessel_name, watch_positions_purge). 이름 순으로 적용하므로 문제 없다. 023~026은 겹치지 않는다.
 DB는 Supabase Postgres(운영·개발)와 compose의 로컬 postgres다. 모든 표에 RLS를 켜고 규칙은 두지 않는다. 공개 키(Data API)로는 못 읽고, 백엔드만 표 주인 계정으로 읽고 쓴다 (005, 이후 새 표도 모두 같은 줄을 넣었다). pg_cron이 없는 DB(compose의 로컬 postgres)에서는 각 마이그레이션이 cron 등록만 건너뛰고 지우기 함수는 만든다. worker도 실행할 때 같은 지우기 함수를 부른다.
 
