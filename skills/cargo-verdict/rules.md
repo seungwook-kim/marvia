@@ -21,6 +21,20 @@ sale_compare_words: [보다, 앞서]
 # 조금 지난 날짜는 받는다: 판매 예정일보다 늦게 도착하는 화물(sales_date_exceeded)을 알리는 것이 이 서비스의 일이다
 sale_due_past_days: 30
 sale_due_future_days: 730
+# 판정 재시도 상한과 시간 예산 (SDD 5.7, 3.6, docs/specs/v2-langgraph.md Q5). 코드(routers/agent.py JUDGE_ATTEMPTS, JUDGE_BUDGET_SEC)가 읽는다.
+# judge_max_attempts: 판정 LLM을 부르는 최대 횟수. 처음 + 위반 내용 첨부 + "JSON만, 규칙 준수" 강화(마지막 시도 직전)다. 후속 질문 재시도도 같은 값을 쓴다
+# judge_budget_sec: 다음 시도는 "지금까지 쓴 시간 + 방금 한 번에 걸린 시간"이 이 초 안에 들어올 때만 시작한다.
+#   화면이 90초에 요청을 포기하므로(web/lib/api.ts AGENT_TIMEOUT_MS) 판정 앞 단계에 쓸 몫을 남긴 값이다
+judge_max_attempts: 3
+judge_budget_sec: 60
+# 판정 그래프(AGENT_GRAPH=on)의 노드 실행 횟수 안전망 recursion_limit (v2-langgraph.md 2절, EC-12). 정상 경로는 State의 시도 횟수가 먼저 막는다.
+# 센 방법: 노드 한 번 실행이 한 단계다. 지금 가장 긴 경로는 판정 세 번을 다 위반해 폴백으로 끝나는 길이고 17단계다
+#   guard_input, load_memory, load_saved, fetch_customs, scope_gate, identify, collect, compute_signals, table_verdict (9)
+#   + judge, validate를 judge_max_attempts번(3) = 6 + fallback_partial (1) + decorate (1) = 17
+#   (langgraph는 이 17단계 경로를 한도 18부터 끝까지 돌린다. 한도가 단계 수와 같으면 걸린다. test_graph_judge_loop.py가 17을 확인한다)
+# 곧 들어올 후속 질문 연쇄(H5: 지난 결과가 없으면 위 길 뒤에 guard_follow_up, 답 작성과 검증 3회 = 6, 마무리 1)와 load_previous 1을 더하면 약 26이다.
+# 그보다 크게 40으로 둔다. 노드를 더하면 이 숫자를 다시 센다(H5, H7). 정상 경로가 이 값에 닿으면 안 되고, 닿으면 루프가 샌 것이다
+graph_recursion_limit: 40
 ---
 
 # 2층 등급 판정 표

@@ -50,7 +50,9 @@ def test_each_rules_file_has_its_own_keys():
                        "watch_pause_after_failures", "watch_notify_retry_hours", "position_future_tolerance_minutes"},
         "cargo-verdict": {"margin_act_days", "act_signals", "gray_signals", "ignore_signals", "ignore_dest_values",
                           "sale_date_words", "sale_passed_words", "plan_compare_words", "sale_compare_words",
-                          "sale_due_past_days", "sale_due_future_days"},  # 판매 예정일 범위 (10-08 QA B2)
+                          "sale_due_past_days", "sale_due_future_days",  # 판매 예정일 범위 (10-08 QA B2)
+                          # 판정 재시도 상한·시간 예산과 그래프 노드 실행 횟수 안전망 (v2-langgraph.md H4)
+                          "judge_max_attempts", "judge_budget_sec", "graph_recursion_limit"},
         "referrals": {"signal_referrals", "referral_order", "referral_max", "referral_prefix", "signal_referral_links",
                       "broker_referral", "out_of_scope"},
     }

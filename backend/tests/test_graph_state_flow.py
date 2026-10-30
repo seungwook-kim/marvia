@@ -93,9 +93,12 @@ def test_only_compute_signals_writes_the_code_values_in_a_graph_run(fake, monkey
             writers[name] = set(update or {})
     assert [n for n, keys in writers.items() if keys & CODE_VALUE_FIELDS] == ["compute_signals"]
     assert writers["table_verdict"] == {"table_verdict", "gray", "path"}
-    assert writers["judge_loop"] == {"response", "path"}
+    # LLM 노드(judge)는 설명 칸(judged)과 시도 상태만 쓴다. 등급, 여유 일수, 신호는 쓰지 않는다 (CODE_VALUE_FIELDS에 없다)
+    assert writers["judge"] == {"judge_attempt", "violations", "judged", "judge_route", "judge_last_sec", "path"}
+    assert writers["validate"] == {"judge_route", "violations", "response", "judge_last_sec", "judge_spent_sec", "path"}
+    assert writers["finalize"] == {"response", "path"}
     assert list(writers) == ["fetch_customs", "scope_gate", "identify", "collect", "compute_signals", "table_verdict",
-                             "judge_loop", "decorate"]
+                             "judge", "validate", "finalize", "decorate"]
 
 
 # ── 갈림길 ──

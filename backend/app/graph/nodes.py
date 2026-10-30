@@ -9,8 +9,8 @@
 왜 이 파일이 routers.agent를 맨 위에서 import해도 순환이 안 되나: routers/agent.py는 graph를 모듈 맨 위에서 import하지 않는다.
 run_agent가 AGENT_GRAPH=on일 때만 함수 안에서 graph.facade를 불러 온다(순환 방지와 꺼져 있을 때 langgraph를 읽지 않으려는 것).
 
-H3의 굵기: 판정 뒤쪽은 collect, compute_signals, gate_no_position, gate_no_eta, table_verdict, judge_loop(아직 한 노드)로 나뉜다.
-H4에서 judge_loop를 judge/validate 루프로 쪼갠다.
+판정 뒤쪽은 collect, compute_signals, gate_no_position, gate_no_eta, table_verdict와 judge <-> validate 루프(judge, validate, finalize,
+fallback_partial)로 나뉜다. 시도 횟수, 피드백, 시간 예산은 State가 들고 다음 시도를 할지는 routes.after_validate가 정한다 (H4).
 
 ContextVar 이전 (2절): previous_eta, trusted_vessel, db_failed는 State로 흐른다. 기존 도우미가 아직 ContextVar를 읽으므로 노드가
 들어갈 때 State 값을 ContextVar에 맞추고 나올 때 되돌린다(db_scope, identify). 도우미가 인자를 받게 고치는 일은 H10이다.
@@ -190,15 +190,79 @@ def table_verdict(state: AgentState) -> dict:
                  gray=agent.verdict_table.is_gray(state["signal_set"]))
 
 
-def judge_loop(state: AgentState) -> dict:
-    """판정 LLM 호출, 검증(V8 등), 재시도, 폴백을 v1 함수 한 번으로 돈다 (SDD 5.7). H4에서 judge, validate 노드와 엣지 함수로 쪼갠다.
-    LLM이 쓰는 것은 설명 칸뿐이고 등급, 여유 일수, 신호는 State의 코드 값을 넘긴다. 기억 블록은 품명 없는 판정용(for_judge)이다."""
+def judge(state: AgentState) -> dict:
+    """판정 LLM을 한 번 부른다 (SDD 5.7 한 시도). LLM이 쓰는 것은 설명 칸뿐이고 등급, 여유 일수, 신호는 State의 코드 값을 넘긴다.
+    기억 블록은 품명 없는 판정용(for_judge)이고 회색 지대면 버린다. 시도 횟수는 State(judge_attempt)가 센다.
+    - 형식 오류(LLMFormatError): 위반처럼 본다. 무엇이 틀렸는지를 피드백으로 남기고 validate를 거쳐 엣지가 다시 물을지 정한다
+    - 호출 실패(LLMError): 다시 묻지 않는다. judge_route를 give_up으로 두고 fallback_partial로 바로 간다
+    걸린 시간은 judge_last_sec에 적는다(validate가 자기 시간을 더해 judge_spent_sec에 쌓는다). 시계는 v1과 같은 agent.time이다."""
+    attempt = state.get("judge_attempt", 0) + 1
+    if attempt == 1:
+        progress.step("judge")  # v1은 반복문 앞에서 한 번만 알린다
+    gray = state["gray"]
     memory = state.get("memory")
-    response = agent._judge_stage(_working_request(state), state["customs"], memory.for_judge() if memory else None,
-                                  state["signal_set"], state["days_margin"], state["trusted_eta"], state["anchored"],
-                                  state["eta_moved"], state["collected"], state["from_cache"], state["table_verdict"],
-                                  state["gray"])
-    return _step("judge_loop", response=response)
+    judge_memory = agent._judge_memory(memory.for_judge() if memory else None, gray)
+    feedback = state.get("judge_feedback")
+    request = _working_request(state)
+    started = agent.time.monotonic()
+    update: dict = {"judge_attempt": attempt, "violations": []}
+    try:
+        judged = agent.llm.judge(state["signal_set"], state["customs"], state["days_margin"],
+                                 feedback="\n".join(feedback) if feedback is not None else None,
+                                 trusted_eta=state["trusted_eta"], sale_due_date=request.sale_due_date,
+                                 table_verdict=state["table_verdict"], verdict_mode="raise_only" if gray else "fixed",
+                                 memory=judge_memory, facts=agent._judge_facts(state["anchored"], state["eta_moved"]))
+    except agent.llm.LLMFormatError as e:
+        log_failure("judge", f"{e.kind} attempt {attempt}")
+        update.update(judged=None, judge_route="retry", judge_feedback=[agent._with_strengthen(e.detail, attempt)])
+    except agent.llm.LLMError as e:
+        log_failure("judge", agent._llm_error(e))
+        update.update(judged=None, judge_route="give_up")
+    else:
+        # 검증은 validate가 한다. 여기서 "pass"는 호출이 답을 줬다는 뜻일 뿐이다
+        update.update(judged=judged.output, judge_route="pass")
+    update["judge_last_sec"] = agent.time.monotonic() - started
+    return _step("judge", **update)
+
+
+def validate(state: AgentState) -> dict:
+    """LLM 판정 1회분을 검증한다 (SDD 5.7). 규칙 집합과 순서는 v1과 같은 agent._check_judge_output 한 곳이다(V8, V1~V7, V9·V10, V12, V15).
+    위반이 없으면 응답을 State response에 두고 judge_route를 pass로, 있으면 retry로 두며 피드백(위반 내용, 둘째 재시도면 강화 문장)을 쓴다.
+    다시 물을지 접을지는 엣지 함수(routes.after_validate)가 정한다. 형식 오류로 judged가 없으면 judge가 이미 피드백을 썼으니 검사 없이 지나간다.
+    judge와 이 노드가 한 번 도는 데 걸린 시간을 judge_last_sec에 두고 judge_spent_sec에 쌓는다 (시간 예산, 2절)."""
+    started = agent.time.monotonic()
+    attempt = state["judge_attempt"]
+    out = state.get("judged")
+    update: dict = {}
+    if out is None:
+        update["judge_route"] = "retry"  # 형식 오류: 위반으로 본다 (피드백은 judge가 남겼다)
+    else:
+        memory = state.get("memory")
+        judge_memory = agent._judge_memory(memory.for_judge() if memory else None, state["gray"])
+        response, violations = agent._check_judge_output(
+            out, attempt, _working_request(state), state["customs"], judge_memory, state["signal_set"],
+            state["collected"], state["from_cache"], state["table_verdict"], state["gray"])
+        if response is not None:
+            update.update(judge_route="pass", violations=[], response=response)
+        else:
+            update.update(judge_route="retry", violations=[{"rule": r, "detail": d} for r, d in violations],
+                          judge_feedback=[agent._with_strengthen(agent._judge_feedback_text(violations), attempt)])
+    last = state["judge_last_sec"] + (agent.time.monotonic() - started)
+    return _step("validate", judge_last_sec=last, judge_spent_sec=state.get("judge_spent_sec", 0.0) + last, **update)
+
+
+def finalize(state: AgentState) -> dict:
+    """검증을 통과한 판정 응답에 신호별 확인처 줄(다음 행선지)을 붙인다. LLM이 쓴 문장이 아니라 코드 문장이라 검사 대상이 아니다 (services/referrals.py)."""
+    response = state["response"]
+    return _step("finalize", response=response.model_copy(
+        update={"actions": agent.referrals.with_signal_lines(response.actions, state["signal_set"])}))
+
+
+def fallback_partial(state: AgentState) -> dict:
+    """판정 LLM이 끝내 실패했을 때(호출 실패, 세 번 위반, 시간 예산 초과)의 응답 (SDD 5.7, 8절).
+    status는 늘 partial이고 등급은 판정 표 것이다. 회색 지대면 등급 없이 LLM_FAILED 문구다 (agent._llm_gave_up)."""
+    return _step("fallback_partial", response=agent._llm_gave_up(
+        state["signal_set"], state["days_margin"], state["table_verdict"], state["gray"], state["customs"], state["collected"]))
 
 
 @db_scope

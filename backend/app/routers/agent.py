@@ -133,14 +133,17 @@ RELEASED_ACTIONS = ["배송 일정은 운송사에 확인하세요.", "물건이
 # LLM에 맡기면 이름만 보고 뜻을 지어내거나 "지연될 수 있다" 같은 평가를 덧붙여서 코드가 쓴다
 UNLISTED_STAGE_EXPLANATION = "{stage} 단계입니다. 목록에 없는 단계라 뜻을 확인할 수 없어 관세사 확인이 필요합니다."
 
-JUDGE_ATTEMPTS = 3  # 판정 LLM 호출 최대 횟수: 처음 + 위반 내용 첨부 + 강화 (SDD 5.7)
-# 판정 재시도의 시간 예산(초). 도메인 임계값이 아니라 응답 대기 상한이라 코드에 둔다.
+# 판정 LLM 호출 최대 횟수: 처음 + 위반 내용 첨부 + 강화 (SDD 5.7). 값의 원본은 rules.md judge_max_attempts다.
+# 이 이름은 별칭으로 남긴다: 기존 테스트가 읽고(test_routers.py), 코드는 호출할 때마다 이 모듈 속성을 읽어서 패치가 먹는다.
+# 옮긴 이유: "임계값은 코드에 숫자로 적지 않는다"를 예외 없이 지키려는 것(v2-langgraph.md Q5). 값은 3 그대로다.
+JUDGE_ATTEMPTS = rule("judge_max_attempts")
+# 판정 재시도의 시간 예산(초). 원본은 rules.md judge_budget_sec(60)다. 별칭으로 남기는 까닭은 위와 같다.
 # 다음 시도는 "지금까지 쓴 시간 + 방금 호출에 걸린 시간"이 이 값 안에 들어올 때만 시작한다. 안 들어오면 더 묻지 않고
 # 판정 표 등급 + 고정 문구로 partial을 낸다(_llm_gave_up).
 # 화면은 90초에 요청을 포기하고(web/lib/api.ts AGENT_TIMEOUT_MS) 판정 호출 한 번이 수십 초 걸릴 수 있어,
 # 세 번을 다 돌면 화면이 먼저 끊긴다. 판정 앞 단계(채팅 이해, 통관·식별·위치 조회)에 쓸 몫을 남긴다.
 # 한계: 호출 하나의 상한은 llm.TIMEOUT_SEC(60초)이라, 예상보다 느린 마지막 호출은 이 예산을 넘을 수 있다
-JUDGE_BUDGET_SEC = 60.0
+JUDGE_BUDGET_SEC = float(rule("judge_budget_sec"))
 
 # _identify가 "선박 검색 도구가 실패했다"를 알릴 때 쓰는 라우터 안의 표시. 응답의 vessel_match로는 나가지 않는다
 TOOL_FAILED = "tool_failed"
@@ -527,15 +530,72 @@ def _signals_stage(request: AgentRequest, customs: CustomsRecord, vessel_match: 
                 eta_moved=eta_moved, port_note=port_note, collected=collected, from_cache=from_cache)
 
 
-def _judge_stage(request: AgentRequest, customs: CustomsRecord, memory: str | None, signal_set, margin: int | None,
-                 trusted, anchored, eta_moved, collected: dict, from_cache: bool, table: str, gray: bool) -> AgentResponse:
-    """2층 판정(LLM)과 출력 검증, 재시도, 폴백 (SDD 4.1 6·7단계, 5.7). 등급은 table(판정 표)이 이미 정했다.
-    memory는 품명 없는 판정용 기억 블록이고, 회색 지대면 여기서 버린다. H4에서 judge/validate 노드로 쪼갠다."""
-    # 회색 지대(raise_only)는 LLM이 등급을 올릴 수 있는 유일한 자리라 기억 블록을 주지 않는다
-    # (B/L 조건·메모가 등급에 영향을 주면 안 된다). 고정 등급(fixed)은 LLM이 등급을 못 바꾸므로 기억을 넣어 설명에 쓴다
-    judge_memory = None if gray else memory
+def _judge_memory(memory: str | None, gray: bool) -> str | None:
+    """판정 LLM에 줄 기억 블록. 회색 지대(raise_only)는 LLM이 등급을 올릴 수 있는 유일한 자리라 주지 않는다
+    (B/L 조건·메모가 등급에 영향을 주면 안 된다). 고정 등급(fixed)은 LLM이 등급을 못 바꾸므로 기억을 넣어 설명에 쓴다.
+    v1 _judge_stage와 그래프 노드(judge, validate)가 같이 쓴다."""
+    return None if gray else memory
+
+
+def _with_strengthen(feedback: str, attempt: int) -> str:
+    """다음 시도가 마지막이면(attempt가 상한 - 1이면) 위반 내용 뒤에 "JSON만, 규칙 준수" 한 줄을 붙인다 (SDD 5.7 2차 강화).
+    상한은 호출할 때 JUDGE_ATTEMPTS를 읽는다. v1과 그래프 노드가 같이 쓴다."""
+    if attempt == JUDGE_ATTEMPTS - 1:
+        return feedback + "\nReturn JSON only and follow every rule above."
+    return feedback
+
+
+def _check_judge_output(out, attempt: int, request: AgentRequest, customs: CustomsRecord, judge_memory: str | None,
+                        signal_set, collected: dict, from_cache: bool, table: str,
+                        gray: bool) -> tuple[AgentResponse | None, list[tuple[str, str]]]:
+    """LLM 판정 1회분을 검증한다 (SDD 5.7). 위반이 없으면 (응답, []), 있으면 (None, [(규칙, 설명)...]).
+    V8(등급이 표와 같아야 하고 회색 지대면 표 이상), 그다음 V1~V7·V9~V12·V15를 본다. 위반 로그(규칙 번호만)는 여기서 남긴다.
+    돌려주는 응답에는 확인처 줄(referrals)이 아직 없다: 부르는 쪽이 검증 통과 뒤에 붙인다 (그 줄은 LLM 문장이 아니라 검사 대상이 아니다).
+    v1 _judge_stage와 그래프 노드 validate가 같이 쓴다. 규칙 집합과 순서가 두 길에서 갈라지지 않게 한 곳에 둔다."""
     # V7 근거로 칠 글: 사용자가 준 값만. 지난 조회 값(last_eta 등)은 뺀다
     memory_numbers = validate.user_supplied_text(judge_memory)
+    if out.table_disagree:
+        # LLM의 반대 의견은 기록만 한다. 본문은 Langfuse generation output에 남아 있어 여기서는 표 등급만 적는다
+        logger.info("table_disagree table=%s gray=%s", table, gray)
+    # V8: 등급이 표와 같아야 한다. 회색 지대면 표 이상이어야 한다 (위험을 낮추지 못하게)
+    if not verdict_table.allowed(out.verdict, table, gray):
+        log_failure("validate", f"V8 attempt {attempt}")
+        need = f"{table} or higher" if gray else table
+        return None, [("V8", f"verdict must be {need} (the judgment table decided {table}). "
+                             "Write reasons, actions, and answer for that verdict.")]
+    response = _judged(out, signal_set, request, customs, collected, table, from_cache=from_cache)
+    violations = validate.check(response, extra=memory_numbers)
+    # V9·V10 판정판: 통관 단계명(외부 데이터)에 넣은 주입이 설명 칸에 섞이지 않게 한다 (validate.py)
+    texts = [out.answer, *out.actions, *[c.why for c in out.conflicts]]
+    if out.customs:
+        texts += [out.customs.plain_explanation, out.customs.next_stage or ""]
+    external = " ".join([customs.stage_name or "", *[s.name for s in customs.stage_history]]) if customs else ""
+    # 기억 블록의 낱말은 V9·V10 근거가 아니다. 메모에 심은 낱말이 낱말 검사를 통과시키면 안 된다
+    violations += validate.check_judge_text(texts, response, external,
+                                             llm.skills_reference(llm.JUDGE_SKILLS, llm.JUDGE_PROMPT))
+    # V12: 메모장 내부 번호가 새어 나오지 않게 (docs/specs/memory.md EC-09).
+    # 기억 블록을 실제로 LLM에 줬을 때만 건다. 평가·데모·비로그인·회색 지대 경로에는 번호가 있을 수 없다
+    if judge_memory:
+        violations += validate.check_memory_ids(texts, _evidence_text(response))
+    if not violations:
+        return response, []
+    # 규칙 번호만 남긴다. detail에는 LLM이 쓴 문장이 들어 있다
+    log_failure("validate", f"{','.join(v.rule for v in violations)} attempt {attempt}")
+    return None, [(v.rule, v.detail) for v in violations]
+
+
+def _judge_feedback_text(violations: list[tuple[str, str]]) -> str:
+    """위반 목록을 LLM에 다시 물을 때 붙일 글로 합친다 ("규칙: 설명"을 줄마다). v1과 그래프 노드가 같이 쓴다."""
+    return "\n".join(f"{rule_id}: {detail}" for rule_id, detail in violations)
+
+
+def _judge_stage(request: AgentRequest, customs: CustomsRecord, memory: str | None, signal_set, margin: int | None,
+                 trusted, anchored, eta_moved, collected: dict, from_cache: bool, table: str, gray: bool) -> AgentResponse:
+    """2층 판정(LLM)과 출력 검증, 재시도, 폴백을 한 함수로 돈다 (SDD 4.1 6·7단계, 5.7). 등급은 table(판정 표)이 이미 정했다.
+    AGENT_GRAPH=off(v1)의 길이다. 그래프(AGENT_GRAPH=on)는 같은 일을 judge, validate 노드와 엣지 함수로 나눠 하고,
+    검증(_check_judge_output)·피드백 만들기(_judge_feedback_text, _with_strengthen)·폴백(_llm_gave_up)은 이 함수와 함께 쓴다.
+    memory는 품명 없는 판정용 기억 블록이고, 회색 지대면 여기서 버린다."""
+    judge_memory = _judge_memory(memory, gray)
     progress.step("judge")
     feedback = None
     started = call_started = time.monotonic()
@@ -553,49 +613,20 @@ def _judge_stage(request: AgentRequest, customs: CustomsRecord, memory: str | No
                                facts=_judge_facts(anchored, eta_moved))
         except llm.LLMFormatError as e:
             log_failure("judge", f"{e.kind} attempt {attempt}")
-            feedback = e.detail
+            feedback = _with_strengthen(e.detail, attempt)
         except llm.LLMError as e:
             log_failure("judge", _llm_error(e))
             return _llm_gave_up(signal_set, margin, table, gray, customs, collected)
         else:
-            out = judged.output
-            if out.table_disagree:
-                # LLM의 반대 의견은 기록만 한다. 본문은 Langfuse generation output에 남아 있어 여기서는 표 등급만 적는다
-                logger.info("table_disagree table=%s gray=%s", table, gray)
-            # V8: 등급이 표와 같아야 한다. 회색 지대면 표 이상이어야 한다 (위험을 낮추지 못하게)
-            if not verdict_table.allowed(out.verdict, table, gray):
-                log_failure("validate", f"V8 attempt {attempt}")
-                need = f"{table} or higher" if gray else table
-                feedback = (f"V8: verdict must be {need} (the judgment table decided {table}). "
-                            "Write reasons, actions, and answer for that verdict.")
-            else:
-                response = _judged(out, signal_set, request, customs, collected, table, from_cache=from_cache)
-                violations = validate.check(response, extra=memory_numbers)
-                # V9·V10 판정판: 통관 단계명(외부 데이터)에 넣은 주입이 설명 칸에 섞이지 않게 한다 (validate.py)
-                texts = [out.answer, *out.actions, *[c.why for c in out.conflicts]]
-                if out.customs:
-                    texts += [out.customs.plain_explanation, out.customs.next_stage or ""]
-                external = " ".join([customs.stage_name or "", *[s.name for s in customs.stage_history]]) if customs else ""
-                # 기억 블록의 낱말은 V9·V10 근거가 아니다. 메모에 심은 낱말이 낱말 검사를 통과시키면 안 된다
-                violations += validate.check_judge_text(texts, response, external,
-                                                         llm.skills_reference(llm.JUDGE_SKILLS, llm.JUDGE_PROMPT))
-                # V12: 메모장 내부 번호가 새어 나오지 않게 (docs/specs/memory.md EC-09).
-                # 기억 블록을 실제로 LLM에 줬을 때만 건다. 평가·데모·비로그인·회색 지대 경로에는 번호가 있을 수 없다
-                if judge_memory:
-                    violations += validate.check_memory_ids(texts, _evidence_text(response))
-                if not violations:
-                    # 검증을 통과한 뒤에 확인처(다음 행선지)를 붙인다. LLM이 쓴 문장이 아니라 코드 문장이라
-                    # V1~V12 검사 대상이 아니고, 전화번호·시각 숫자가 V7 근거 검사에 걸리지도 않는다 (services/referrals.py)
-                    return response.model_copy(update={"actions": referrals.with_signal_lines(response.actions, signal_set)})
-                # 규칙 번호만 남긴다. detail에는 LLM이 쓴 문장이 들어 있다
-                log_failure("validate", f"{','.join(v.rule for v in violations)} attempt {attempt}")
-                feedback = "\n".join(f"{v.rule}: {v.detail}" for v in violations)
-        if attempt == JUDGE_ATTEMPTS - 1:
-            feedback += "\nReturn JSON only and follow every rule above."
+            response, violations = _check_judge_output(judged.output, attempt, request, customs, judge_memory, signal_set,
+                                                       collected, from_cache, table, gray)
+            if response is not None:
+                # 검증을 통과한 뒤에 확인처(다음 행선지)를 붙인다. LLM이 쓴 문장이 아니라 코드 문장이라
+                # V1~V12 검사 대상이 아니고, 전화번호·시각 숫자가 V7 근거 검사에 걸리지도 않는다 (services/referrals.py)
+                return response.model_copy(update={"actions": referrals.with_signal_lines(response.actions, signal_set)})
+            feedback = _with_strengthen(_judge_feedback_text(violations), attempt)
     log_failure("judge", f"gave up after {JUDGE_ATTEMPTS} attempts")
     return _llm_gave_up(signal_set, margin, table, gray, customs, collected)
-
-
 
 
 def _kst_text(moment: datetime | None) -> str | None:

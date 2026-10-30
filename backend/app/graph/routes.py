@@ -8,6 +8,7 @@ from __future__ import annotations
 from langgraph.graph import END
 
 from backend.app.graph.state import AgentState
+from backend.app.observability.logging import log_failure
 from backend.app.routers import agent
 
 
@@ -50,3 +51,25 @@ def after_signals(state: AgentState) -> str:
     if request.sale_due_date and state["days_margin"] is None:
         return "gate_no_eta"
     return "table_verdict"
+
+
+def after_judge(state: AgentState) -> str:
+    """판정 LLM 호출이 실패(LLMError)했으면 다시 묻지 않고 폴백으로, 답이나 형식 오류면 검증으로 (SDD 5.7)."""
+    return "give_up" if state["judge_route"] == "give_up" else "validate"
+
+
+def after_validate(state: AgentState) -> str:
+    """judge <-> validate 루프의 포기 판단은 이 함수 한 곳에서만 한다 (v2-langgraph.md 2절 루프). v1 _judge_stage와 같은 순서다.
+    위반이 없으면 pass. 위반이 있으면: 시도 횟수가 상한이면 give_up, 그 뒤 "그동안 쓴 시간 + 방금 한 번에 걸린 시간"이 예산을 넘으면
+    give_up(다음 시도를 시작하지 않는다), 아니면 retry. 상한과 예산은 호출할 때 agent의 별칭(rules.md judge_max_attempts, judge_budget_sec)을 읽는다.
+    포기 사유는 v1과 같은 문장으로 로그에 남긴다."""
+    if state["judge_route"] == "pass":
+        return "pass"
+    attempt = state["judge_attempt"]
+    if attempt >= agent.JUDGE_ATTEMPTS:
+        log_failure("judge", f"gave up after {agent.JUDGE_ATTEMPTS} attempts")
+        return "give_up"
+    if state["judge_spent_sec"] + state["judge_last_sec"] > agent.JUDGE_BUDGET_SEC:
+        log_failure("judge", f"time budget exceeded after {attempt} attempts")
+        return "give_up"
+    return "retry"
