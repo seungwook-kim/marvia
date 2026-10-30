@@ -592,14 +592,19 @@ def run_watch(conn, *, limit: int = RUN_LIMIT, now: datetime | None = None, asse
     최대 11회를 써서 예산을 깬다. 그 화물은 skipped_no_vessel로 센다 (이 값일 때만 결과에 들어간다).
     사용자가 화면에서 다시 조회하면 배가 정해져 vessel_mmsi가 채워지고, 그다음부터 워커가 다시 판정한다.
 
-    assess: 판정 함수 (request, memory) -> AgentResponse. 기본은 조회 화면과 같은 routers.agent._assess다.
+    assess: 판정 함수 (request, memory) -> AgentResponse. 기본은 조회 화면과 같은 routers.agent._assess다(AGENT_GRAPH=on이면 같은 판정을 그래프로 도는 graph.facade.assess_graph).
     테스트가 가짜를 끼운다. 한 건이 어디서 실패하든 나머지는 계속하고, 로그에는 오류 종류만 남긴다.
     unjudged: 판정이 비어 돌아와 화물 표를 건드리지 않은 건수 (checked에도 센다). 실패처럼 연속 실패 수에 센다 (E1-1).
     notify_held: 일시 오류로 못 보내 다음 실행에 다시 보낼 알림 수. renotified: 지난 실행에서 못 보낸 알림을 이번에 보낸 수.
     notify_dropped: 너무 오래돼 다시 보내지 않고 지운 알림 수 (rules.md watch_notify_retry_hours).
     """
     if assess is None:
-        from backend.app.routers.agent import _assess as assess
+        from backend.app.routers import agent  # 맨 위에서 부르면 라우터와 서비스가 서로 불러오는 순환이 된다
+        if agent.graph_enabled():
+            # AGENT_GRAPH=on: 같은 판정을 그래프로 돈다. 저장한 확정 배와 지난 ETA가 State로 들어간다 (v2-langgraph.md 10절 H3)
+            from backend.app.graph.facade import assess_graph as assess
+        else:
+            from backend.app.routers.agent import _assess as assess
     now = now or datetime.now(timezone.utc)
     summary = {"checked": 0, "changed": 0, "notified": 0, "failed": 0, "unjudged": 0, "notify_held": 0}
     summary.update(_resend_pending(conn, now))  # 먼저 보낸다: 이번 재판정이 같은 줄에 새 알림을 남기면 그 글로 바뀐다

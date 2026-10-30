@@ -528,6 +528,9 @@ def test_default_assess_is_the_user_lookup_path(upserts, sent, monkeypatch):
     """assess를 안 주면 조회 화면과 같은 routers.agent._assess를 부른다 (판정 길이 하나여야 두 답이 어긋나지 않는다)."""
     from backend.app.routers import agent
 
+    # 이 테스트는 v1 기본(_assess)을 본다. AGENT_GRAPH=on이면 기본이 그래프 판정(facade.assess_graph)으로 바뀌므로 꺼 둔다.
+    # 켠 쪽의 기본은 test_graph_state_flow.py가 본다 (v2-langgraph.md 10절 H3)
+    monkeypatch.setenv("AGENT_GRAPH", "off")
     conn = FakeConn()
     _watched(conn)
     seen = []

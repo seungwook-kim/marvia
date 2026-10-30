@@ -37,5 +37,16 @@ def after_scope(state: AgentState) -> str:
 
 
 def after_identify(state: AgentState) -> str:
-    """배를 못 정해 되묻기·partial 응답이 나왔으면 화면 전용 칸 붙이기로, 확정이면 남은 판정으로."""
-    return "decorate" if state.get("response") is not None else "assess_rest"
+    """배를 못 정해 되묻기·partial 응답이 나왔으면 화면 전용 칸 붙이기로, 확정이면 위치·일정 수집으로."""
+    return "decorate" if state.get("response") is not None else "collect"
+
+
+def after_signals(state: AgentState) -> str:
+    """신호 계산 뒤 갈림길 (SDD 4.1). 쓸 위치가 없으면 위치 보류로, 판매일은 있는데 여유 일수를 못 셌으면 도착일 보류로,
+    그 밖에는 판정 표로. 위치 보류가 먼저다(v1 순서)."""
+    if not state["has_position"]:
+        return "gate_no_position"
+    request = state.get("judged_request") or state["request"]
+    if request.sale_due_date and state["days_margin"] is None:
+        return "gate_no_eta"
+    return "table_verdict"

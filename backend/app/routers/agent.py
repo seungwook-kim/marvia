@@ -380,7 +380,7 @@ def _with_display_fields(response: AgentResponse, customs: CustomsRecord, used_t
 def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | None = None) -> AgentResponse:
     """통관 정보를 받은 뒤의 판정 흐름 (SDD 4.1 2~7단계). _assess가 화면 전용 이력을 붙이려고 나눴다.
     세 토막(범위 확인 _scope_response, 식별 _identify_stage, 나머지 _after_identify)을 차례로 이은 것이다.
-    그래프(graph/nodes.py)는 같은 세 토막을 노드 셋(scope_gate, identify, assess_rest)으로 나눠 부른다 (v2-langgraph.md 10절 H2)."""
+    그래프(graph/nodes.py)는 같은 세 토막을 노드(scope_gate, identify, 그 뒤 collect 이후 노드들)로 나눠 부른다 (v2-langgraph.md 10절 H2·H3)."""
     early = _scope_response(customs)
     if early is not None:
         return early
@@ -446,7 +446,31 @@ def _identify_stage(customs: CustomsRecord, request: AgentRequest):
 def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str | None, candidates: list[VesselCandidate],
                     vessel_match: str, mmsi: int | None, call_sign: str | None) -> AgentResponse:
     """배가 확정된 뒤의 흐름 (SDD 4.1 4~7단계): 위치·일정 수집, 1층 신호, 판정 표, 2층 판정(LLM)과 검증.
-    그래프의 assess_rest 노드가 이 함수를 한 번에 부른다 (v2-langgraph.md 10절 H2, H3에서 노드로 쪼갠다)."""
+    다섯 토막(_collect, _signals_stage, _no_position/_no_eta 보류, _judge_stage)을 차례로 이은 것이다.
+    그래프(graph/nodes.py)는 같은 토막을 노드(collect, compute_signals, gate_no_position, gate_no_eta, table_verdict, judge_loop)로
+    나눠 부른다 (v2-langgraph.md 10절 H3). 이 함수는 v1 순서(AGENT_GRAPH 꺼짐)와 그래프 밖에서 부르는 곳(_assess)이 쓴다.
+    지난 신뢰 ETA는 여기서만 ContextVar(previous_eta)에서 읽고, 그래프는 State 값을 _signals_stage에 직접 넘긴다."""
+    position, schedule, distance, history = _collect(customs, mmsi, call_sign)
+    sig = _signals_stage(request, customs, vessel_match, candidates, mmsi, call_sign, position, schedule, distance,
+                         history, previous_eta.get())
+    # 위치 없음: LLM을 부르지 않고 코드가 보류한다. 위치 없이 LLM에 넘기면 해수부 예정만 보고 등급을 낸다
+    if not sig["has_position"]:
+        return _no_position(position, request, sig["collected"])
+    # 판매일은 받았는데 믿을 도착일이 없어 여유 일수를 못 셌다 (해수부 신고 전 + AIS ETA 없음 등).
+    # 판매일 대비 판단이 핵심이라 LLM 없이 보류하고, 대략값만 참고로 보여 준다
+    if request.sale_due_date and sig["margin"] is None:
+        return _no_eta(sig["signal_set"], sig["collected"])
+    # 등급은 판정 표가 먼저 정한다. 회색 지대면 LLM이 표 이상에서 고를 수 있다
+    table = verdict_table.table_verdict(sig["signal_set"], sig["margin"])
+    gray = verdict_table.is_gray(sig["signal_set"])
+    return _judge_stage(request, customs, memory, sig["signal_set"], sig["margin"], sig["trusted"], sig["anchored"],
+                        sig["eta_moved"], sig["collected"], sig["from_cache"], table, gray)
+
+
+def _collect(customs: CustomsRecord, mmsi: int | None, call_sign: str | None):
+    """위치·입항 일정·남은 거리·위치 이력을 차례로 모은다 (SDD 4.1 4단계). 순서는 v1과 같다: 위치, 일정, 거리 순으로 부르고
+    도구 오류를 로그에 남긴 뒤 위치 이력을 읽는다. 도구가 실패해도 error 값 그대로 돌려줘 신호가 unknown으로 계속 간다.
+    (position, schedule, distance, position_history)를 돌려준다."""
     progress.step("position")
     position = get_live_position(mmsi) if mmsi else None
     schedule = get_port_schedule(call_sign=call_sign, ship_name=customs.ship_name)
@@ -455,10 +479,19 @@ def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str |
     _log_tool_error("live_position", position)
     _log_tool_error("port_schedule", schedule)
     _log_tool_error("distance", distance)
+    return position, schedule, distance, _position_history(mmsi)
 
+
+def _signals_stage(request: AgentRequest, customs: CustomsRecord, vessel_match: str, candidates: list[VesselCandidate],
+                   mmsi: int | None, call_sign: str | None, position: dict | None, schedule: dict | None,
+                   distance: dict | None, history: list[dict], last_eta) -> dict:
+    """1층 신호, trusted_eta, 여유 일수, 지난 사실 3종, 근거 카드와 응답 공통 칸(collected)을 코드로 계산한다 (SDD 4.1 5·6단계).
+    LLM을 부르지 않고 쓰기도 없다. last_eta는 지난 조회의 신뢰 ETA다: v1은 ContextVar(previous_eta)에서 읽어 넘기고,
+    그래프는 State의 previous_eta를 넘긴다 (v2-langgraph.md 2절 ContextVar 이전).
+    돌려주는 칸: signal_set, trusted, has_position, margin, anchored, eta_moved, port_note(문장 또는 None), collected, from_cache."""
     # 5. 1층 신호와 여유 일수는 코드가 계산한다 (SDD 4.1 5·6단계). LLM은 이 값을 바꾸지 않는다
     signal_set = signals_service.compute(position, schedule, distance, customs, request.sale_due_date,
-                                         history=_position_history(mmsi), forwarder_eta=request.forwarder_eta)
+                                         history=history, forwarder_eta=request.forwarder_eta)
     # 사용자가 되묻기에 답한 포워더 A/N 입항 예정일도 마지막 근거로 쓴다 (signals.trusted_eta)
     trusted = signals_service.trusted_eta(position, schedule, request.forwarder_eta)
     # 쓸 위치가 없으면 여유 일수도 내지 않는다. 해수부 예정만으로 센 값을 판정 근거처럼 보이지 않게
@@ -466,7 +499,7 @@ def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str |
     margin = days_margin(trusted, request.sale_due_date) if has_position else None
     # 코드가 센 지난 사실 세 가지 (services/port_facts.py). 판정 신호가 아니라 등급을 바꾸지 않는다. 외부 호출도 늘지 않는다
     anchored = port_facts.anchorage(schedule)  # 해수부 관제 이벤트(투묘·양묘·접안)로 센 묘박지 대기
-    eta_moved = port_facts.eta_change(previous_eta.get(), trusted)  # 지난 조회 대비 도착 예정 변화 (로그인 사용자의 저장 화물만)
+    eta_moved = port_facts.eta_change(last_eta, trusted)  # 지난 조회 대비 도착 예정 변화 (로그인 사용자의 저장 화물만)
     previous_port = (schedule or {}).get("previous_port") if "error" not in (schedule or {}) else None
     port_note = identify.port_mismatch_note(customs, previous_port)  # 적재항과 부산 직전 기항지가 달라 보이면 한 줄 (환적 단정 아님)
 
@@ -487,27 +520,17 @@ def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str |
         anchorage=anchored,
         eta_change=eta_moved,
     )
-
-    # 위치 없음: LLM을 부르지 않고 코드가 보류한다. 위치 없이 LLM에 넘기면 해수부 예정만 보고 등급을 낸다
-    if not has_position:
-        return _no_position(position, request, collected)
     # 실시간 조회는 실패하고 마지막으로 받은 위치(캐시)로 판정한다. 판정은 하되 partial로 알린다
     # (SDD 8절 "ShipFinder 타임아웃 → partial")
-    from_cache = bool(position.get("cached_at"))
+    from_cache = bool(has_position and position.get("cached_at"))
+    return dict(signal_set=signal_set, trusted=trusted, has_position=has_position, margin=margin, anchored=anchored,
+                eta_moved=eta_moved, port_note=port_note, collected=collected, from_cache=from_cache)
 
-    # 판매일은 받았는데 믿을 도착일이 없어 여유 일수를 못 셌다 (해수부 신고 전 + AIS ETA 없음 등).
-    # 판매일 대비 판단이 핵심이라 LLM 없이 보류하고, 대략값만 참고로 보여 준다
-    if request.sale_due_date and margin is None:
-        return _no_eta(signal_set, collected)
 
-    # 6·7. 2층 판정 (LLM)과 출력 검증 (SDD 5.7)
-    # 위반이면 위반 내용을 붙여 다시 묻는다. 두 번째 재시도는 "JSON만, 규칙 준수"를 덧붙인다.
-    # 형식이 깨진 답(JSON 아님·필수 칸 누락)도 위반과 같이 다시 묻는다.
-    # LLM이 끝내 실패하면(세 번 모두 위반·형식 오류, 또는 호출 실패) 판정 표 등급과 고정 문구로 partial (_llm_gave_up).
-    # 등급은 코드가 정하므로 LLM이 못 만든 것은 설명 문장뿐이다.
-    # 등급은 판정 표가 먼저 정한다. 회색 지대면 LLM이 표 이상에서 고를 수 있다
-    table = verdict_table.table_verdict(signal_set, margin)
-    gray = verdict_table.is_gray(signal_set)
+def _judge_stage(request: AgentRequest, customs: CustomsRecord, memory: str | None, signal_set, margin: int | None,
+                 trusted, anchored, eta_moved, collected: dict, from_cache: bool, table: str, gray: bool) -> AgentResponse:
+    """2층 판정(LLM)과 출력 검증, 재시도, 폴백 (SDD 4.1 6·7단계, 5.7). 등급은 table(판정 표)이 이미 정했다.
+    memory는 품명 없는 판정용 기억 블록이고, 회색 지대면 여기서 버린다. H4에서 judge/validate 노드로 쪼갠다."""
     # 회색 지대(raise_only)는 LLM이 등급을 올릴 수 있는 유일한 자리라 기억 블록을 주지 않는다
     # (B/L 조건·메모가 등급에 영향을 주면 안 된다). 고정 등급(fixed)은 LLM이 등급을 못 바꾸므로 기억을 넣어 설명에 쓴다
     judge_memory = None if gray else memory
@@ -571,6 +594,8 @@ def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str |
             feedback += "\nReturn JSON only and follow every rule above."
     log_failure("judge", f"gave up after {JUDGE_ATTEMPTS} attempts")
     return _llm_gave_up(signal_set, margin, table, gray, customs, collected)
+
+
 
 
 def _kst_text(moment: datetime | None) -> str | None:

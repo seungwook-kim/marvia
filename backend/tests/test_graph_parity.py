@@ -104,7 +104,7 @@ def test_normal_path(fake, monkeypatch):
     """정상 경로의 State path. 기억 읽기가 화물 줄 읽기보다 앞이다 (build.py 머리말)."""
     fake(candidates=[_candidate(440999001)], position=POSITION, judge=JUDGED)
     _signals(monkeypatch, {"eta_conflict": "triggered"})
-    assert _path(_req()) == [*CUSTOMS_OK, "scope_gate", "identify", "assess_rest", "decorate"]
+    assert _path(_req()) == [*CUSTOMS_OK, "scope_gate", "identify", "collect", "compute_signals", "table_verdict", "judge_loop", "decorate"]
 
 
 def test_ask_back(fake, monkeypatch):
