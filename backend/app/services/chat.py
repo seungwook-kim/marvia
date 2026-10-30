@@ -24,6 +24,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -805,7 +806,40 @@ def handle(message: str, session_id: str, context: AgentRequest | None, run_agen
     run_tool: 읽기 전용 MCP 도구를 실제로 부르는 함수 (routers/agent._follow_up_tool). 없으면 에이전트는 MCP 도구 없이 돈다.
     watch: 지켜보기를 읽고 쓰는 함수 묶음 (WatchHooks). 없으면 로그인하지 않았거나 DB가 없는 것과 같다: 아무것도 바꾸지 않고 안내만 한다.
     kakao: 지금 상태를 카카오톡으로 보내는 함수 묶음 (KakaoHooks). 없으면 보내지 않고 안내만 한다.
-    on_screen: 화면에 지금 떠 있는 배들 {"vessel", "arrivals"} (routers/chat.ChatScreen). 에이전트가 "옆에 떠 있는 배"를 알아듣는 데만 쓴다."""
+    on_screen: 화면에 지금 떠 있는 배들 {"vessel", "arrivals"} (routers/chat.ChatScreen). 에이전트가 "옆에 떠 있는 배"를 알아듣는 데만 쓴다.
+
+    AGENT_GRAPH가 켜져 있으면(기본) 같은 토막(prepare, guard_reply, plan, agent_attempt, fallback_reply, finish)을 채팅 그래프가
+    노드로 이어 돌린다 (graph/chat_graph.py, v2-langgraph.md 9절 H11). 꺼져 있으면 아래 순서로 한 함수에서 이어 부른다. 두 길의 결과는 같다."""
+    from backend.app.routers.agent import graph_enabled  # 맨 위에서 부르면 순환이 된다
+
+    if graph_enabled():
+        from backend.app.graph.chat_graph import run_chat_graph  # langgraph를 쓰는 모듈이라 켠 때만 불러온다
+
+        return run_chat_graph(message, session_id, context, run_agent, user_id, history or [], run_tool, watch, kakao, on_screen)
+    prep = prepare(message, user_id)
+    if prep.early is not None:
+        return prep.early
+    turn = memory.Turn()
+    with route_scope(prep.masked, prep.stored_types, turn):
+        result = _route(prep.masked, prep.refs, prep.mrn, session_id, context, run_agent, user_id, history or [], run_tool, watch, kakao, on_screen)
+    return finish(result, prep.masked, user_id, turn, prep.repair_notes)
+
+
+@dataclass
+class Prepared:
+    """prepare의 결과. early가 있으면 LLM을 부르지 않고 그 답으로 끝난다(컨테이너 번호만 못 찾은 경우)."""
+
+    masked: str
+    refs: dict[str, str]
+    mrn: str | None
+    stored_types: dict[str, str] | None
+    repair_notes: list[str]
+    early: ChatResult | None = None
+
+
+def prepare(message: str, user_id: str | None) -> Prepared:
+    """입력 검사와 가리기 (handle의 앞부분, 코드만). 빈 문장·긴 문장은 ChatError.
+    MRN을 먼저 뺀다(MRN도 B/L 모양이라 [BL]로 잘못 가려진다), 컨테이너 번호를 다음에(영숫자 11자라 B/L 모양에 걸린다), 흐트러진 B/L을 고쳐 읽은 뒤 가린다."""
     message = (message or "").strip()
     if not message:
         raise ChatError("empty")
@@ -818,19 +852,30 @@ def handle(message: str, session_id: str, context: AgentRequest | None, run_agen
     # 가리기 전에 한다: 붙인 번호도 아래 mask_bls가 [BL1]로 가려서 LLM에는 원본이 가지 않는다. 고쳐 읽었다는 알림은 코드 문장이다
     message, repair_notes = bl_parse.repair_message(message, bl_parse.exists_in_customs)
     masked, refs = mask_bls(message)
+    early = None
     if unmatched_containers and not refs:
         # 찾을 B/L이 없고 컨테이너만 못 찾았다: LLM을 부르지 않고 코드 문장으로 답한다 (컨테이너 번호를 LLM에 주지 않는 규칙)
-        return ChatResult(kind="message", reply=CONTAINER_NOT_FOUND if user_id else CONTAINER_NEED_LOGIN)
-    # 기억 뽑기 재료는 가린 문장이다. B/L·MRN 원본은 넘기지 않는다 (CLAUDE.md, docs/specs/memory.md 쓰기 흐름 3)
+        early = ChatResult(kind="message", reply=CONTAINER_NOT_FOUND if user_id else CONTAINER_NEED_LOGIN)
+    return Prepared(masked, refs, mrn, stored_types, repair_notes, early)
+
+
+@contextmanager
+def route_scope(masked: str, stored_types: dict[str, str] | None, turn: "memory.Turn"):
+    """답을 고르는 동안 켜 두는 요청 문맥: 가린 문장을 기억 뽑기 재료로 판정 흐름에 넘기고(memory.user_text),
+    찾아 둔 B/L 구분을 알린다(_STORED_TYPES). turn은 호출한 쪽이 만든 표시판이라, 그래프 노드가 따로 이 문맥을 열어도 같은 표시판을 본다."""
     types_token = _STORED_TYPES.set(stored_types)
     try:
-        with memory.user_text(masked) as turn:
-            result = _route(masked, refs, mrn, session_id, context, run_agent, user_id, history or [], run_tool, watch, kakao, on_screen)
+        with memory.user_text(masked, turn):
+            yield
     finally:
         _STORED_TYPES.reset(types_token)
-    # 로그인 사용자의 평범한 대화 턴도 기억 뽑기에 보낸다. "우리 포워더는 가온 김과장이야" 같은 말은
-    # B/L 없는 턴에서 나오기 때문이다. 같은 문장을 두 번 보내지 않도록,
-    # 이 턴에 조회가 이미 맡겼으면(turn.fired) 건너뛴다. 무엇을 기억할지는 LLM이 정한다. 가린 문장만 넘긴다
+
+
+def finish(result: ChatResult, masked: str, user_id: str | None, turn: "memory.Turn", repair_notes: list[str]) -> ChatResult:
+    """답을 정한 뒤의 마무리 (handle의 뒷부분, 코드만).
+    로그인 사용자의 평범한 대화 턴도 기억 뽑기에 보낸다. "우리 포워더는 가온 김과장이야" 같은 말은
+    B/L 없는 턴에서 나오기 때문이다. 같은 문장을 두 번 보내지 않도록,
+    이 턴에 조회가 이미 맡겼으면(turn.fired) 건너뛴다. 무엇을 기억할지는 LLM이 정한다. 가린 문장만 넘긴다."""
     if user_id and not turn.fired:
         memory.remember_chat_later(user_id, masked)
     if not result.evidence_items and result.agent is not None:
@@ -841,13 +886,8 @@ def handle(message: str, session_id: str, context: AgentRequest | None, run_agen
     return result
 
 
-def _route(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
-           run_agent, user_id: str | None, history: list[dict] | None = None,
-           run_tool: Callable[[str, dict], dict] | None = None, watch: WatchHooks | None = None,
-           kakao: KakaoHooks | None = None, on_screen: dict | None = None) -> ChatResult:
-    """가린 문장을 처리한다 (handle의 뒷부분). 에이전트가 먼저 맡고, 안 되면 의도 분류 방식(_classic)으로 간다."""
-    today = datetime.now(KST).date().isoformat()
-
+def guard_reply(masked: str, refs: dict[str, str]) -> ChatResult | None:
+    """LLM을 부르지 않고 고정 문장으로 끝낼 문장인가 (_route의 앞부분, 코드만). 해당하면 그 답, 아니면 None."""
     # 주입 모양 문장은 LLM에 보내지 않는다 (services/guard.py, SDD 7절). 후속 질문 경로는 route_chat이 질문을
     # 다시 쓴 뒤에야 routers/agent의 guard를 지나서, 다시 쓰는 과정에서 공격문 모양이 바뀌면 빠져나갈 수 있다. 원문에서 먼저 본다
     if guard.looks_like_injection(masked):
@@ -860,26 +900,60 @@ def _route(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, 
     if hit:
         logging.getLogger(__name__).info("out_of_scope topic=%s", hit[0])  # 실패가 아니라 INFO. 주제만 남기고 문장은 남기지 않는다
         return ChatResult(kind="message", reply=hit[1])
+    return None
 
-    progress.step("understand")  # 화면에 실제 단계를 알린다 (docs/specs/chat-progress.md)
-    # 회로가 열려 있으면(연속 실패, 10-08 QA C1) 에이전트를 부르지 않고 바로 대비 경로로 간다. 실패할 호출을 매 문장 보내지 않는다
-    if agent_enabled() and _agent_breaker.allow():
-        try:
-            result = _agent(masked, refs, mrn, session_id, context, run_agent, user_id, history or [], run_tool, today, watch, kakao, on_screen)
-            _agent_breaker.success()
-            return result
-        except llm.LLMError as e:
-            # 에이전트가 첫 도구를 쓰기도 전에 실패했다 (키 없음, 도구를 붙이면 거절하는 모델·제공사 등).
-            # 대비 경로는 도구 없이 한 번 묻는 호출이라 이런 경우에도 된다 (도구를 붙이면 404를 내는 제공사가 있다)
-            log_failure("chat_agent", e.kind)
-            if _agent_breaker.failure(e.kind):
-                # 회로가 열렸다. 종류만 남긴다 (사용자 글 없음). 집계는 agent_health()
-                log_failure("chat_agent_circuit", f"open kind={e.kind} cooldown={AGENT_COOLDOWN_SEC}s")
+
+def plan() -> bool:
+    """이번 문장에서 채팅 에이전트를 시도할까. 화면에 "understand" 단계를 알린 뒤(docs/specs/chat-progress.md),
+    에이전트를 쓰는 설정이고 회로가 닫혀 있을 때만 True다. 회로가 열려 있으면(연속 실패, 10-08 QA C1) 에이전트를 부르지 않고
+    바로 대비 경로로 간다. 실패할 호출을 매 문장 보내지 않는다. allow()는 건너뛴 수를 세므로 문장당 한 번만 부른다."""
+    progress.step("understand")
+    return agent_enabled() and _agent_breaker.allow()
+
+
+def agent_attempt(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
+                  run_agent, user_id: str | None, history: list[dict], run_tool: Callable[[str, dict], dict] | None,
+                  today: str, watch: WatchHooks | None, kakao: KakaoHooks | None, on_screen: dict | None) -> ChatResult | None:
+    """채팅 에이전트가 답을 만든다. 성공하면 회로를 닫고 그 답, 에이전트가 첫 도구를 쓰기도 전에 실패하면(키 없음,
+    도구를 붙이면 거절하는 모델·제공사 등) 실패를 세고 None이다. 대비 경로는 도구 없이 한 번 묻는 호출이라 이런 경우에도 된다
+    (도구를 붙이면 404를 내는 제공사가 있다)."""
+    try:
+        result = _agent(masked, refs, mrn, session_id, context, run_agent, user_id, history, run_tool, today, watch, kakao, on_screen)
+        _agent_breaker.success()
+        return result
+    except llm.LLMError as e:
+        log_failure("chat_agent", e.kind)
+        if _agent_breaker.failure(e.kind):
+            # 회로가 열렸다. 종류만 남긴다 (사용자 글 없음). 집계는 agent_health()
+            log_failure("chat_agent_circuit", f"open kind={e.kind} cooldown={AGENT_COOLDOWN_SEC}s")
+        return None
+
+
+def fallback_reply(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
+                   run_agent, user_id: str | None, today: str, history: list[dict]) -> ChatResult:
+    """에이전트를 못 쓰거나 실패했을 때의 답: 세액·관세율·통관 가부는 관세사 고정 안내, 그 밖에는 의도 분류 방식(_classic)이다."""
     if not refs and context is None and BROKER_TOPIC.search(masked):
         # 세액·관세율·통관 가부는 화물이 없어도 관세사 고정 안내다. 에이전트 경로와 같게,
         # 에이전트를 못 쓸 때의 대비 경로(_classic)도 사용 안내로 빠지지 않게 여기서 먼저 답한다
         return ChatResult(kind="message", reply=BROKER_ONLY)
     return _classic(masked, refs, mrn, session_id, context, run_agent, user_id, today, history or [])
+
+
+def _route(masked: str, refs: dict[str, str], mrn: str | None, session_id: str, context: AgentRequest | None,
+           run_agent, user_id: str | None, history: list[dict] | None = None,
+           run_tool: Callable[[str, dict], dict] | None = None, watch: WatchHooks | None = None,
+           kakao: KakaoHooks | None = None, on_screen: dict | None = None) -> ChatResult:
+    """가린 문장을 처리한다. 에이전트가 먼저 맡고, 안 되면 의도 분류 방식(_classic)으로 간다.
+    guard_reply, plan, agent_attempt, fallback_reply를 순서대로 부른다. 채팅 그래프는 같은 토막을 노드로 부른다."""
+    today = datetime.now(KST).date().isoformat()
+    guarded = guard_reply(masked, refs)
+    if guarded is not None:
+        return guarded
+    if plan():
+        result = agent_attempt(masked, refs, mrn, session_id, context, run_agent, user_id, history or [], run_tool, today, watch, kakao, on_screen)
+        if result is not None:
+            return result
+    return fallback_reply(masked, refs, mrn, session_id, context, run_agent, user_id, today, history or [])
 
 
 # ── 대비 경로(_classic)에서 코드가 먼저 잡는 말 (10-08 QA C3·C4) ──

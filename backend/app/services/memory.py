@@ -947,11 +947,12 @@ _TURN: contextvars.ContextVar[Turn | None] = contextvars.ContextVar("memory_turn
 
 
 @contextmanager
-def user_text(masked: str | None):
+def user_text(masked: str | None, turn: "Turn | None" = None):
     """채팅 창구가 사용자 문장(B/L을 가린 것)을 판정 흐름에 넘긴다. run_agent의 계약(C2)을 바꾸지 않으려는 것이다.
-    Turn을 돌려준다: 이 턴에 화물 조회가 기억 뽑기를 맡겼는지 turn.fired로 본다."""
+    Turn을 돌려준다: 이 턴에 화물 조회가 기억 뽑기를 맡겼는지 turn.fired로 본다.
+    turn: 호출한 쪽이 이미 만든 표시판. 채팅 그래프는 노드마다 이 문맥을 새로 열기 때문에 한 표시판을 건네 같은 턴으로 본다 (graph/chat_graph.py)."""
     token = _USER_TEXT.set(masked)
-    turn = Turn()
+    turn = turn if turn is not None else Turn()
     turn_token = _TURN.set(turn)
     try:
         yield turn

@@ -700,6 +700,8 @@ B/L 구분은 되묻지 않는다(4.1 2단계). 둘 다 없으면 failed로 끝�
 
 ### 4.5 채팅 흐름 (POST /api/chat, `routers/chat.py`, `services/chat.py`)
 
+v2(H11)부터 `AGENT_GRAPH`가 켜져 있으면(기본) 아래 흐름을 `graph/chat_graph.py`가 노드(`mask`, `guard`, `plan`, `agent`, `fallback`, `finish`)로 돌린다. 판단은 `services/chat.py`의 같은 함수들이 하고, 체크포인터는 없으며 응답·SSE 모양은 그대로다 (`docs/specs/v2-langgraph.md` 9절).
+
 화면의 기본 입력은 채팅 한 줄이다(`web/app/page.tsx`의 ChatBar). `/api/agent`는 평가셋·데모·후보 선택처럼 칸이 정해진 입력에 쓴다.
 
 ```
