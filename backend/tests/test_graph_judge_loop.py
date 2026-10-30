@@ -384,9 +384,10 @@ def test_recursion_limit_in_gray_zone_gives_no_verdict(fake, monkeypatch):
 # ── 판정만의 그래프는 닿는 노드만 올린다 ──
 
 def test_assess_graph_has_only_reachable_nodes():
-    """entry="fetch_customs"에는 판매 예정일 검사, 기억·화물 줄 읽기, 후속 질문 노드가 올라가지 않는다."""
+    """entry="fetch_customs"에는 판매 예정일 검사, 기억·화물 줄 읽기, 지난 결과 읽기가 올라가지 않는다.
+    후속 답 노드는 판정 끝 자리에서 이어질 수 있어 올라간다(질문이 없으면 지나지 않는다)."""
     names = set(build_graph(entry="fetch_customs").get_graph().nodes) - {"__start__", "__end__"}
-    assert not names & {"guard_input", "load_memory", "load_saved", "follow_up"}
+    assert not names & {"guard_input", "load_memory", "load_saved", "load_previous"}
     assert {"fetch_customs", "judge", "validate", "finalize", "fallback_partial", "decorate"} <= names
     full = set(build_graph().get_graph().nodes) - {"__start__", "__end__"}
-    assert full == names | {"guard_input", "load_memory", "load_saved", "follow_up"}
+    assert full == names | {"guard_input", "load_memory", "load_saved", "load_previous"}

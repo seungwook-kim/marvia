@@ -102,6 +102,10 @@ class AgentState(TypedDict, total=False):
     follow_attempt: int
     follow_feedback: Lines | None      # LLM이 쓴 문장 조각이 들어 있다
     follow_route: Literal["pass", "retry", "give_up"]
+    # 아래 셋은 answer_follow_up이 쓰고 validate_follow_up이 읽는 한 시도분(스펙 State 표에 없는 칸, H5)
+    follow_answer: Lines | None        # LLM이 쓴 답 문장(컨테이너 번호표 포함). 문장 하나가 원소 1개
+    follow_tool_calls: list[dict]      # LLM이 부른 도구와 결과. 통과한 답의 근거 카드가 된다
+    follow_candidates_used: int        # 후보 검색 도구를 이 질문에서 부른 횟수(시도를 넘어 센다, agent._capped_follow_up_tool)
 
     # ── 되묻기와 결과 ──
     awaiting: bool                     # 되묻기 대기 중
@@ -120,6 +124,6 @@ PLAINTEXT_FIELDS: frozenset[str] = frozenset({
     "trusted_eta", "days_margin", "has_position", "from_cache",
     "table_verdict", "gray",
     "judge_attempt", "judge_spent_sec", "judge_last_sec", "judge_route",
-    "follow_attempt", "follow_route", "awaiting",
+    "follow_attempt", "follow_route", "follow_candidates_used", "awaiting",
     "path",
 })

@@ -102,13 +102,84 @@ def load_memory(state: AgentState) -> dict:
 
 
 @db_scope
-def follow_up(state: AgentState) -> dict:
-    """후속 질문 전체를 v1 함수 한 번으로 답한다 (SDD 4.4). H5에서 load_previous, guard, answer, validate 노드로 쪼갠다.
-    기억 블록은 후속 LLM에 그대로, 품명 없는 블록(for_judge)은 지난 결과가 없어 다시 판정할 때 판정 LLM에 준다 (10-08 QA B3)."""
+def load_previous(state: AgentState) -> dict:
+    """후속 질문이 답할 지난 결과를 DB에서 읽는다 (SDD 4.4, v1 _follow_up의 첫 줄). 없거나 DB에 못 붙거나 입력이 바뀌었으면 None이고,
+    그러면 route(after_previous)가 세관 조회부터 다시 돌려 그 결과로 답하게 한다 (DB 없이도 돌아야 한다)."""
+    return _step("load_previous", previous=agent._previous_response(state["request"], state.get("user_id")))
+
+
+def guard_follow_up(state: AgentState) -> dict:
+    """답할 지난 결과(previous)를 정하고 프롬프트 주입 모양 질문을 LLM 없이 막는다 (SDD 7절).
+    지난 결과가 DB에 있었으면 previous가 이미 있고, 없어서 판정을 다시 돌렸으면 그 판정 응답(response)이 지난 결과가 된다.
+    막으면 지난 판정·근거 그대로 답만 FOLLOW_UP_BLOCKED로 response에 둬서 끝낸다. 통과하면 response를 비워 답 작성으로 보낸다."""
+    previous = state.get("previous") or state["response"]
+    if agent.guard.looks_like_injection(state["request"].follow_up_question):
+        log_failure("follow_up", "blocked prompt injection pattern")
+        return _step("guard_follow_up", previous=previous, response=agent._follow_up_blocked(previous))
+    progress.step("answer")
+    return _step("guard_follow_up", previous=previous, response=None)
+
+
+def answer_follow_up(state: AgentState) -> dict:
+    """후속 답 LLM을 한 번 부른다 (SDD 4.4). 도구(읽기 전용 MCP)를 고르는 라운드는 llm.answer_follow_up 안에서 돈다.
+    기억 블록은 후속 LLM에 그대로 준다. 시도 횟수는 State(follow_attempt)가 센다.
+    - 형식 오류(LLMFormatError): 무엇이 틀렸는지를 피드백으로 남기고 다시 묻는다(validate_follow_up이 상한을 본다)
+    - 도구를 붙인 요청의 거절(bad_request): 거절을 기억하고 피드백 그대로 다시 묻는다. 다음 시도는 도구 없이 간다 (agent._follow_up_tools)
+    - 그 밖의 호출 실패(LLMError): 다시 묻지 않고 지난 결과 + FOLLOW_UP_FAILED로 끝낸다
+    후보 검색 도구를 부른 횟수는 시도를 넘어 State(follow_candidates_used)로 센다: 한 질문에 한 번이라는 상한이 다시 묻기로 풀리지 않게."""
+    request = state["request"]
+    previous = state["previous"]
     memory = state.get("memory")
-    response = agent._follow_up(state["request"], state.get("user_id"),
-                                memory.blocks if memory else None, memory.for_judge() if memory else None)
-    return _step("follow_up", response=response)
+    attempt = state.get("follow_attempt", 0) + 1
+    feedback = state.get("follow_feedback")
+    tools = agent._follow_up_tools(previous)
+    used = {"candidates": state.get("follow_candidates_used", 0)}
+    update: dict = {"follow_attempt": attempt, "follow_answer": None, "follow_tool_calls": []}
+    try:
+        answer = agent.llm.answer_follow_up(request.follow_up_question, previous,
+                                            feedback="\n".join(feedback) if feedback is not None else None, tools=tools,
+                                            run_tool=agent._capped_follow_up_tool(previous, used),
+                                            memory=memory.blocks if memory else None)
+    except agent.llm.LLMFormatError as e:
+        log_failure("follow_up", f"{e.kind} attempt {attempt}")
+        update.update(follow_route="retry", follow_feedback=[e.detail])
+    except agent.llm.LLMError as e:
+        if tools and e.kind == "bad_request":
+            log_failure("follow_up", "tools rejected, retry without tools")
+            agent.llm.remember_tools_rejected()  # 다음 질문부터는 이 모델에 도구를 붙이지 않는다 (llm.TOOLS_REJECT_TTL_SEC 동안)
+            update.update(follow_route="retry")
+        else:
+            log_failure("follow_up", agent._llm_error(e))
+            update.update(follow_route="give_up", response=agent._follow_up_failed(previous))
+    else:
+        # 여기서 pass는 호출이 답을 줬다는 뜻일 뿐이다. 검증은 validate_follow_up이 한다
+        update.update(follow_route="pass", follow_answer=[answer.output.answer], follow_tool_calls=answer.tool_calls)
+    update["follow_candidates_used"] = used["candidates"]
+    return _step("answer_follow_up", **update)
+
+
+def validate_follow_up(state: AgentState) -> dict:
+    """후속 답을 검증하고 다시 물을지 접을지 정한다 (SDD 4.4, 5.7). 규칙 집합은 agent._check_follow_up_answer 한 곳이다
+    (FOLLOW_UP_RULES + V9 + V10 + V12, 컨테이너 번호표는 검증엔 빠지고 화면 답엔 되돌아온다).
+    통과하면 그 응답을 response에 두고 pass. 위반(또는 답이 오지 않은 시도)이 있으면 상한(judge_max_attempts)에 닿았을 때만 접는다:
+    지난 판정·근거 그대로 답만 FOLLOW_UP_FAILED로 response에 두고 give_up. 아니면 위반 내용을 피드백으로 남기고 retry다.
+    후속 질문에는 시간 예산이 없다 (v1과 같다)."""
+    attempt = state["follow_attempt"]
+    previous = state["previous"]
+    answer = state.get("follow_answer")
+    update: dict = {}
+    if answer is not None:
+        memory = state.get("memory")
+        response, violations = agent._check_follow_up_answer(
+            answer[0], state.get("follow_tool_calls", []), state["request"].follow_up_question, previous,
+            memory.blocks if memory else None, attempt)
+        if response is not None:
+            return _step("validate_follow_up", follow_route="pass", response=response)
+        update["follow_feedback"] = [agent._follow_up_feedback_text(violations)]
+    if attempt >= agent.JUDGE_ATTEMPTS:
+        log_failure("follow_up", f"gave up after {agent.JUDGE_ATTEMPTS} attempts")
+        return _step("validate_follow_up", follow_route="give_up", response=agent._follow_up_failed(previous), **update)
+    return _step("validate_follow_up", follow_route="retry", **update)
 
 
 @db_scope

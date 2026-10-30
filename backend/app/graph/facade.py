@@ -63,7 +63,10 @@ def _run_to_end(graph, state_in: dict) -> dict:
 
 def _recursion_response(state: dict) -> AgentResponse:
     """상한에 걸렸을 때의 partial 응답 (EC-12). 표 등급이 정해져 있고 회색 지대가 아니면 판정 폴백과 같은 응답(표 등급 + 고정 문구),
-    그 밖에는 LLM_FAILED 문구에 지금까지 모은 값만 싣는다. 세관 조회까지 끝났으면 화면 전용 칸(decorate와 같은 것)을 붙인다."""
+    그 밖에는 LLM_FAILED 문구에 지금까지 모은 값만 싣는다. 후속 질문이 답할 지난 결과가 있으면 그 결과 + FOLLOW_UP_FAILED다. 세관 조회까지 끝났으면 화면 전용 칸(decorate와 같은 것)을 붙인다."""
+    if state.get("previous") is not None:
+        # 후속 질문이 답할 지난 결과가 이미 있으면 그 결과에 FOLLOW_UP_FAILED만 얹는다 (후속 답을 못 만들었을 때와 같다)
+        return agent._follow_up_failed(state["previous"])
     collected = state.get("collected") or {}
     if state.get("table_verdict") is not None and state.get("signal_set") is not None:
         response = agent._llm_gave_up(state["signal_set"], state.get("days_margin"), state["table_verdict"],

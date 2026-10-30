@@ -337,12 +337,13 @@ def test_follow_up_uses_saved_result(fake, monkeypatch):
 
 
 def test_follow_up_path(fake, monkeypatch):
-    """후속 질문 경로: 세관 조회로 가지 않고 follow_up 노드에서 끝난다 (H5까지 굵은 노드)."""
+    """후속 질문 경로: 지난 결과가 있으면 세관 조회로 가지 않고 load_previous -> guard_follow_up -> answer_follow_up -> validate_follow_up에서 끝난다 (H5)."""
     saved = agent_router._response(status="ok", verdict="watch", vessel_match="confirmed", days_margin=5, answer="지난 답")
     fake(judge=JUDGED)
     monkeypatch.setattr(agent_router, "_previous_response", lambda request, user_id=None: saved)
     _fake_follow(monkeypatch, {"in_scope": True, "answer": "여유는 5일입니다."})
-    assert _path(_req(follow_up_question="여유 며칠이야?")) == ["guard_input", "load_memory", "load_saved", "follow_up"]
+    assert _path(_req(follow_up_question="여유 며칠이야?")) == ["guard_input", "load_memory", "load_saved", "load_previous", "guard_follow_up",
+                                                                  "answer_follow_up", "validate_follow_up"]
 
 
 # ── 플래그 ──

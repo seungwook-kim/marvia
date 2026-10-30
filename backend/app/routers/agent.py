@@ -830,35 +830,94 @@ def _evidence_text(response: AgentResponse) -> str:
     return " ".join(f"{e.field} {e.value}" for e in response.evidence)
 
 
+def _follow_up_failed(previous: AgentResponse) -> AgentResponse:
+    """후속 답을 못 만들었을 때의 응답: 지난 판정·근거는 그대로 두고 답만 FOLLOW_UP_FAILED로 바꾼다 (SDD 5.7, 8절).
+    v1 _follow_up과 그래프 노드(answer_follow_up, validate_follow_up)가 같이 쓴다."""
+    return previous.model_copy(update={"answer": FOLLOW_UP_FAILED, "trace_id": current_request_id()})
+
+
+def _follow_up_blocked(previous: AgentResponse) -> AgentResponse:
+    """프롬프트 주입 모양 질문에 LLM 없이 내는 응답: 지난 판정·근거 그대로, 답만 FOLLOW_UP_BLOCKED (SDD 7절)."""
+    return previous.model_copy(update={"answer": FOLLOW_UP_BLOCKED, "trace_id": current_request_id()})
+
+
+def _follow_up_tools(previous: AgentResponse) -> list[dict]:
+    """후속 질문 LLM에 줄 읽기 전용 MCP 도구 목록. 못 받으면 빈 목록이라 도구 없이 답한다.
+    배가 이미 확정된 결과면 후보 검색 도구를 뺀다: get_vessel_candidates 한 번이 ShipFinder를 최대 11회 쓴다.
+    이 모델이 도구 붙은 요청을 최근에 거절했으면(llm.tools_rejected) 처음부터 도구 없이 묻는다. 매 질문 LLM을 두 번 부르지 않게 (10-08 QA B8).
+    v1 _follow_up과 그래프 노드 answer_follow_up이 같이 쓴다."""
+    tools = read_only_tools()
+    if previous.vessel is not None:
+        tools = [t for t in tools if t["function"]["name"] != CANDIDATES_TOOL]
+    if tools and llm.tools_rejected():
+        tools = []
+    return tools
+
+
+def _check_follow_up_answer(answer_text: str, tool_calls: list[dict], question: str, previous: AgentResponse,
+                            memory: str | None, attempt: int) -> tuple[AgentResponse | None, list[tuple[str, str]]]:
+    """후속 답 1회분을 검증한다 (SDD 4.4, 5.7). 통과하면 (화면에 낼 응답, []), 위반이 있으면 (None, [(규칙, 설명)...]).
+    규칙 집합: FOLLOW_UP_RULES(V1, V7, V11, V15) + V9 + V10 + V12(기억 블록을 줬을 때만). v1 _follow_up과 그래프 노드 validate_follow_up이
+    같이 쓰므로 두 길의 규칙이 갈라지지 않는다. 위반 로그(규칙 번호만)는 여기서 남긴다.
+    통과한 응답의 answer는 컨테이너 번호표가 원래 번호로 되돌려진 것이다."""
+    # LLM이 부른 도구 결과를 근거 카드로 붙인다. 답에 쓴 새 숫자·낱말이 근거에 있어야 검증(V7·V9·V10)을 통과하고,
+    # 화면에도 어디서 온 값인지 남는다 (가이드 Grounding: 도구가 준 근거·출처를 보존)
+    grounded = previous.model_copy(update={"evidence": previous.evidence + _tool_evidence(tool_calls)})
+    # 컨테이너 번호표 [CNTR1]은 번호가 아니라 이름표다. 검증에는 번호표를 뺀 글을 넣는다: 그대로 두면 V7이 번호표 속
+    # 숫자 1을 근거에 없는 숫자로, V9가 CNTR을 근거에 없는 낱말로 잡는다. 사용자 화면에는 아래 return에서 원래 번호로 되돌린다
+    text = llm.CONTAINER_TOKEN.sub("", answer_text)
+    answered = grounded.model_copy(update={"answer": answer_text, "trace_id": current_request_id()})
+    # V11은 할 일·통관 칸도 보는데, 후속 답은 그 칸을 지난 결과에서 그대로 가져온다. 새로 쓴 answer만 보게 비우고 검사한다
+    checked = answered.model_copy(update={"answer": text, "actions": [], "customs": None})
+    violations = [v for v in validate.check(checked, extra=validate.user_supplied_text(memory)) if v.rule in FOLLOW_UP_RULES]
+    # V9: 근거에 없는 영문 낱말 금지. 주입이 끼워 넣는 표식을 문장 모양과 상관없이 잡는다 (validate.py)
+    # 기억 블록의 낱말은 V9·V10 근거가 아니다
+    violations += validate.check_follow_up_words(text, grounded,
+                                                 llm.skills_reference((), llm.FOLLOW_UP_PROMPT))
+    # V10: 질문에만 있는 낱말을 답이 그대로 옮기면 위반. 한국어 표식 주입을 잡는다 (validate.py)
+    violations += validate.check_follow_up_echo(text, question, grounded,
+                                                llm.skills_reference(llm.FOLLOW_UP_SKILLS, llm.FOLLOW_UP_PROMPT))
+    # V12: 메모장 내부 번호가 새어 나오지 않게 (docs/specs/memory.md EC-09). 기억 블록을 줬을 때만 건다
+    if memory:
+        violations += validate.check_memory_ids([text], _evidence_text(grounded))
+    if not violations:
+        # 검증을 통과한 뒤에 되돌린다. LLM에는 번호표만 갔고(llm.answer_follow_up), 화면의 답에는 사용자 화물의 실제 번호가 나간다.
+        # 같은 container_tokens로 지난 결과에서 다시 만들어서 LLM이 본 번호표와 번호가 맞는다
+        tokens = llm.container_tokens(previous.customs.container_no if previous.customs else None)
+        return answered.model_copy(update={"answer": llm.restore_containers(answer_text, tokens)}), []
+    log_failure("validate_follow_up", f"{','.join(v.rule for v in violations)} attempt {attempt}")
+    return None, [(v.rule, v.detail) for v in violations]
+
+
+def _follow_up_feedback_text(violations: list[tuple[str, str]]) -> str:
+    """후속 답 위반 목록을 LLM에 다시 물을 때 붙일 글로 합친다 ("규칙: 설명"을 줄마다). 판정 쪽 _judge_feedback_text와 같은 모양이다."""
+    return _judge_feedback_text(violations)
+
+
 def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | None = None,
                judge_memory: str | None = None) -> AgentResponse:
     """후속 질문. 같은 세션·같은 B/L의 가장 최근 결과를 DB에서 꺼내 그 안에서만 답한다.
     memory는 후속 질문 LLM에, judge_memory(품명 없는 블록)는 지난 결과가 없어 다시 판정할 때 판정 LLM에 넣는다 (10-08 QA B3).
+    AGENT_GRAPH=off(v1)의 길이다. 그래프는 같은 일을 load_previous, guard_follow_up, answer_follow_up, validate_follow_up 노드로 나눠 하고
+    검증(_check_follow_up_answer)·도구 목록(_follow_up_tools)·실패·차단 응답은 이 함수와 함께 쓴다.
 
     세션별로 지난 결과를 저장해 두는 방식이다. 로그인했으면 세션 대신 사용자 ID로 찾아, 기기가 달라도 이어진다.
     DB가 없거나 지난 결과가 없으면 조회·판정을 한 번 더 해서 그 결과로 답한다 (DB 없이도 돌아야 한다).
     판정·근거는 지난 결과 그대로 두고 answer만 질문의 답으로 바꿔 돌려준다.
     """
     previous = _previous_response(request, user_id) or _assess(request, judge_memory)
-    failed = previous.model_copy(update={"answer": FOLLOW_UP_FAILED, "trace_id": current_request_id()})
 
     # 프롬프트 주입 차단 (SDD 7절). "지금부터 너는 ~" 같은 질문은 프롬프트 방어만으로는 가끔 뚫려서
     # 모양이 걸리면 LLM을 부르지 않는다. 질문 원문은 로그에 남기지 않는다
     if guard.looks_like_injection(request.follow_up_question):
         log_failure("follow_up", "blocked prompt injection pattern")
-        return previous.model_copy(update={"answer": FOLLOW_UP_BLOCKED, "trace_id": current_request_id()})
+        return _follow_up_blocked(previous)
 
     progress.step("answer")
     # 후속 답도 검증한다. 근거 카드에 없는 숫자가 답에 섞이지 않게 하려는 것이다.
     # 판정·근거는 지난 결과 그대로라 답 문장을 보는 규칙(FOLLOW_UP_RULES)만 건다. 재시도 방식은 판정과 같다 (SDD 5.7)
     feedback = None
-    tools = read_only_tools()  # LLM이 직접 고를 읽기 전용 MCP 도구. 못 받으면 빈 목록이라 도구 없이 답한다
-    # 배가 이미 확정된 결과면 후보 검색 도구를 주지 않는다. get_vessel_candidates 한 번이 ShipFinder를 최대 11회 쓴다
-    if previous.vessel is not None:
-        tools = [t for t in tools if t["function"]["name"] != CANDIDATES_TOOL]
-    # 이 모델이 도구 붙은 요청을 최근에 거절했으면 처음부터 도구 없이 묻는다. 매 질문 LLM을 두 번 부르지 않게 (10-08 QA B8)
-    if tools and llm.tools_rejected():
-        tools = []
+    tools = _follow_up_tools(previous)  # LLM이 직접 고를 읽기 전용 MCP 도구
     run_tool = _capped_follow_up_tool(previous)
     for attempt in range(1, JUDGE_ATTEMPTS + 1):
         try:
@@ -878,37 +937,15 @@ def _follow_up(request: AgentRequest, user_id: str | None = None, memory: str | 
                 tools = []
                 continue
             log_failure("follow_up", _llm_error(e))
-            return failed
-        # LLM이 부른 도구 결과를 근거 카드로 붙인다. 답에 쓴 새 숫자·낱말이 근거에 있어야 검증(V7·V9·V10)을 통과하고,
-        # 화면에도 어디서 온 값인지 남는다 (가이드 Grounding: 도구가 준 근거·출처를 보존)
-        grounded = previous.model_copy(update={"evidence": previous.evidence + _tool_evidence(answer.tool_calls)})
-        # 컨테이너 번호표 [CNTR1]은 번호가 아니라 이름표다. 검증에는 번호표를 뺀 글을 넣는다: 그대로 두면 V7이 번호표 속
-        # 숫자 1을 근거에 없는 숫자로, V9가 CNTR을 근거에 없는 낱말로 잡는다. 사용자 화면에는 아래 return에서 원래 번호로 되돌린다
-        text = llm.CONTAINER_TOKEN.sub("", out.answer)
-        answered = grounded.model_copy(update={"answer": out.answer, "trace_id": current_request_id()})
-        # V11은 할 일·통관 칸도 보는데, 후속 답은 그 칸을 지난 결과에서 그대로 가져온다. 새로 쓴 answer만 보게 비우고 검사한다
-        checked = answered.model_copy(update={"answer": text, "actions": [], "customs": None})
-        violations = [v for v in validate.check(checked, extra=validate.user_supplied_text(memory)) if v.rule in FOLLOW_UP_RULES]
-        # V9: 근거에 없는 영문 낱말 금지. 주입이 끼워 넣는 표식을 문장 모양과 상관없이 잡는다 (validate.py)
-        # 기억 블록의 낱말은 V9·V10 근거가 아니다
-        violations += validate.check_follow_up_words(text, grounded,
-                                                     llm.skills_reference((), llm.FOLLOW_UP_PROMPT))
-        # V10: 질문에만 있는 낱말을 답이 그대로 옮기면 위반. 한국어 표식 주입을 잡는다 (validate.py)
-        violations += validate.check_follow_up_echo(text, request.follow_up_question, grounded,
-                                                    llm.skills_reference(llm.FOLLOW_UP_SKILLS, llm.FOLLOW_UP_PROMPT))
-        # V12: 메모장 내부 번호가 새어 나오지 않게 (docs/specs/memory.md EC-09). 기억 블록을 줬을 때만 건다
-        if memory:
-            violations += validate.check_memory_ids([text], _evidence_text(grounded))
-        if not violations:
-            # 검증을 통과한 뒤에 되돌린다. LLM에는 번호표만 갔고(llm.answer_follow_up), 화면의 답에는 사용자 화물의 실제 번호가 나간다.
-            # 같은 container_tokens로 지난 결과에서 다시 만들어서 LLM이 본 번호표와 번호가 맞는다
-            tokens = llm.container_tokens(previous.customs.container_no if previous.customs else None)
-            return answered.model_copy(update={"answer": llm.restore_containers(out.answer, tokens)})
-        log_failure("validate_follow_up", f"{','.join(v.rule for v in violations)} attempt {attempt}")
-        feedback = "\n".join(f"{v.rule}: {v.detail}" for v in violations)
+            return _follow_up_failed(previous)
+        response, violations = _check_follow_up_answer(out.answer, answer.tool_calls, request.follow_up_question,
+                                                       previous, memory, attempt)
+        if response is not None:
+            return response
+        feedback = _follow_up_feedback_text(violations)
     # 세 번 다 어기면 틀린 문장을 내보내지 않고 답하지 못했다고 한다. 지난 판정·근거는 그대로 둔다
     log_failure("follow_up", f"gave up after {JUDGE_ATTEMPTS} attempts")
-    return failed
+    return _follow_up_failed(previous)
 
 
 def _without_dest(value):
@@ -929,11 +966,12 @@ CANDIDATES_RESOLVED = "The vessel of this cargo is already confirmed in the resu
 CANDIDATES_ONCE = "get_vessel_candidates was already called for this message. Use that result instead of calling it again."
 
 
-def _capped_follow_up_tool(previous: AgentResponse):
+def _capped_follow_up_tool(previous: AgentResponse, used: dict | None = None):
     """후속 질문 한 번에 쓸 도구 실행 함수. get_vessel_candidates는 배가 이미 확정됐으면 막고, 아니면 한 번만 부른다.
     막힌 호출은 도구 실패 모양({error})으로 돌려줘 LLM이 이미 있는 값으로 답하게 한다 (SDD 3.4 실패 형식).
     다시 묻기(JUDGE_ATTEMPTS)를 거쳐도 횟수는 질문 하나 기준으로 센다. 나머지 도구는 _follow_up_tool 그대로다."""
-    used = {"candidates": 0}
+    # used는 그래프 노드가 시도를 넘어 센 값을 이어 받으려고 밖에서 넘기는 횟수 표다 (질문 하나 기준으로 센다). v1은 안 넘기고 새로 만든다
+    used = used if used is not None else {"candidates": 0}
 
     def run(name: str, arguments: dict) -> dict:
         if name == CANDIDATES_TOOL:

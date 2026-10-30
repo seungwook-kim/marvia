@@ -17,19 +17,56 @@ def after_guard(state: AgentState) -> str:
     return END if state.get("response") is not None else "load_memory"
 
 
+def _end_or_follow_up(state: AgentState) -> str:
+    """응답이 정해져 끝낼 자리. 후속 질문이면(지난 결과가 없어 판정을 다시 돌린 연쇄) 그 응답을 지난 결과로 삼아 후속 답으로 이어 가고,
+    아니면 END다. v1은 어떤 응답이든(조회 실패 포함) 후속 질문이면 그 결과를 두고 후속 답을 만든다 (_follow_up의 `or _assess`)."""
+    return "guard_follow_up" if state["request"].follow_up_question else END
+
+
 def after_saved(state: AgentState) -> str:
-    """후속 질문이면 후속 노드로, 아니면 UNI-PASS 조회로 (v1 _run의 갈림길)."""
-    return "follow_up" if state["request"].follow_up_question else "fetch_customs"
+    """후속 질문이면 지난 결과 읽기로, 아니면 UNI-PASS 조회로 (v1 _run의 갈림길)."""
+    return "load_previous" if state["request"].follow_up_question else "fetch_customs"
+
+
+def after_previous(state: AgentState) -> str:
+    """지난 결과가 있으면 바로 후속 답으로, 없으면 세관 조회부터 판정을 다시 돌린다 (v1 `_previous_response(...) or _assess(...)`)."""
+    return "guard_follow_up" if state.get("previous") is not None else "fetch_customs"
 
 
 def after_customs(state: AgentState) -> str:
     """세관 조회가 성공했으면 범위 확인으로. 실패했고 '못 찾음 + MRN 있음'이면 MRN 대체로, 그 밖의 실패는 그 응답으로 끝
-    (세관 장애는 대체하지 않는다, mrn-fallback.md EC-04)."""
+    (세관 장애는 대체하지 않는다, mrn-fallback.md EC-04). 후속 질문의 연쇄면 끝 자리에서 후속 답으로 이어진다."""
     failure = state.get("failure")
     if failure is None:
         return "scope_gate"
     request = state.get("judged_request") or state["request"]
-    return "mrn_fallback" if agent.is_not_found(failure) and request.mrn else END
+    return "mrn_fallback" if agent.is_not_found(failure) and request.mrn else _end_or_follow_up(state)
+
+
+def after_decorate(state: AgentState) -> str:
+    """화면 전용 칸을 붙인 뒤: 후속 질문의 연쇄면 후속 답으로, 아니면 끝."""
+    return _end_or_follow_up(state)
+
+
+def after_mrn_fallback(state: AgentState) -> str:
+    """MRN 대체 응답 뒤: 후속 질문의 연쇄면 후속 답으로, 아니면 끝."""
+    return _end_or_follow_up(state)
+
+
+def after_guard_follow_up(state: AgentState) -> str:
+    """주입 모양이라 막은 응답이 나왔으면 끝, 아니면 후속 답 작성으로."""
+    return END if state.get("response") is not None else "answer_follow_up"
+
+
+def after_answer_follow_up(state: AgentState) -> str:
+    """후속 답 LLM 호출이 실패(LLMError)해 실패 응답이 나왔으면 끝, 답이나 다시 묻기 사유가 있으면 검증으로."""
+    return END if state["follow_route"] == "give_up" else "validate_follow_up"
+
+
+def after_validate_follow_up(state: AgentState) -> str:
+    """후속 답 검증 뒤: 통과도 포기도 끝(응답은 validate_follow_up이 이미 정했다). 위반이 있고 상한 전이면 다시 답 작성으로.
+    상한은 판정과 같은 judge_max_attempts다 (agent.JUDGE_ATTEMPTS). 포기 판단은 validate_follow_up이 한다."""
+    return "answer_follow_up" if state["follow_route"] == "retry" else END
 
 
 def after_scope(state: AgentState) -> str:

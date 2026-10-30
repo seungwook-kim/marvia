@@ -28,12 +28,15 @@ sale_due_future_days: 730
 judge_max_attempts: 3
 judge_budget_sec: 60
 # 판정 그래프(AGENT_GRAPH=on)의 노드 실행 횟수 안전망 recursion_limit (v2-langgraph.md 2절, EC-12). 정상 경로는 State의 시도 횟수가 먼저 막는다.
-# 센 방법: 노드 한 번 실행이 한 단계다. 지금 가장 긴 경로는 판정 세 번을 다 위반해 폴백으로 끝나는 길이고 17단계다
-#   guard_input, load_memory, load_saved, fetch_customs, scope_gate, identify, collect, compute_signals, table_verdict (9)
-#   + judge, validate를 judge_max_attempts번(3) = 6 + fallback_partial (1) + decorate (1) = 17
-#   (langgraph는 이 17단계 경로를 한도 18부터 끝까지 돌린다. 한도가 단계 수와 같으면 걸린다. test_graph_judge_loop.py가 17을 확인한다)
-# 곧 들어올 후속 질문 연쇄(H5: 지난 결과가 없으면 위 길 뒤에 guard_follow_up, 답 작성과 검증 3회 = 6, 마무리 1)와 load_previous 1을 더하면 약 26이다.
-# 그보다 크게 40으로 둔다. 노드를 더하면 이 숫자를 다시 센다(H5, H7). 정상 경로가 이 값에 닿으면 안 되고, 닿으면 루프가 샌 것이다
+# 센 방법: 노드 한 번 실행이 한 단계다. 가장 긴 경로는 후속 질문인데 지난 결과가 없어 판정을 다시 돌리고(세 번 위반해 폴백),
+# 이어서 후속 답도 세 번 위반해 실패 문구로 끝나는 길이고 25단계다 (H5 뒤 다시 셌다)
+#   guard_input, load_memory, load_saved, load_previous, fetch_customs, scope_gate, identify, collect, compute_signals, table_verdict (10)
+#   + judge, validate를 judge_max_attempts번(3) = 6 + fallback_partial (1) + decorate (1) = 18
+#   + guard_follow_up (1) + answer_follow_up, validate_follow_up를 judge_max_attempts번(3) = 6 = 25
+# 판정만 하는 가장 긴 길(후속 질문 없음)은 17단계다. langgraph는 25단계 경로를 한도 26부터 끝까지 돌린다(한도가 단계 수와 같으면 걸린다).
+# test_graph_judge_loop.py가 17을, test_graph_follow_up.py가 25를 확인한다.
+# 40은 25보다 크고 H7(되묻기 멈춤 노드 ask_prepare, ask_wait 추가)에서 늘어날 단계를 받을 여유(15단계)가 있어 값을 그대로 둔다.
+# 노드를 더하면 이 숫자를 다시 센다. 정상 경로가 이 값에 닿으면 안 되고, 닿으면 루프가 샌 것이다
 graph_recursion_limit: 40
 ---
 
