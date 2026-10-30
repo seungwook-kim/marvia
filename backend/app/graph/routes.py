@@ -44,8 +44,9 @@ def after_customs(state: AgentState) -> str:
 
 
 def after_decorate(state: AgentState) -> str:
-    """화면 전용 칸을 붙인 뒤: 후속 질문의 연쇄면 후속 답으로, 아니면 끝."""
-    return _end_or_follow_up(state)
+    """화면 전용 칸을 붙인 뒤: 멈출 되묻기(awaiting)면 ask_wait로, 후속 질문의 연쇄면 후속 답으로, 아니면 끝.
+    체크포인터가 없으면 ask_prepare가 awaiting을 켜지 않으므로 여기서 바로 끝난다 (EC-01)."""
+    return "ask_wait" if state.get("awaiting") else _end_or_follow_up(state)
 
 
 def after_mrn_fallback(state: AgentState) -> str:
@@ -75,8 +76,12 @@ def after_scope(state: AgentState) -> str:
 
 
 def after_identify(state: AgentState) -> str:
-    """배를 못 정해 되묻기·partial 응답이 나왔으면 화면 전용 칸 붙이기로, 확정이면 위치·일정 수집으로."""
-    return "decorate" if state.get("response") is not None else "collect"
+    """배를 못 정해 응답이 나왔으면: 되묻기(insufficient)는 ask_prepare로, 도구 실패 같은 partial은 되묻지 않고 화면 전용 칸 붙이기로.
+    확정이면 위치·일정 수집으로. 되묻기 응답 상태가 insufficient인 것은 agent._identify_stage가 정한다 (SDD 4.1 3단계)."""
+    response = state.get("response")
+    if response is None:
+        return "collect"
+    return "ask_prepare" if response.status == "insufficient" else "decorate"
 
 
 def after_signals(state: AgentState) -> str:

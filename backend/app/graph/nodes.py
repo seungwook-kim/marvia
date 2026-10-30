@@ -12,6 +12,11 @@ run_agent가 AGENT_GRAPH=on일 때만 함수 안에서 graph.facade를 불러 �
 판정 뒤쪽은 collect, compute_signals, gate_no_position, gate_no_eta, table_verdict와 judge <-> validate 루프(judge, validate, finalize,
 fallback_partial)로 나뉜다. 시도 횟수, 피드백, 시간 예산은 State가 들고 다음 시도를 할지는 routes.after_validate가 정한다 (H4).
 
+되묻기(H7): identify가 배를 못 정해 insufficient 응답을 만들면 ask_prepare가 "멈출 수 있는 실행인가"를 State(awaiting)에 적고,
+decorate 뒤에 awaiting이면 ask_wait가 interrupt()로 멈춘다. 재개하면 ask_wait가 새 요청의 정보(resolved_mmsi 등)를 request에 합치고
+identify로 돌아간다 (v2-langgraph.md 3절). interrupt가 있는 노드는 재개 때 처음부터 다시 도므로 ask_wait에는 interrupt 한 줄과
+State 갱신만 두고 외부 호출·DB 쓰기는 앞 노드에 둔다 (2절 원칙).
+
 ContextVar 이전 (2절): previous_eta, trusted_vessel, db_failed는 State로 흐른다. 기존 도우미가 아직 ContextVar를 읽으므로 노드가
 들어갈 때 State 값을 ContextVar에 맞추고 나올 때 되돌린다(db_scope, identify). 도우미가 인자를 받게 고치는 일은 H10이다.
 """
@@ -19,6 +24,8 @@ from __future__ import annotations
 
 import functools
 import os
+
+from langgraph.types import interrupt
 
 from backend.app.graph.state import AgentState
 from backend.app.observability.logging import log_failure
@@ -223,6 +230,31 @@ def identify(state: AgentState) -> dict:
     return _step("identify", **update)
 
 
+def ask_prepare(state: AgentState) -> dict:
+    """배를 못 정해 identify가 insufficient(되묻기) 응답을 만들었을 때 거치는 노드. 이 실행이 멈출 수 있는지를 State(awaiting)에 적는다.
+    멈출 수 있다 = 체크포인터가 붙어 있고(퍼사드가 resumable로 알린다) 후속 질문이 아니다. 후속 질문 연쇄는 스레드를 만들지 않으므로 멈추지 않고
+    지금처럼 응답으로 이어 간다. 응답 자체는 identify가 이미 v1과 같게 만들어 State response에 두었다 (spec의 ask_prepare가 하는 응답 만들기를
+    identify 안에서 하는 것은 H2부터 그대로다). 멈춤 자체(interrupt)는 decorate 뒤 ask_wait가 한다 (v2-langgraph.md 3절, Q6)."""
+    return _step("ask_prepare", awaiting=bool(state.get("resumable")) and not state["request"].follow_up_question)
+
+
+# 재개 값으로 새 요청에서 꺼내 합치는 칸 (v2-langgraph.md 3절 "재개 값"). 값이 있는 칸만 덮어쓴다: 사용자가 이미 준 값을 지우지 않는다
+RESUME_FIELDS = ("resolved_mmsi", "voyage_no", "forwarder_eta", "sale_due_date")
+
+
+def ask_wait(state: AgentState) -> dict:
+    """되묻기 응답을 내놓고 멈춘다. 중단 값은 응답(model_dump, JSON)이고 체크포인트에서는 암호화된 blob이 된다 (3절 "중단 값").
+    재개하면 interrupt()가 재개 값(RESUME_FIELDS 칸)을 돌려주고, 이 노드가 처음부터 다시 돌아 그 값을 request에 합친다(새 값이 우선, v1과 같다).
+    판정에 쓰는 judged_request도 같은 규칙으로 다시 만든다: 판매 예정일이 이번에 없으면 처음 읽어 둔 저장 날짜(saved_due)로 채운다 (v1 _run).
+    응답은 비우고(identify가 새로 정한다) awaiting을 내리며 resumed를 올린다: 재개한 실행의 decorate가 처리 이력을 다시 받는다 (EC-15, Q12).
+    이 노드에는 외부 호출과 DB 쓰기를 두지 않는다 (재개 때 처음부터 다시 도는 노드라서)."""
+    resume = interrupt({"response": state["response"].model_dump(mode="json")})
+    request = state["request"].model_copy(update={f: resume[f] for f in RESUME_FIELDS if resume.get(f) is not None})
+    saved_due = state.get("saved_due") if request.sale_due_date is None else None
+    judged = request.model_copy(update={"sale_due_date": saved_due}) if saved_due else request
+    return _step("ask_wait", request=request, judged_request=judged, saved_due=saved_due, response=None, awaiting=False, resumed=True)
+
+
 @db_scope
 def collect(state: AgentState) -> dict:
     """위치, 입항 일정, 남은 거리, 위치 이력을 차례로 모은다 (SDD 4.1 4단계). 순서는 v1과 같게 순차다(병렬로 바꾸지 않는다).
@@ -336,9 +368,32 @@ def fallback_partial(state: AgentState) -> dict:
         state["signal_set"], state["days_margin"], state["table_verdict"], state["gray"], state["customs"], state["collected"]))
 
 
+def refetch_display_rows(request, bl_type_used: str | None) -> list:
+    """재개한 실행이 화면 전용 처리 이력(customs_detail)을 다시 받는다 (EC-15, Q12 A). 체크포인트에는 이력 원문(중량·관세법인명)을 두지 않으므로
+    (CustomsRecord.display_rows는 exclude=True) 되살린 State에는 비어 있다. 처음 실행이 찾은 구분(bl_type_used) 하나로 UNI-PASS를 한 번 부른다.
+    못 가져오면(장애, 구분 모름, 조회 결과 없음) 빈 목록이고 로그에 종류만 남긴다. 이력이 비는 것뿐 판정은 그대로다."""
+    if bl_type_used is None:
+        return []
+    try:
+        record = agent.UnipassClient().fetch(request.bl_no, bl_type_used)
+    except agent.CustomsError as e:
+        log_failure("customs_detail", e.code)
+        return []
+    return list(record.display_rows) if record is not None else []
+
+
 @db_scope
 def decorate(state: AgentState) -> dict:
     """화면 전용 칸을 붙인다: 처리 이력 원문, 찾은 B/L 구분, 통관 소요 시간과 그 근거 카드 (v1 _assess 끝부분).
-    세관 조회에 성공한 뒤의 모든 응답에만 붙는다. 조회 실패·MRN 대체 응답은 이 노드를 거치지 않는다."""
-    response = agent._with_display_fields(state["response"], state["customs"], state.get("bl_type_used"))
+    세관 조회에 성공한 뒤의 모든 응답에만 붙는다. 조회 실패·MRN 대체 응답은 이 노드를 거치지 않는다.
+    두 가지가 H7에서 더해졌다 (v2-langgraph.md 3, 4절):
+    - 재개한 실행(resumed)에서 이력이 비어 있으면 UNI-PASS를 구분 하나로 한 번 불러 채운다(refetch_display_rows). 멈출 응답이면 건너뛴다(아래).
+    - 멈출 응답(awaiting)에서는 customs_detail을 비운다. 이 응답은 State와 중단 값으로 체크포인트(DB)에 가는데, 이력 원문에는 중량·관세법인명이 있어
+      SDD 3.5가 DB 저장을 막는다. HTTP로 나가는 응답의 이력은 퍼사드가 메모리에 있는 State(customs.display_rows)로 다시 채운다 (facade.restore_detail)."""
+    customs = state["customs"]
+    if state.get("resumed") and not state.get("awaiting") and not customs.display_rows:
+        customs = customs.model_copy(update={"display_rows": refetch_display_rows(_working_request(state), state.get("bl_type_used"))})
+    response = agent._with_display_fields(state["response"], customs, state.get("bl_type_used"))
+    if state.get("awaiting"):
+        response = response.model_copy(update={"customs_detail": []})
     return _step("decorate", response=response)

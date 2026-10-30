@@ -1,6 +1,6 @@
 # Marvia SDD
 
-기준: PRD, 개발 작업 리스트, 그리고 레포에 실제로 있는 코드와 설정 파일(마이그레이션 001~031, 032는 v2 그래프 체크포인트용 예약). 각 절은 "무엇이 있고, 입력·출력이 무엇이고, 무엇이 되면 완료인가"를 적는다. 코드 주석이 "SDD 5.4"처럼 절 번호로 이 문서를 가리키므로 절 번호는 바꾸지 않는다.
+기준: PRD, 개발 작업 리스트, 그리고 레포에 실제로 있는 코드와 설정 파일(마이그레이션 001~032, 032는 v2 그래프 체크포인트용). 각 절은 "무엇이 있고, 입력·출력이 무엇이고, 무엇이 되면 완료인가"를 적는다. 코드 주석이 "SDD 5.4"처럼 절 번호로 이 문서를 가리키므로 절 번호는 바꾸지 않는다.
 
 ## 1. 개요와 범위
 
@@ -130,7 +130,7 @@ marvia/
       prompts/              Langfuse 프롬프트의 로컬 사본 10개: marvia-judge, -judge-eval, -pick-vessel, -follow-up,
                             -doc-extract, -memory-write, -chat-agent, -chat-route, -chat-title, -port-match
       db/__init__.py        연결, 마이그레이션 적용기, 조회 이력·위치 읽기 함수
-      db/migrations/        001~031 *.sql (3.9). 032는 그래프 체크포인트용 예약(예정)
+      db/migrations/        001~032 *.sql (3.9). 032는 그래프 체크포인트용
     tests/                  pytest, 키·DB 없이 fixture로. conftest.py가 실제 DB 접속을 막는다
   mcp_server/
     server.py               FastMCP 앱, MountedMCP, 도구 4개 등록(읽기 전용 표시)
@@ -534,7 +534,7 @@ class EvalRecord(BaseModel):
 
 ### 3.9 DB 스키마
 
-마이그레이션은 `backend/app/db/migrations/001~031 *.sql`(파일 35개, 번호 016·017·018·021은 두 파일씩. 032는 v2 그래프 체크포인트용으로 예약했고 H7에서 만든다)이고, 서버가 켜질 때 `DATABASE_URL`이 있으면 `main._migrate` → `db.apply_migrations`가 이름 순서로 한 번씩 적용한다(`schema_migrations` 표에 기록). worker도 켜질 때 같은 함수를 부른다. 전체를 `pg_advisory_lock`으로 감싸 api와 worker가 동시에 떠도 두 번 적용하지 않고, 파일 하나를 한 트랜잭션으로 묶는다. DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다. 모든 표에 RLS를 켠다(005 이후 새 표는 각 파일에서).
+마이그레이션은 `backend/app/db/migrations/001~031 *.sql`(파일 35개, 번호 016·017·018·021은 두 파일씩. 032는 v2 그래프 체크포인트용으로 H7에서 만들었다)이고, 서버가 켜질 때 `DATABASE_URL`이 있으면 `main._migrate` → `db.apply_migrations`가 이름 순서로 한 번씩 적용한다(`schema_migrations` 표에 기록). worker도 켜질 때 같은 함수를 부른다. 전체를 `pg_advisory_lock`으로 감싸 api와 worker가 동시에 떠도 두 번 적용하지 않고, 파일 하나를 한 트랜잭션으로 묶는다. DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다. 모든 표에 RLS를 켠다(005 이후 새 표는 각 파일에서).
 
 해수부 수집은 `arrival_reports`·`control_events`·`targets` 세 표로 나뉘고, API 응답 캐시는 DB가 아니라 프로세스 메모리(`clients/cache.py`)다.
 
@@ -569,7 +569,7 @@ class EvalRecord(BaseModel):
 | 029 | vessel_detail_recent | `vessel_detail_usage.recent`: 선박 자세히 보기에서 최근에 본 배 열쇠와 시각 |
 | 030 | memory_seq_pruned | 메모장 번호 단조 증가(`next_seq`)와 자동 정리 기록(`pruned_count`, `pruned_at`) |
 | 031 | watch_positions_source | `watch_positions.source`: 감시·지도 위치가 어디서 왔는지(worker, aisstream, seed, lookup) |
-| 032 | graph_checkpoints | 예정(v2 H7, 아직 파일 없음). `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations` 네 표(라이브러리 `PostgresSaver`와 같은 모양, RLS 켬)와 정리 함수 `purge_old_graph_checkpoints(days integer)`. `docs/specs/v2-langgraph.md` 4절 |
+| 032 | graph_checkpoints | `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations` 네 표(라이브러리 `PostgresSaver`와 같은 모양, RLS 켬)와 정리 함수 `purge_old_graph_checkpoints(keep_days integer)`(워커가 rules.md `graph_checkpoint_retention_days`를 넘겨 부름). `docs/specs/v2-langgraph.md` 4절 |
 
 - 개인정보 저장 원칙: B/L 원본·회원 정보·카카오 토큰·대화 글·메모장 전화번호·운영자 이메일은 서버에서 잠근 글자(`crypto.encrypt`, `encrypt_pii`)만 DB에 둔다. 열쇠가 없으면 원문을 저장하지 않는다. 화주 정보·중량·세관명은 저장하지 않는다. 조회 이력은 `bl_masked`만 화면에 나간다.
 - 보관 기간은 SQL 함수로 정한다(`purge_old_*`, `purge_done_cargo`). Supabase의 pg_cron이 있으면 마이그레이션이 일정을 등록하고, worker가 실행될 때도 같은 함수를 부른다(`worker/run.py`).

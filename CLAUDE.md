@@ -106,7 +106,7 @@ marvia/
                         vessel_pick, kakao, quota, referrals, operators, cargo_sheet, port_traffic 등
       clients/          shipfinder.py, mof.py, kakao.py, portwatch.py, supabase_admin.py, replay.py, cache.py, retry.py
       observability/    langfuse.py, logging.py
-      db/migrations/    001~031 *.sql. 서버가 켜질 때 DATABASE_URL이 있으면 순서대로 자동 적용 (SDD 3.9). 032는 v2 그래프 체크포인트용으로 예약(예정, H7)
+      db/migrations/    001~033 *.sql. 서버가 켜질 때 DATABASE_URL이 있으면 순서대로 자동 적용 (SDD 3.9). 032는 v2 그래프 체크포인트, 033은 RAG 조각(pgvector 없으면 표를 만들지 않음)
       prompts/          Langfuse에서 못 가져올 때 쓰는 프롬프트 사본 (marvia-*.md 10개)
     tests/              pytest. 키 없이 돈다
   relay/                해수부 API 릴레이 (서울 Cloud Run, FastAPI). 해외 서버에서 해수부 연결이 막혀서 둔다

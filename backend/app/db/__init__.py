@@ -273,6 +273,13 @@ def purge_old_conversations(conn) -> int:
     return conn.execute("SELECT purge_old_conversations()").fetchall()[0][0]
 
 
+def purge_graph_checkpoints(conn, keep_days: int) -> int:
+    """어느 요청도 오지 않아 남은 멈춘 판정 그래프 스레드를 keep_days일 뒤 지우고 지운 스레드 수를 돌려준다 (migrations/032).
+    기간은 SQL에 박지 않고 인자로 받는다: 부르는 쪽(worker/run.py)이 rules.md graph_checkpoint_retention_days를 읽어 넘긴다.
+    코드는 요청이 올 때 TTL(graph_pause_ttl_hours)이 지난 스레드를 지우므로 이 함수는 그 안전망이다. 여러 번 불러도 결과는 같다."""
+    return conn.execute("SELECT purge_old_graph_checkpoints(%s)", [keep_days]).fetchall()[0][0]
+
+
 def purge_watch_positions(conn) -> int:
     """더 지켜보지 않는 배의 30일 지난 감시·지도 위치(watch_positions)를 지우고 지운 줄 수를 돌려준다.
 

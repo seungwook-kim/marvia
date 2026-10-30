@@ -18,6 +18,7 @@ DB가 없거나 붙지 않으면 경고만 남기고 서버는 뜬다 (DB 없이
 """
 import logging
 import os
+import sys
 import threading
 from contextlib import asynccontextmanager
 
@@ -36,6 +37,18 @@ from mcp_server.server import MountedMCP
 setup_logging()
 logger = logging.getLogger(__name__)
 mcp_app = MountedMCP()
+
+
+def _close_graph_checkpointer() -> None:
+    """판정 그래프 체크포인터의 DB 연결 풀을 닫는다 (v2-langgraph.md 4절 연결). 그래프를 한 번도 쓰지 않았으면(AGENT_GRAPH 꺼짐) 모듈이
+    적재돼 있지 않으므로 아무것도 안 한다: 닫으려고 langgraph를 새로 읽지 않는다. 닫기 실패는 종료를 막지 않는다."""
+    module = sys.modules.get("backend.app.graph.checkpoint")
+    if module is None:
+        return
+    try:
+        module.close_checkpointer()
+    except Exception as e:  # noqa: BLE001 - 종료 중 오류가 나머지 정리를 막으면 안 된다
+        log_failure("graph_checkpoint", f"close_failed {type(e).__name__}")
 
 
 def _migrate() -> None:
@@ -102,6 +115,7 @@ async def lifespan(app: FastAPI):
     stop_demo.set()
     # 기억 뒤 작업을 먼저 끝내야 그 안의 LLM 트레이스도 아래 flush에 실린다
     memory_service.shutdown()
+    _close_graph_checkpointer()
     # 꺼질 때 남은 트레이스를 보낸다. 안 하면 마지막 요청들의 트레이스가 사라진다
     langfuse_flush()
 

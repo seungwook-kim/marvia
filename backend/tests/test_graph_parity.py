@@ -113,7 +113,7 @@ def test_ask_back(fake, monkeypatch):
         fake(candidates=[_candidate(440999001), _candidate(440999002, call_sign="TST02")])
     response = _assert_same(monkeypatch, setup, _req())
     assert response.status == "insufficient" and response.vessel_match == "uncertain"
-    assert _path(_req()) == [*CUSTOMS_OK, "scope_gate", "identify", "decorate"]
+    assert _path(_req()) == [*CUSTOMS_OK, "scope_gate", "identify", "ask_prepare", "decorate"]
 
 
 def test_ask_back_resolved_mmsi(fake, monkeypatch):

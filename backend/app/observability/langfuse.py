@@ -218,13 +218,15 @@ def request_span(path: str, method: str = "POST"):
 
 
 @contextmanager
-def node_scope(name: str):
+def node_scope(name: str, benign: tuple[type[BaseException], ...] = ()):
     """그래프 노드 하나의 실행을 span 하나로 감싼다. 이름은 "node:<노드 이름>" (v2-langgraph.md 7절, SDD 5.11). graph/observe.node_span이 부른다.
 
     이 안에서 여는 generation·tool 관측은 이 span의 자식이 된다(_node_var). 노드가 끝나면 문맥을 되돌린다.
     input·output은 비운다: State 값(B/L, 컨테이너 번호, 연락처, LLM 문장)이 span에 가지 않게 하려는 것이다 (SDD 3.5).
     metadata는 node(이름), request_id, latency_ms와, 호출한 쪽이 handle.metadata에 적은 안전한 값(시도 번호, 갈림길 이름)뿐이다.
     노드에서 예외가 나가면 handle.error에 예외 종류만 적고 level=ERROR로 남기며 예외는 그대로 올린다.
+    benign에 든 종류의 예외는 오류가 아니라 정상 흐름이다(예: 그래프의 interrupt 멈춤). ERROR로 표시하지 않고 예외는 그대로 올린다.
+    langgraph를 이 파일에서 import하지 않으려고(레포 코드의 langgraph import는 graph/와 worker/뿐) 종류는 부르는 쪽(graph/observe.py)이 넘긴다.
     키가 없거나 Langfuse가 실패하면 span 없이 그대로 지나간다. 판정은 막히지 않는다.
     """
     handle = _SpanHandle()
@@ -234,7 +236,8 @@ def node_scope(name: str):
     try:
         yield handle
     except BaseException as e:
-        handle.error = handle.error or type(e).__name__
+        if not isinstance(e, benign):
+            handle.error = handle.error or type(e).__name__
         raise
     finally:
         if token is not None:

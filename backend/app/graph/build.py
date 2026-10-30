@@ -12,7 +12,8 @@ validate 뒤 엣지 함수(routes.after_validate)가 통과면 finalize, 다시 
 기억 읽기(load_memory)를 화물 줄 읽기(load_saved)보다 먼저 두는 것은 v1 _run의 순서를 지키려는 것이다:
 기억 읽기가 실패하면 화물 줄 읽기는 DB에 다시 붙지 않는다 (10-08 QA B7, test_qa_1008_verdict.py). spec 표의 순서와 다르다.
 노드마다 node_span으로 감싸 올린다(H6, Langfuse span "node:<이름>", 키가 없으면 아무 일도 안 한다).
-체크포인터는 H7에서 붙인다. H2는 None이라 노드 사이 값은 메모리에서만 움직이고 저장되지 않는다.
+되묻기(H7): identify -> (insufficient) ask_prepare -> decorate -> (awaiting) ask_wait -> identify. ask_wait는 interrupt로 멈추고 재개하면 identify로 돌아간다.
+체크포인터(H7)는 build_graph(checkpointer)로 받는다. None이면 노드 사이 값은 메모리에서만 움직이고 저장되지 않으며 ask_wait에는 닿지 않는다 (EC-01).
 
 간선 표(FIXED, BRANCHES)를 한 곳에 두고, 시작 노드(entry)에서 닿는 노드만 그래프에 올린다. 판정만의 그래프(entry="fetch_customs")에
 guard_input, load_memory, load_saved, load_previous처럼 닿지 않는 노드가 따라 들어가지 않게 하려는 것이다.
@@ -27,7 +28,7 @@ from backend.app.graph.state import AgentState
 
 # 갈림길 없는 간선: 노드 -> 다음 노드(또는 END)
 FIXED: dict[str, str] = {
-    "load_memory": "load_saved", "collect": "compute_signals",
+    "load_memory": "load_saved", "collect": "compute_signals", "ask_prepare": "decorate", "ask_wait": "identify",
     "gate_no_position": "decorate", "gate_no_eta": "decorate", "table_verdict": "judge",
     "finalize": "decorate", "fallback_partial": "decorate",
 }
@@ -42,12 +43,12 @@ BRANCHES: dict[str, tuple] = {
                                              "guard_follow_up": "guard_follow_up", END: END}),
     "mrn_fallback": (routes.after_mrn_fallback, {"guard_follow_up": "guard_follow_up", END: END}),
     "scope_gate": (routes.after_scope, {"decorate": "decorate", "identify": "identify"}),
-    "identify": (routes.after_identify, {"decorate": "decorate", "collect": "collect"}),
+    "identify": (routes.after_identify, {"ask_prepare": "ask_prepare", "decorate": "decorate", "collect": "collect"}),
     "compute_signals": (routes.after_signals, {"gate_no_position": "gate_no_position", "gate_no_eta": "gate_no_eta",
                                                "table_verdict": "table_verdict"}),
     "judge": (routes.after_judge, {"validate": "validate", "give_up": "fallback_partial"}),
     "validate": (routes.after_validate, {"pass": "finalize", "retry": "judge", "give_up": "fallback_partial"}),
-    "decorate": (routes.after_decorate, {"guard_follow_up": "guard_follow_up", END: END}),
+    "decorate": (routes.after_decorate, {"ask_wait": "ask_wait", "guard_follow_up": "guard_follow_up", END: END}),
     "guard_follow_up": (routes.after_guard_follow_up, {"answer_follow_up": "answer_follow_up", END: END}),
     "answer_follow_up": (routes.after_answer_follow_up, {"validate_follow_up": "validate_follow_up", END: END}),
     "validate_follow_up": (routes.after_validate_follow_up, {"answer_follow_up": "answer_follow_up", END: END}),
@@ -55,7 +56,7 @@ BRANCHES: dict[str, tuple] = {
 
 # 그래프에 올릴 수 있는 노드 이름. 함수 이름과 같다 (nodes.py)
 NODE_NAMES = ("guard_input", "load_memory", "load_saved", "load_previous", "fetch_customs", "mrn_fallback",
-              "scope_gate", "identify", "collect", "compute_signals", "gate_no_position", "gate_no_eta",
+              "scope_gate", "identify", "ask_prepare", "ask_wait", "collect", "compute_signals", "gate_no_position", "gate_no_eta",
               "table_verdict", "judge", "validate", "finalize", "fallback_partial", "decorate",
               "guard_follow_up", "answer_follow_up", "validate_follow_up")
 

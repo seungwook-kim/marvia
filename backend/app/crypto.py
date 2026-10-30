@@ -92,6 +92,11 @@ def decrypt_pii(token: str) -> str | None:
     return decrypt(token, PII_KEY_ENV)
 
 
+def has_key(key_env: str = BL_KEY_ENV) -> bool:
+    """쓸 수 있는 열쇠가 환경변수에 있나. 값을 읽지 않고 있다 없다만 답한다. 체크포인터를 만들지 정할 때 쓴다 (graph/checkpoint.py, EC-01)."""
+    return _fernet(key_env) is not None
+
+
 # ── 바이트용 (docs/specs/v2-langgraph.md 4절 "마스킹과 암호화" 1) ──
 # 그래프 체크포인트의 직렬화 결과(bytes)를 잠그는 데 쓴다 (graph/checkpoint.py FernetCipher).
 # 열쇠 처리와 로그는 encrypt/decrypt와 같다(_fernet). 달라진 것은 입출력이 글자가 아니라 바이트라는 점뿐이다.

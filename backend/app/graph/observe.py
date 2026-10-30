@@ -4,9 +4,12 @@
 그 span 아래에 걸리게 한다. span을 열고 닫는 일과 부모 문맥(_node_var)은 observability/langfuse.py의 node_scope가 맡고,
 이 파일은 노드가 돌려준 State 갱신에서 "남겨도 안전한 값"만 골라 metadata에 옮긴다.
 
-남기는 값: 루프 노드(judge, validate, answer_follow_up, validate_follow_up)의 시도 번호(judge_attempt, follow_attempt, 정수), 갈림길 이름(judge_route, follow_route: pass, retry, give_up), 응답이 정해졌으면 그 status.
+남기는 값: 이어 간 실행인가(resumed, 불리언), 루프 노드(judge, validate, answer_follow_up, validate_follow_up)의 시도 번호(judge_attempt, follow_attempt, 정수), 갈림길 이름(judge_route, follow_route: pass, retry, give_up), 응답이 정해졌으면 그 status.
 남기지 않는 값: 요청, 세관 기록, 후보 이름, 판정·후속 답 문장, 피드백, 기억처럼 State에 든 나머지 전부. input·output은 span에 비운다.
 B/L, 컨테이너 번호, 연락처가 span에 가지 않게 하려는 것이다 (SDD 3.5). 값을 이름으로 골라 읽는 목록(아래 두 상수)에 없는 칸은 읽지 않는다.
+
+되묻기 멈춤(H7): ask_wait의 interrupt()는 GraphInterrupt 예외로 노드를 빠져나간다. 이것은 오류가 아니라 정상 흐름이라 ERROR로 남기지 않고
+outcome을 "interrupted"로 적는다 (v2-langgraph.md 7절). 재개하면 ask_wait가 처음부터 다시 돌아 새 span이 하나 더 생긴다.
 
 키가 없으면 node_scope가 span 없이 지나가므로 이 래퍼는 노드를 그대로 부르는 것과 같다.
 """
@@ -14,6 +17,8 @@ from __future__ import annotations
 
 import functools
 from typing import Callable
+
+from langgraph.errors import GraphInterrupt
 
 from backend.app.graph.state import AgentState
 from backend.app.observability import langfuse as tracing
@@ -52,8 +57,14 @@ def node_span(name: str) -> Callable:
     def decorate(node: Callable[[AgentState], dict]) -> Callable[[AgentState], dict]:
         @functools.wraps(node)
         def wrapper(state: AgentState) -> dict:
-            with tracing.node_scope(name) as handle:
-                update = node(state)
+            with tracing.node_scope(name, benign=(GraphInterrupt,)) as handle:
+                handle.metadata["resumed"] = bool(state.get("resumed"))
+                try:
+                    update = node(state)
+                except GraphInterrupt:
+                    handle.metadata["outcome"] = "interrupted"
+                    raise
+                handle.metadata["resumed"] = bool(state.get("resumed") or (update or {}).get("resumed"))
                 _annotate(handle, name, state, update or {})
                 return update
         return wrapper

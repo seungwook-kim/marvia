@@ -272,6 +272,7 @@ def test_withdraw_deletes_kakao_row_without_calling_kakao(monkeypatch):
     monkeypatch.setattr(account_service, "delete_profile", lambda c, u: 0)
     monkeypatch.setattr(account_service, "forget_user", lambda c, u: 0)
     monkeypatch.setattr(account_service, "delete_conversations", lambda c, u: 0)
+    monkeypatch.setattr(account_service, "delete_user_threads", lambda c, u: 0)
     monkeypatch.setattr(account_service.quota, "forget_user", lambda c, u: None)
     monkeypatch.setattr(account_service, "_close_account", lambda c, u: False)  # 탈퇴 표시·배 지켜보기 정리 (test_account.py)
     monkeypatch.setattr(account_service, "delete_account", lambda u: None)

@@ -38,6 +38,11 @@ judge_budget_sec: 60
 # 40은 25보다 크고 H7(되묻기 멈춤 노드 ask_prepare, ask_wait 추가)에서 늘어날 단계를 받을 여유(15단계)가 있어 값을 그대로 둔다.
 # 노드를 더하면 이 숫자를 다시 센다. 정상 경로가 이 값에 닿으면 안 되고, 닿으면 루프가 샌 것이다
 graph_recursion_limit: 40
+# 되묻기에서 멈춘 판정 그래프(체크포인트)의 보관 규칙 (v2-langgraph.md 3, 4절, EC-02, Q4). 코드(graph/facade.py, worker/run.py)가 읽는다.
+# graph_pause_ttl_hours: 멈춘 지 이 시간이 지나면 이어 가지 않고 스레드를 지운 뒤 처음부터 다시 돈다. 통관 단계는 시간이 지나면 바뀌어 있을 수 있어서 짧게 둔다
+# graph_checkpoint_retention_days: 어느 요청도 오지 않아 코드가 못 지운 멈춘 스레드를 워커가 이 일수 뒤 지운다(DB 함수 purge_old_graph_checkpoints, migrations/032). TTL을 넘긴 고아 스레드의 안전망
+graph_pause_ttl_hours: 2
+graph_checkpoint_retention_days: 7
 ---
 
 # 2층 등급 판정 표

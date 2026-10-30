@@ -1268,6 +1268,8 @@ def test_logged_in_user_deletes_own_history(monkeypatch):
     monkeypatch.setattr(history_router, "forget_user", lambda conn, user_id: asked.append(("memory", user_id)) or 2)
     # 대화 목록도 같이 지운다
     monkeypatch.setattr(history_router.conversations, "delete_all", lambda conn, user_id: asked.append(("conversations", user_id)) or 1)
+    # 멈춘 판정 그래프 체크포인트도 같이 지운다 (v2-langgraph.md EC-13). 순서 검사에는 넣지 않는다
+    monkeypatch.setattr(history_router, "delete_user_threads", lambda conn, user_id: 0)
 
     with TestClient(app) as client:
         resp = client.delete("/api/history", headers=headers)

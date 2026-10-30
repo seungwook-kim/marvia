@@ -108,7 +108,8 @@ class AgentState(TypedDict, total=False):
     follow_candidates_used: int        # 후보 검색 도구를 이 질문에서 부른 횟수(시도를 넘어 센다, agent._capped_follow_up_tool)
 
     # ── 되묻기와 결과 ──
-    awaiting: bool                     # 되묻기 대기 중
+    awaiting: bool                     # 되묻기 대기 중 (ask_prepare가 켜고 ask_wait가 재개 때 내린다)
+    resumed: bool                      # 멈췄다 이어 간 실행 (ask_wait가 올린다). decorate가 처리 이력을 다시 받는 조건 (EC-15)
     response: AgentResponse | None     # 그래프의 결과
 
     # 지나간 노드 이름. 유일한 누적 리듀서. 새로 돌 때 스레드를 지우므로 지난 실행이 따라오지 않는다 (2절)
@@ -124,6 +125,6 @@ PLAINTEXT_FIELDS: frozenset[str] = frozenset({
     "trusted_eta", "days_margin", "has_position", "from_cache",
     "table_verdict", "gray",
     "judge_attempt", "judge_spent_sec", "judge_last_sec", "judge_route",
-    "follow_attempt", "follow_route", "follow_candidates_used", "awaiting",
+    "follow_attempt", "follow_route", "follow_candidates_used", "awaiting", "resumed",
     "path",
 })

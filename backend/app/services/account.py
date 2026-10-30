@@ -22,6 +22,7 @@ from typing import Callable
 
 from backend.app.clients.supabase_admin import AdminError, delete_account
 from backend.app.db import atomic, connect, delete_user_queries
+from backend.app.graph.threads import delete_user_threads
 from backend.app.services import quota
 from backend.app.services.conversations import delete_all as delete_conversations
 from backend.app.services.kakao import delete as delete_kakao_link
@@ -96,6 +97,7 @@ def withdraw(user_id: str, *, in_transaction: Callable | None = None) -> Withdra
             delete_profile(conn, user_id)  # 회원 정보(이름·전화·주소, 암호화 저장)
             forget_user(conn, user_id)  # 화물 표·메모장 (암호화된 B/L 포함)
             delete_conversations(conn, user_id)  # 대화 목록. 말풍선은 대화가 지워질 때 같이 지워진다 (migrations/018)
+            delete_user_threads(conn, user_id)  # 되묻기에서 멈춘 판정 그래프의 체크포인트 (migrations/032, v2-langgraph.md EC-13)
             # 카카오 알림 토큰은 줄만 지운다. 카카오 서버 연결 해제는 부르지 않는다
             # (외부 실패가 탈퇴를 막으면 안 되고, 토큰이 없으면 더 보낼 수 없다)
             delete_kakao_link(conn, user_id)

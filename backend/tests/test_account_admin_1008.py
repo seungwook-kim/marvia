@@ -261,7 +261,7 @@ def _withdraw_env(monkeypatch, db, records_fail=False, account_fail=False):
             raise RuntimeError("db down")
         return 2
     monkeypatch.setattr(account_service, "delete_user_queries", records)
-    for name in ("delete_profile", "forget_user", "delete_conversations", "delete_kakao_link"):
+    for name in ("delete_profile", "forget_user", "delete_conversations", "delete_kakao_link", "delete_user_threads"):
         monkeypatch.setattr(account_service, name, lambda conn, user_id: 0)
     monkeypatch.setattr(account_service.quota, "forget_user", lambda conn, user_id: None)
     monkeypatch.setattr(account_service, "_close_account", lambda conn, user_id: False)

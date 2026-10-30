@@ -52,7 +52,14 @@ def test_each_rules_file_has_its_own_keys():
                           "sale_date_words", "sale_passed_words", "plan_compare_words", "sale_compare_words",
                           "sale_due_past_days", "sale_due_future_days",  # 판매 예정일 범위 (10-08 QA B2)
                           # 판정 재시도 상한·시간 예산과 그래프 노드 실행 횟수 안전망 (v2-langgraph.md H4)
-                          "judge_max_attempts", "judge_budget_sec", "graph_recursion_limit"},
+                          "judge_max_attempts", "judge_budget_sec", "graph_recursion_limit",
+                          # 멈춘 판정 그래프(체크포인트) 보관 규칙 (v2-langgraph.md H7)
+                          "graph_pause_ttl_hours", "graph_checkpoint_retention_days"},
+        # 채팅 RAG 검색 재료 (v2-rag.md 6절, R2). SKILL.md 없이 rules.md만 있다
+        "rag-search": {"rag_corpus_folders", "rag_chunk_target_chars", "rag_chunk_max_chars", "rag_chunk_min_chars",
+                       "rag_context_header", "rag_candidates", "rag_top_k", "rag_rrf_k", "rag_bm25_k1", "rag_bm25_b",
+                       "rag_query_turns", "rag_query_max_chars", "rag_min_score", "rag_min_terms",
+                       "rag_search_timeout_ms", "rag_ann_min_chunks"},
         "referrals": {"signal_referrals", "referral_order", "referral_max", "referral_prefix", "signal_referral_links",
                       "broker_referral", "out_of_scope"},
     }
@@ -104,10 +111,14 @@ def test_busan_port_code_change_is_followed(monkeypatch):
 def test_every_skill_folder_has_skill_and_rules_with_spec_front_matter():
     folders = sorted(p for p in rules.SKILLS_DIR.iterdir() if p.is_dir())
     assert {f.name for f in folders} == {"ais-reliability", "customs-stages", "port-busan", "cargo-verdict", "referrals",
-                                         "import-basics"}
+                                         "import-basics", "rag-search"}
     for folder in folders:
         # import-basics는 고정 지식만 있고 코드가 읽는 재료가 없어 rules.md를 두지 않는다
         assert (folder / "rules.md").is_file() or folder.name == "import-basics", folder.name
+        if folder.name == "rag-search":
+            # rag-search는 코드가 읽는 키만 있다. SKILL.md를 두지 않는다 = 어떤 LLM 호출도 이 폴더를 통째로 넣지 않는다 (v2-rag.md 6절)
+            assert not (folder / "SKILL.md").exists()
+            continue
         front = rules._front_matter(folder / "SKILL.md")
         assert front["name"] == folder.name
         assert front["description"].strip()

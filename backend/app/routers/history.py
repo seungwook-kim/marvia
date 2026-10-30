@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from backend.app.auth import current_user_id
 from backend.app.db import atomic, connect, delete_user_queries, recent_queries
+from backend.app.graph.threads import delete_user_threads
 from backend.app.services import cargo, conversations
 from backend.app.observability.logging import log_failure
 from backend.app.services.memory import forget_user
@@ -97,6 +98,8 @@ def delete_history(user_id: Annotated[str | None, Depends(current_user_id)] = No
             forget_user(conn, user_id)
             # 대화 목록(대화방·말풍선)도 내 기록이라 같이 지운다
             conversations.delete_all(conn, user_id)
+            # 되묻기에서 멈춘 판정 그래프의 체크포인트도 내 기록이다 (migrations/032, v2-langgraph.md EC-13)
+            delete_user_threads(conn, user_id)
     except Exception as e:
         log_failure("history_delete", type(e).__name__)
         raise HTTPException(status_code=503, detail="기록 저장소에 연결하지 못해 삭제하지 못했습니다. 잠시 뒤 다시 시도하세요")

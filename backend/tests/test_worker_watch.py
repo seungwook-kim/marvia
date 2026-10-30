@@ -35,6 +35,7 @@ def collect_stubs(monkeypatch):
     monkeypatch.setattr(run, "purge_old_conversations", lambda c: 0)
     monkeypatch.setattr(run, "purge_watch_positions", lambda c: 0)
     monkeypatch.setattr(run, "purge_vessel_detail_usage", lambda c: 0)
+    monkeypatch.setattr(run, "purge_graph_checkpoints", lambda c, days: 0)
     # 배를 아는 지켜보는 화물 수. 기본은 RUN_LIMIT보다 많다고 둔다 (재판정 몫 예산이 상한까지 잡히게)
     monkeypatch.setattr(run, "known_vessel_due_count", lambda c: 99)
     return conn

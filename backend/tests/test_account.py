@@ -96,6 +96,8 @@ def _db(monkeypatch, steps: list, fail: bool = False):
     monkeypatch.setattr(account_service, "forget_user", lambda conn, user_id: steps.append(("memory", user_id)) or 2)
     # 대화 목록도 같은 단계에서 지운다
     monkeypatch.setattr(account_service, "delete_conversations", lambda conn, user_id: steps.append(("conversations", user_id)) or 1)
+    # 멈춘 판정 그래프 체크포인트도 같은 단계에서 지운다 (v2-langgraph.md EC-13). 순서 검사에는 넣지 않는다
+    monkeypatch.setattr(account_service, "delete_user_threads", lambda conn, user_id: 0)
     # 카카오톡 알림 토큰도 같은 단계에서 지운다
     monkeypatch.setattr(account_service, "delete_kakao_link", lambda conn, user_id: steps.append(("kakao", user_id)) or 1)
     # 하루 토큰 사용량 줄도 같은 단계에서 지운다

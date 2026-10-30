@@ -68,3 +68,27 @@ def _fresh_vessel_search_caches():
     yield
     chat._plans_cache.clear()
     chat._ports_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _graph_checkpoint_off(monkeypatch):
+    """판정 그래프 체크포인터(GRAPH_CHECKPOINT)를 테스트마다 꺼 둔다 (docs/specs/v2-langgraph.md AC-06).
+    DATABASE_URL과 BL_ENCRYPTION_KEY를 둘 다 가짜로 둔 테스트가 auto 모드에서 실제 Postgres 풀을 열려 하지 않게 한다.
+    되묻기 이어 가기를 보는 테스트(test_graph_resume.py 등)는 이 값을 memory로 다시 바꾼다. 앞 테스트가 만든 체크포인터도 비운다."""
+    monkeypatch.setenv("GRAPH_CHECKPOINT", "off")
+    yield
+    import sys
+
+    module = sys.modules.get("backend.app.graph.checkpoint")
+    if module is not None:
+        module.close_checkpointer()
+
+
+@pytest.fixture(autouse=True)
+def _rag_off_fake_file(monkeypatch):
+    """채팅 RAG 기본값을 키·DB·모델 없는 모양으로 고정한다 (docs/specs/v2-rag.md 11절 "키 없는 테스트").
+    RAG_MODE=off(기존 채팅 테스트가 v1과 같게 돈다), 임베더는 가짜, 저장소는 파일(DB를 열지 않는다).
+    RAG를 보는 테스트만 monkeypatch.setenv로 이 값을 바꾼다."""
+    monkeypatch.setenv("RAG_MODE", "off")
+    monkeypatch.setenv("RAG_EMBED_BACKEND", "fake")
+    monkeypatch.setenv("RAG_STORE", "file")

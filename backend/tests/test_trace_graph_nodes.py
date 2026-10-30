@@ -188,7 +188,7 @@ def test_node_span_has_no_input_or_output_and_only_safe_metadata(fake, lf, monke
     _invoke(_req())
     for span in lf.nodes():
         assert span.input is None and "output" not in span.fields
-        assert set(span.metadata) <= {"node", "request_id", "latency_ms", "attempt", "outcome"}
+        assert set(span.metadata) <= {"node", "request_id", "latency_ms", "attempt", "outcome", "resumed"}
         assert span.metadata["node"] == span.name.removeprefix("node:") and span.metadata["latency_ms"] >= 0
     judge, validate, decorate = (lf.named(f"node:{n}")[0] for n in ("judge", "validate", "decorate"))
     assert (judge.metadata["attempt"], judge.metadata["outcome"]) == (1, "pass")
