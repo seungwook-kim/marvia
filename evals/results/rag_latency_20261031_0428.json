@@ -1,0 +1,196 @@
+{
+  "what": "search_knowledge 도구 전체(runtime.run_search)의 지연. 질의는 코퍼스 제목에서 만든 고정 목록(사용자 질문 아님)",
+  "measured_at": "2026-10-31T04:28:20+09:00",
+  "machine": {
+    "platform": "Windows-10-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 197 Stepping 2, GenuineIntel",
+    "cpu_count": 14,
+    "python": "3.11.9",
+    "onnxruntime": "1.30.0"
+  },
+  "query_sets": {
+    "single": {
+      "queries": 23,
+      "examples": [
+        "이 도메인은 무엇을 다루나",
+        "신호 7종",
+        "출처 우선순위"
+      ]
+    },
+    "pairs": {
+      "queries": 22,
+      "examples": [
+        "이 도메인은 무엇을 다루나 신호 7종",
+        "신호 7종 출처 우선순위",
+        "출처 우선순위 위치가 안 바뀔 때, '정박'일 때 (하정운 함정 AIS 판독 경험, 10-06)"
+      ]
+    }
+  },
+  "repeats": 5,
+  "runs": [
+    {
+      "mode": "bm25",
+      "embed_threads": null,
+      "searcher_build_ms": 2292.6,
+      "first_query_ms": 0.4,
+      "index_id": "9b92139f4904",
+      "chunks": 55,
+      "embed_model": null,
+      "single": {
+        "queries": 23,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 115,
+          "p50_ms": 0.23,
+          "p95_ms": 0.5,
+          "max_ms": 0.87,
+          "mean_ms": 0.26
+        },
+        "searcher_search_ms": {
+          "n": 115,
+          "p50_ms": 0.18,
+          "p95_ms": 0.4,
+          "max_ms": 0.76,
+          "mean_ms": 0.21
+        }
+      },
+      "pairs": {
+        "queries": 22,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 110,
+          "p50_ms": 0.38,
+          "p95_ms": 0.67,
+          "max_ms": 1.39,
+          "mean_ms": 0.42
+        },
+        "searcher_search_ms": {
+          "n": 110,
+          "p50_ms": 0.31,
+          "p95_ms": 0.58,
+          "max_ms": 1.29,
+          "mean_ms": 0.34
+        }
+      }
+    },
+    {
+      "mode": "hybrid",
+      "embed_threads": null,
+      "searcher_build_ms": 973.0,
+      "first_query_ms": 46.4,
+      "index_id": "9b92139f4904",
+      "chunks": 55,
+      "embed_model": "multilingual-e5-small-int8",
+      "single": {
+        "queries": 23,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 115,
+          "p50_ms": 5.11,
+          "p95_ms": 13.99,
+          "max_ms": 43.71,
+          "mean_ms": 6.9
+        },
+        "searcher_search_ms": {
+          "n": 115,
+          "p50_ms": 4.93,
+          "p95_ms": 13.75,
+          "max_ms": 43.55,
+          "mean_ms": 6.72
+        },
+        "query_embedding": {
+          "n": 115,
+          "p50_ms": 4.32,
+          "p95_ms": 13.06,
+          "max_ms": 42.87,
+          "mean_ms": 6.14
+        }
+      },
+      "pairs": {
+        "queries": 22,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 110,
+          "p50_ms": 5.71,
+          "p95_ms": 13.61,
+          "max_ms": 26.8,
+          "mean_ms": 6.82
+        },
+        "searcher_search_ms": {
+          "n": 110,
+          "p50_ms": 5.57,
+          "p95_ms": 13.45,
+          "max_ms": 26.65,
+          "mean_ms": 6.66
+        },
+        "query_embedding": {
+          "n": 110,
+          "p50_ms": 4.91,
+          "p95_ms": 12.55,
+          "max_ms": 25.97,
+          "mean_ms": 5.99
+        }
+      }
+    },
+    {
+      "mode": "hybrid",
+      "embed_threads": "1",
+      "searcher_build_ms": 974.8,
+      "first_query_ms": 6.2,
+      "index_id": "9b92139f4904",
+      "chunks": 55,
+      "embed_model": "multilingual-e5-small-int8",
+      "single": {
+        "queries": 23,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 115,
+          "p50_ms": 4.7,
+          "p95_ms": 8.02,
+          "max_ms": 11.37,
+          "mean_ms": 5.12
+        },
+        "searcher_search_ms": {
+          "n": 115,
+          "p50_ms": 4.51,
+          "p95_ms": 7.87,
+          "max_ms": 10.87,
+          "mean_ms": 4.94
+        },
+        "query_embedding": {
+          "n": 115,
+          "p50_ms": 4.04,
+          "p95_ms": 7.16,
+          "max_ms": 10.2,
+          "mean_ms": 4.47
+        }
+      },
+      "pairs": {
+        "queries": 22,
+        "failed_calls": 0,
+        "tool_total": {
+          "n": 110,
+          "p50_ms": 6.07,
+          "p95_ms": 8.71,
+          "max_ms": 9.97,
+          "mean_ms": 6.32
+        },
+        "searcher_search_ms": {
+          "n": 110,
+          "p50_ms": 5.91,
+          "p95_ms": 8.55,
+          "max_ms": 9.81,
+          "mean_ms": 6.17
+        },
+        "query_embedding": {
+          "n": 110,
+          "p50_ms": 5.31,
+          "p95_ms": 7.77,
+          "max_ms": 8.99,
+          "mean_ms": 5.56
+        }
+      }
+    }
+  ],
+  "caveat": "개발 기계 한 대의 값이다. Render 무료(CPU 0.1, RAM 512 MB)의 값이 아니다. 스레드 1은 느린 CPU의 대용품일 뿐이다."
+}

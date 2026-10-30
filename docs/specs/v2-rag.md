@@ -306,6 +306,7 @@ END $$;
 - `rag:search` tool span(`observability.langfuse.tool_span`, 이름 모양은 `unipass:fetch`, `checkpoint:read`와 같다): input은 비운다(LangGraph Spec 7절의 노드 span 방침과 같다. 질의는 이미 가렸지만 사용자 글이 span에 남지 않게 한다), output = 조각 id 목록과 점수, metadata = `query_chars`(질의 글자 수), `mode`, `top_k`, `n_hits`, `gated`, `dense_top1`, `bm25_terms`, `embed_ms`, `search_ms`, `index_id`(지문 앞 8자), `store`. 조각 글 전체나 사용자 원문은 남기지 않는다. user_id, session_id는 기존 span 문맥을 따른다(SDD 5.11).
 - 신뢰 경계(SDD 7절 표에 행 추가): 조각 글 = 데이터. 코퍼스 A(내부 문서)는 신뢰도가 높지만 지시로 읽지 않는다. 공개 문서가 들어오면 그때 낮은 신뢰로 취급하고 빌드에 주입 검사(`services/guard` 패턴)를 더한다.
 - 실패 처리(SDD 8절 표에 행 추가): EC-02~05 그대로. 외부 호출이 아니라 프로세스 내 호출이므로 재시도는 없다(타임아웃 `rag_search_timeout_ms` 후 EC-04).
+- 구현 메모(R10, services/rag/runtime.py `run_search`): span은 `search_knowledge` 도구가 불릴 때마다 한 개다. 위 칸에 더해 `reason`, `gate_enabled`, `notes`(한쪽 검색이 빠진 이유, 예외 이름만)를 metadata에 남기고, 검색을 못 했을 때는 `failure`(예외 이름), 가리기 검사가 막아 검색하지 않았을 때는 `blocked`를 남긴다. 실패와 시간 초과는 level=ERROR, 막은 것은 ERROR가 아니다. `index_id`는 앞 8자다. 시간 상한: `rag_search_timeout_ms`가 null이면 상한 없음이고, 값이 있으면 검색을 별도 스레드에서 돌려 그 시간 안에 못 끝나면 도구 결과 `{error: {code: "search_timeout", ...}}`를 돌려준다(넘긴 스레드는 읽기 전용 계산이라 뒤에서 끝까지 돈다). 값은 `scripts/measure_rag_latency.py` 측정(`evals/results/rag_latency_*.json`) 뒤에 사람이 정한다.
 
 ### 11. LangGraph Spec과의 접점 (`docs/specs/v2-langgraph.md` 2, 7, 8, 9절, Q10, H11을 읽고 맞춘 것)
 
