@@ -9,7 +9,7 @@
 | 목적 | B/L 번호(와 선택 입력인 판매 예정일)를 받아 선박을 식별하고, 신호를 판정해 3단계 verdict(순항 fine / 주의 watch / 긴급 act)와 할 일, 근거를 돌려준다. 자연어 채팅 창구, 화물 지켜보기와 카카오톡 알림, 서류 사진 읽기, 화물 현황 표를 같이 제공한다 |
 | 형태 | Next.js 16 UI(Railway `marvia-web`) + FastAPI(Railway `marvia-api`, FastMCP `/mcp` 포함) + Postgres(운영·개발은 Supabase, 로컬 compose는 postgres 16) + Langfuse. 수집·재판정 worker, 해수부 API 중계(relay) |
 | LLM | OpenRouter 경유(기본) 또는 Vertex AI(`LLM_MODEL`이 `vertex/`로 시작). 호출은 `backend/app/services/llm.py` 한 곳 |
-| 금지 | langgraph, RAG(청킹·벡터 검색 후 프롬프트 주입), 라우터에서 LLM SDK import, 프롬프트 문자열 하드코딩 |
+| 금지 | 라우터에서 LLM SDK import, 프롬프트 문자열 하드코딩, 채팅 웹 검색. v1(태그 `v1-skill-mcp`)은 langgraph와 RAG도 금지였고, v2는 아래 "v2 변경"의 선을 지키며 넣는다 |
 
 **범위:** PRD의 P0 기능(F0~F8)과 필수 조건 6개, 서류 사진·PDF 읽기(5.14). 그 위에 로그인(Supabase Auth), 화물 비서 기억, 대화 목록, 화물 지켜보기와 카카오톡 알림, 배만 지켜보기, 운영자 관리, 내 화물 현황 표(엑셀), 하루 토큰 한도, 오늘의 화물 화면, 부산항 입항 추세 카드, 데모 둘러보기가 있다(5.13, 5.15~5.20).
 
@@ -26,9 +26,19 @@
 | 같은 이름 배가 여럿이면 서류 대조(입항일·직전 기항지)를 먼저 하고, LLM 선택은 항차·포워더 예정일이 있을 때만 | 근거 없이 LLM이 고르면 남의 배를 확정한다 |
 | LLM 검증 실패는 failed가 아니라 판정 표 등급 + 고정 문구의 partial | 등급은 이미 코드가 정했으므로 못 만든 것은 문장뿐이다 |
 | MCP 서버를 api 프로세스의 `/mcp` 경로에 붙이고 서비스도 MCP 프로토콜로 부른다 | 배포 단위 하나, 외부 MCP 클라이언트와 같은 창구 |
-| 지식은 skills/ 문서를 호출마다 시스템 프롬프트에 통째로 넣는다(RAG 없음) | 문서가 작고, 근거 조각 검사(V14)가 원문 전체를 전제로 한다 |
+| 지식은 skills/ 문서를 호출마다 시스템 프롬프트에 통째로 넣는다(v1, RAG 없음). v2는 채팅 실무 질문 경로만 RAG로 바꾸고 judge()는 통째 주입을 유지한다 | 문서가 작고, 근거 조각 검사(V14)가 원문 전체를 전제로 한다. v2에서 RAG를 넣는 이유는 강의에서 배운 것을 적용하는 것이고 v1이 틀려서가 아니다 |
 | 서류 사진의 B/L 조건은 검사를 통과하면 확인 화면 없이 저장하고 출처·시각을 남긴다(026) | 입력 단계를 줄이되, 사람이 확인하지 않은 값임을 답에서 밝힐 수 있게 |
 | 배포 서버는 실제 모드(`REPLAY_MODE=false`). 재생 모드는 키 없는 로컬 데모·평가용. 무료 배포(6.8)도 실제 모드 | 실제 데이터로 시연, 재현은 재생 모드로. 호스팅은 무료, LLM 호출만 선불 크레딧 |
+
+**v2 변경 (2026-10-30 결정, 구현 전).** 처리 순서(4절)를 라우터 대신 LangGraph 그래프로 옮기고, 채팅 실무 질문(4.5)에 RAG를 붙인다. 문서 처리(4.7)는 나중에 그래프로 옮긴다. 상세는 `docs/specs/v2-langgraph.md`(그래프, Postgres 체크포인터)와 `docs/specs/v2-rag.md`(로컬 임베딩, Supabase pgvector, Kiwi BM25, RRF, 결과 없음 게이트, 검색 평가)다. 이 문서의 4절과 5절은 두 명세가 확정되고 구현되기 전까지 v1 동작을 적는다. 바뀌지 않는 선은 아래다.
+
+- 설치는 langgraph와 Postgres 체크포인터뿐, langchain 계열은 없다. LLM SDK import는 `services/llm.py`만이고 그래프 노드도 그 함수를 부른다
+- 등급, days_margin, 1층 신호, trusted_eta, freshness는 그래프 노드 안에서도 코드가 계산하고 LLM 값은 덮어쓴다. 검증 V1~V15와 partial 폴백도 그대로다
+- B/L은 LLM, 검색 질의, 임베딩, 체크포인트 평문, 트레이스에 넣지 않는다
+- 임계값(검색 top_k, 최소 점수, 청크 크기)은 `skills/*/rules.md` 프론트매터에 둔다
+- judge()는 Skill 통째 주입을 유지한다. 검색 주입은 평가 A/B 실험으로만 한다
+- 테스트와 REPLAY_MODE는 키 없이 돈다. 임베딩과 그래프는 fixture로, 체크포인터 없이 돌 수 있어야 한다
+- 평가셋은 사람이 쓴다. RAGAS는 채점기로만 쓰고 합성 테스트셋 생성은 쓰지 않는다. 런타임 웹 검색은 계속 금지다
 
 ### 1.1 레포 구조
 
@@ -817,7 +827,7 @@ multipart 업로드(10MB 상한). 앞 4바이트로 PDF 여부를 가른다(파�
   | `grade_customs()` | `marvia-judge-eval` | 평가의 통관 해설 채점(evals/judge.py) |
 
 - 프롬프트는 `observability/langfuse.get_prompt(name, label="production")`로 받는다. Langfuse 키가 없거나 실패하면 `backend/app/prompts/<이름>.md` 로컬 사본을 쓴다(트레이스의 prompt_version은 "local"). 코드에 프롬프트 문자열 없음. 현재 버전 번호와 되돌리기 절차는 `docs/release_manifest.json`·`docs/prompt_versions.md`. 배포가 쓰는 개인 Langfuse 프로젝트에는 `marvia-memory-write`를 포함한 레포 사본 11개가 모두 등록돼 있다(팀 프로젝트에서는 `marvia-memory-write`만 미등록이라 레포 파일로 동작했다).
-- 시스템 프롬프트 = Langfuse prompt + 그 호출에 필요한 skills/ 문서 전문(통째로, RAG 아님). 판정 = AIS 신뢰도·통관 단계·등급(`JUDGE_SKILLS`), 배 고르기 = AIS 신뢰도, 후속 질문·채팅 에이전트 = 전부(`CHAT_AGENT_SKILLS`), 통관 해설 채점 = 통관 단계(`GRADE_SKILLS`).
+- 시스템 프롬프트 = Langfuse prompt + 그 호출에 필요한 skills/ 문서 전문(통째로, RAG 아님. 이것이 v1 동작이고, v2의 채팅 실무 질문 경로는 검색 조각을 넣는다, `docs/specs/v2-rag.md`). 판정 = AIS 신뢰도·통관 단계·등급(`JUDGE_SKILLS`), 배 고르기 = AIS 신뢰도, 후속 질문·채팅 에이전트 = 전부(`CHAT_AGENT_SKILLS`), 통관 해설 채점 = 통관 단계(`GRADE_SKILLS`).
 - 도구 호출: 판정 흐름의 도구(위치·일정·거리·후보)는 코드가 순서대로 부르고 결과를 자료로 넘긴다. LLM이 도구를 고르는 곳은 후속 질문(읽기 전용 MCP 도구)과 채팅 에이전트뿐이고, 루프 상한은 `MAX_TOOL_ROUNDS=3`. 코드는 `services/mcp_client.py`로 `/mcp`를 거쳐 도구를 부르고(`MCP_URL`이 없으면 같은 프로세스 안의 MCP 서버에 메모리로 붙음) 호출마다 Langfuse tool 관측을 남긴다.
 - 모델: 서비스 모델은 `LLM_MODEL`(값은 `docs/release_manifest.json`의 `models.service`). 기억 뽑기·제목은 `MEMORY_MODEL`(비면 건너뜀), 서류 사진 직접 읽기는 `DOC_VISION_MODEL`(`claude/` 모델만, 비면 끔), 평가 비교는 `EVAL_COMPARE_MODEL`, 채점은 `EVAL_GRADER_MODEL`. 레이트 리밋 때 다른 모델로 돌리는 폴백은 없다.
 - 재시도: 호출 하나는 최초 1회 + 재시도 1회(`MAX_ATTEMPTS=2`, 429·500·502·503, 2초 대기), 호출당 타임아웃 60초. 끊긴 답(finish_reason None·error)은 같은 대화로 한 번 더 묻는다. 판정의 위반 재시도(최대 3회, 시간 예산 60초)는 라우터가 한다(5.7).
@@ -1161,6 +1171,6 @@ CI는 평가(b)(c)와 레드팀을 돌리지 않는다(비용). 실행하지 않
 입력 계약: <3.x>
 출력 계약: <3.x>
 완료 기준: <리스트 표의 완료 기준 그대로>
-금지: langgraph, 벡터 검색, 라우터에서 LLM import, 프롬프트 하드코딩
+금지: 라우터에서 LLM import, 프롬프트 하드코딩, 채팅 웹 검색, B/L을 검색 질의·임베딩·체크포인트 평문에 넣기. v2 작업(H*, R*)은 `docs/specs/v2-langgraph.md`, `docs/specs/v2-rag.md`에 있는 범위에서만 langgraph와 벡터 검색을 쓴다
 fixture: evals/fixtures/<파일> (가공 응답, 실제 원본 아님)
 ```

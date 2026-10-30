@@ -215,6 +215,10 @@ marvia/
 | UNI-PASS | A8 클라이언트 · 정제 | C는 정제 결과(C5)만 소비 |
 | days_margin | C-8 코드 계산 | LLM 출력값은 덮어씀 |
 
+## V2. LangGraph + RAG (2026-10-30 결정)
+
+작업 ID H*(LangGraph)와 R*(RAG)는 `docs/specs/v2-langgraph.md`, `docs/specs/v2-rag.md`에서 정하고, 두 명세 검토 뒤 이 절에 표로 옮긴다. 아직 작업 행이 없다. 위 H 절("처음 목록에 없던 것")은 ID가 없는 기능 묶음이라 v2의 H*와 별개다. v1 기준 코드는 태그 `v1-skill-mcp`이고, 진행률 표(A~G)에는 v2를 세지 않는다.
+
 ## 의존 관계 (무엇이 무엇을 기다리나)
 
 ```
@@ -232,5 +236,5 @@ A4 배포(Railway) ──> A13 배포 trace · B10 MCP 캡처 · E1 화면 배�
 
 1. 계약 파일(C1~C8) 경로와 PRD 해당 장 번호를 함께 준다
 2. "완료 기준" 열을 그대로 테스트 조건으로 쓴다
-3. 금지 사항을 명시한다: langgraph 설치 금지, 벡터 검색 · 청킹 금지, 라우터에서 LLM SDK import 금지, 프롬프트 문자열 코드 하드코딩 금지(Langfuse Prompt)
+3. 금지 사항을 명시한다: 라우터에서 LLM SDK import 금지, 프롬프트 문자열 코드 하드코딩 금지(Langfuse Prompt), 채팅 웹 검색 금지. v1 작업(A~G)은 langgraph 설치 금지, 벡터 검색 · 청킹 금지도 붙인다. v2 작업은 해당 spec의 범위 안에서만 langgraph와 벡터 검색을 허용한다
 4. 외부 API 응답은 실제와 형식만 같은 가공 JSON을 fixture로 준다. 실제 응답 원본은 약관상 레포에 올리지 않는다 (SDD 7절)
