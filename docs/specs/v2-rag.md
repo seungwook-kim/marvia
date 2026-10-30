@@ -97,6 +97,7 @@ excluded:                        # 이유를 남긴다
 ```
 
 - 지문 = 코퍼스 파일 해시 + 청킹 파라미터 + 모델(파일 해시 포함) + 차원 + 접두어 + 풀링의 해시. 검색 파라미터(top_k 등)는 지문에 넣지 않고 `retrieval_keys_hash`로 따로 기록한다(색인을 다시 만들 필요가 없는 값이라서).
+- **구현 결정 (R7)**: 지문 입력은 (a) 코퍼스 항목마다 `corpus_id`, `path`, 파일 sha256, `last_verified`(검수일이 바뀌면 색인 행의 메타가 낡으므로 포함), (b) `chunking` 칸 전체(`version`은 chunker.py `CHUNKING_VERSION`, 알고리즘을 고치면 올린다), (c) `Embedder.describe()` 전체다. 모델이 ONNX면 `describe()`가 `tokenizer_sha256`도 내므로 지문과 `embedding` 칸에 들어간다(토크나이저가 바뀌면 같은 모델 파일이어도 벡터가 달라진다). 파일 sha256은 줄바꿈을 LF로 맞춘 뒤 계산한다(Windows CRLF와 Linux LF 체크아웃에서 같은 지문). manifest에는 위 예시 칸 말고 `chunk_count`가 더 있다(지문에는 안 들어간다). `observed`의 검수일 범위는 코퍼스 항목에 `last_verified`가 하나도 없으면 둘 다 null이다.
 - `docs/release_manifest.json`의 `knowledge` 항목에 `rag_index_fingerprint`를 더한다(배포 단위 기록에 같이 남김).
 - 원본 문서 본문은 manifest에 넣지 않는다(해시와 글자 수만). 공개 문서가 들어오면 07강처럼 수집 조건과 `corpus_id`만 남기고 원문 커밋 여부는 문서별 약관 확인 뒤 정한다.
 
@@ -140,6 +141,7 @@ python -m scripts.build_rag_index --check    # 아무것도 안 쓰고 manifest 
 - 서버가 켜질 때 색인을 만들지 않는다(빌드 산출물만 읽는다). 색인을 손으로 고치지 않는다.
 - 단계: corpus.yaml 읽기 -> 파일 해시 -> 청킹 -> **코퍼스 누출 게이트**(EC-11: `chat.mask_bls`, `chat.find_containers`, `extract_mrn`, 전화·이메일 정규식으로 검사, 걸리면 실패) -> 임베딩(`passage: ` 접두어, 정규화) -> `docs/rag/index/chunks.jsonl` + `embeddings.npy` 쓰기(커밋 가능한 코퍼스만, `license`가 재배포 불가면 이 파일을 쓰지 않고 DB에만) -> manifest 쓰기 -> `--db`면 `rag_index`/`rag_chunks` upsert 후 `is_active` 전환 한 트랜잭션.
 - 같은 입력이면 같은 manifest 지문이 나와야 한다(임베딩 값은 부동소수 오차가 있을 수 있어 지문에 값 자체를 넣지 않고 모델 파일 해시를 넣는다. 테스트는 청크 id·글만 비교).
+- **구현 (R7)**: 로직은 `backend/app/services/rag/index_build.py`, CLI는 `scripts/build_rag_index.py`(얇게). 누출 게이트가 보는 글은 조각의 `text`, `embed_text`, `source_note`다(공개 링크인 `source_url`은 보지 않는다). 오류 메시지에는 종류와 파일, 조각 번호만 적고 값은 적지 않는다. 걸리면 임베딩 전에 멈추고 아무 파일도 쓰지 않는다. `--check`는 쓰지 않고 (1) 지문 불일치, (2) 누출, (3) 파일 색인의 chunk_id 집합이 현재 코퍼스와 다름을 실패로 센다. `retrieval_keys_hash`(검색 파라미터) 불일치는 실패가 아니라 알림이다. 모델 파일이 없는 환경(CI)에서는 `embedding` 칸을 manifest 값으로 견주고 그 사실을 알린다(코퍼스와 청킹 변화는 그래도 잡고, 모델 교체는 못 잡는다). 종료 코드: 0 정상, 1 점검·누출·DB 반영 실패, 2 빌드 때 임베더를 만들 수 없음. 코퍼스 A의 파일 색인(`docs/rag/index/`)과 manifest는 둘 다 커밋한다(Q9). 커밋하는 색인은 운영 모델(ONNX)로 만든 것이다. 테스트 `test_committed_manifest_matches_current_corpus_and_chunking`이 코퍼스 문서만 고치고 색인을 안 다시 만든 커밋을 잡는다(EC-10). `--db`는 DB 표(033)에 `table_row`, `source_note` 칸이 없어 그 둘을 DB에 쓰지 않는다(파일 색인에는 실린다).
 
 ### 4. 저장소와 마이그레이션
 

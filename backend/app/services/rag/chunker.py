@@ -18,6 +18,9 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 
+# 청킹 알고리즘 버전. index_manifest.json chunking.version에 들어가 색인 지문을 바꾼다 (Spec 1절).
+# 같은 파일·같은 파라미터에서 조각이 달라지게 chunker 로직을 고쳤다면 올린다 (그래야 옛 색인이 지문 불일치로 걸린다)
+CHUNKING_VERSION = 1
 # chunk_id 길이. Spec 2절 "sha256(...) 앞 12자". 임계값이 아니라 id 표기 규격이라 코드에 둔다
 CHUNK_ID_LEN = 12
 # anchor에서 표 행을 가리키는 꼬리표 (Spec 2절 `source_path#heading_path[#행]`)

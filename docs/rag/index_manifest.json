@@ -1,0 +1,71 @@
+{
+  "built_at": "2026-10-30T19:04:20Z",
+  "chunk_count": 55,
+  "chunking": {
+    "context_header": true,
+    "max_chars": 800,
+    "min_chars": 80,
+    "target_chars": 500,
+    "version": 1
+  },
+  "corpus": [
+    {
+      "chars": 2179,
+      "chunks": 12,
+      "corpus_id": "skill-ais-reliability",
+      "last_verified": null,
+      "path": "skills/ais-reliability/SKILL.md",
+      "sha256": "aedd2cac7e53cf2e3fda40f3883a5c46c27b7e62ea0f910ea1b3dd24f98dbd9f"
+    },
+    {
+      "chars": 1633,
+      "chunks": 4,
+      "corpus_id": "skill-customs-stages",
+      "last_verified": null,
+      "path": "skills/customs-stages/SKILL.md",
+      "sha256": "d24722679df73b1036b236c71eb60c4cd2c1d368d49350bfd030fbfb77bc2e7a"
+    },
+    {
+      "chars": 3495,
+      "chunks": 23,
+      "corpus_id": "skill-cargo-verdict",
+      "last_verified": null,
+      "path": "skills/cargo-verdict/SKILL.md",
+      "sha256": "a82ee3adad7eed60363e45dff6c50352959d7491cf0f7e837693a14e3ecc9e9f"
+    },
+    {
+      "chars": 2661,
+      "chunks": 7,
+      "corpus_id": "skill-import-basics",
+      "last_verified": null,
+      "path": "skills/import-basics/SKILL.md",
+      "sha256": "cdae5bb4d2596dca5b3ba593a06b3ed593552001cd8f850ff7fcbf52d9a718c1"
+    },
+    {
+      "chars": 1077,
+      "chunks": 9,
+      "corpus_id": "skill-port-busan",
+      "last_verified": null,
+      "path": "skills/port-busan/SKILL.md",
+      "sha256": "26f133539066f021a006876fa9bccfba363efe932d771e474b1ec22b1499f7d6"
+    }
+  ],
+  "embedding": {
+    "backend": "onnx",
+    "dim": 384,
+    "file_sha256": "dd476dd0c2514e9b9be83aeb3853fac0763e0bdf4a71645407587d77c48a2d88",
+    "model": "multilingual-e5-small-int8",
+    "passage_prefix": "passage: ",
+    "pooling": "mean",
+    "query_prefix": "query: ",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "tokenizer_sha256": "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"
+  },
+  "fingerprint": "9b92139f49045d6ad0ee57ef0ebf6aefdc39c22281ab0683d9c78d4928eec1b0",
+  "index_id": "9b92139f4904",
+  "observed": {
+    "last_verified_max": null,
+    "last_verified_min": null
+  },
+  "retrieval_keys_hash": "b02a9a6e73d3accdb751780ad2609507e989461bef5411133fe8430ad4d4595c"
+}

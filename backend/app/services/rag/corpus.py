@@ -74,8 +74,9 @@ def load_corpus(path: Path = CORPUS_FILE) -> Corpus:
 
 
 def file_sha256(path: Path) -> str:
-    """파일 바이트의 sha256. index_manifest.json corpus[].sha256의 재료다 (Spec 1절)."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """파일 바이트의 sha256. index_manifest.json corpus[].sha256의 재료다 (Spec 1절).
+    줄바꿈은 LF로 맞춰 해시한다: Windows(CRLF)와 Linux(LF) 체크아웃에서 같은 글이 같은 지문을 내야 CI의 --check가 맞는다."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def chunk_corpus(corpus: Corpus | None = None, *, root: Path = REPO_ROOT, params: ChunkParams | None = None) -> list[Chunk]:
