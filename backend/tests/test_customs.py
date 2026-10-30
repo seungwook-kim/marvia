@@ -1,4 +1,5 @@
 """UNI-PASS 클라이언트·정제 테스트. fixture XML로 키 없이 돈다."""
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -206,3 +207,20 @@ def test_judge_input_has_no_goods_name():
     signals = SignalSet(signals=[], freshness="fresh", distance_nm=None, calc_eta=None, eta_gap_hours=None, computed_at=record.fetched_at)
     text = llm._judge_input(signals, record, 5)
     assert "의류" not in text and "goods_name" not in json.loads(text)["customs"]
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("20261102", datetime(2026, 11, 2)),               # 월이 11이면 예전에는 2026-01-01 00:02로 읽혔다
+    ("20261231", datetime(2026, 12, 31)),              # 예전에는 2027이 아닌 2026-01-02 03:01로 읽혔다
+    ("20260924", datetime(2026, 9, 24)),
+    ("202611021030", datetime(2026, 11, 2, 10, 30)),   # 예전에는 %S 형식에 걸려 10:03:00으로 읽혔다
+    ("20261102103015", datetime(2026, 11, 2, 10, 30, 15)),
+    ("2026-11-02T10:30:00+09:00", datetime.fromisoformat("2026-11-02T10:30:00+09:00")),
+    ("20261340", None),                                # 없는 달은 읽지 않는다
+    ("", None),
+    (None, None),
+])
+def test_dt_parses_unipass_dates_by_length(raw, expected):
+    """UNI-PASS 날짜(_dt)는 글자 수로 형식을 골라, 월·일이 한 자리로 잘못 읽히는 일이 없다 (services/customs.py _dt)."""
+    from backend.app.services.customs import _dt
+    assert _dt(raw) == expected

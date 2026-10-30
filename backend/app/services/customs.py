@@ -110,11 +110,16 @@ def _dt(value: str | None) -> datetime | None:
     if not value:
         return None
     text = value.strip()
-    for fmt in ("%Y%m%d%H%M%S", "%Y%m%d%H%M", "%Y%m%d"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
+    # 숫자만 있는 값은 글자 수로 형식을 고른다. strptime은 월·일·시·분을 한 자리로도 받아들여, 형식을 차례로 시험하면
+    # "20261102"가 %Y%m%d%H%M에 2026-01-01 00:02로 걸리고 "202611021030"이 %Y%m%d%H%M%S에 2026-11-02 10:03:00으로 걸린다
+    # (월이 11·12인 날짜가 틀어진다). 자리수가 정확히 맞는 형식만 쓴다
+    if text.isdigit():
+        fmt = {14: "%Y%m%d%H%M%S", 12: "%Y%m%d%H%M", 8: "%Y%m%d"}.get(len(text))
+        if fmt:
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                return None
     try:
         return datetime.fromisoformat(text)
     except ValueError:
