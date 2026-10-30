@@ -287,7 +287,7 @@ flowchart TB
 | 관측 | Langfuse v4 (Cloud 기본) | 필수 조건 4 |
 | DB | Postgres. 운영·개발 Supabase, 로컬 compose는 postgres 16. 드라이버 psycopg 3 | 수집 데이터, 이력, 기억 |
 | 로그인 | Supabase Auth(구글), 백엔드는 PyJWT로 출입증 서명 확인 | 5.15 |
-| 프론트 | Next.js 16.3.6, React 19.3, Leaflet + MapLibre(지도), Playwright(수동 검증 스크립트) | web/package.json |
+| 프론트 | Next.js 16.3.6, React 19.3, Leaflet + MapLibre(지도), CesiumJS(`/watch` 위성 지구본), Playwright(수동 검증 스크립트) | web/package.json |
 | 컨테이너 | Docker, docker compose, 멀티스테이지(base / app / worker), Railway용 `Dockerfile.railway` | 필수 조건 2, 재현 |
 | 거리 계산 | searoute (Python) | 키 불필요 |
 | OCR | rapidocr, pypdfium2 | 5.14 |
@@ -908,7 +908,7 @@ Next.js 16(App Router), React 19. 서버 API 키는 두지 않는다(`NEXT_PUBLI
 | --- | --- |
 | `/today` | 오늘의 화물: 기억한 화물·지켜보는 화물·판정 변동("모두 확인")·카카오 연결 상태 (TodayBoard). 데이터는 `/api/memory`, `/api/watch`, `/api/watch/changes`, `/api/kakao/status`. 사이드바 첫 메뉴, 데모 둘러보기의 첫 화면 |
 | `/` | 채팅(ChatBar, 첨부, 진행 단계, 미니 지도 ChatMiniMap, 여러 B/L 비교표 ChatCargoTable, 후보 칩, 근거 팝업 EvidencePopover, 지켜보기 제안 WatchOfferAction)과 결과 영역(VerdictCard, WatchToggle, VesselCard, MapPanel, EtaCompare, CustomsTimeline, CustomsDetailTable, EvidenceCards, CandidatePicker, FailureBanner) 또는 입항 예정 선박 목록·지도·자세히 보기(VesselList, VesselMap, VesselDetail, WatchVesselButton) |
-| `/watch` | 지켜보는 화물 지도·목록(클러스터, 경로선), 배만 지켜보는 줄(회색 점), 아래 부산항 입항 추세 카드 (WatchMap, PortTrafficCard) |
+| `/watch` | 지켜보는 화물 지도·목록(클러스터, 경로선), 배만 지켜보는 줄(회색 점), 아래 부산항 입항 추세 카드 (WatchMap, PortTrafficCard). 지도는 CesiumJS 위성 지구본이고 WebGL·Cesium이 안 되면 Leaflet 평면 지도로 되돌린다 (docs/specs/watch-globe.md) |
 | `/cargo` | 내 화물 현황 표(신용장 묶음), 엑셀 받기 (CargoSheet) |
 | `/history` | 조회 이력, 판정 분포 막대 (HistoryTable) |
 | `/settings`, `/settings/kakao` | 탭 4개: 회원 정보(ProfileForm) / 기억한 화물(MemoryPanel) / 설정(화면 색, 카카오톡 연결 KakaoPanel, 판단 기준 읽기 전용) / 계정과 이력(기록 삭제, 탈퇴, AccountPanel). `/settings/kakao`는 카카오 동의 복귀 처리 |
@@ -919,7 +919,9 @@ Next.js 16(App Router), React 19. 서버 API 키는 두지 않는다(`NEXT_PUBLI
 - 공용: `Shell`(사이드바: 오늘의 화물 / 내 화물(화물 조회, 지켜보는 화물) / 화물 현황 / 조회 이력 / 설정 / 평가 지표·관리(운영자) / Marvia 소개), `AppProvider`, `LoginScreen`(소개 + Google 시작 + 데모 둘러보기, `lib/auth.ts`), `Drawer`. 첫 로그인 뒤 `/api/me`의 `profile_complete`가 false면 회원 정보 입력을 먼저 받는다.
 - 화면 색(`lib/theme.ts`, `ThemeSync`): system / light / dark / comfort / custom(강조·바탕·사이드바색·글자 진하기), localStorage 저장.
 - 판정 변동은 `/today` 카드와, 대화 첫 말풍선으로 한 번 알린다(이미 알린 것은 `lib/changesTold.ts`, localStorage).
-- 지도: Leaflet 위에 OpenFreeMap 벡터 타일을 MapLibre로 깔고(`lib/basemap.ts`), 안 되면 미리 구워 둔 정적 타일(`public/basemap/`, `scripts/bake-basemap.mjs`), 그것도 안 되면 레포의 해안선으로 되돌린다. 외부로 나가는 주소는 `tiles.openfreemap.org` 하나다.
+- 지도: 화면에 따라 두 가지다. 외부로 나가는 지도 주소는 `tiles.openfreemap.org`와 `tiles.maps.eox.at` 둘이다.
+  - `/watch`: CesiumJS 위성 지구본(`components/watch/WatchGlobe.ts`). 바탕은 EOX Sentinel-2 cloudless 2020(WGS84) → 안 되면 EOX OSM(WGS84) → 그것도 안 되면 바다색 구 + 레포 해안선(`lib/fixtures/geography.json`)이고, 오른쪽 위 단추로 위성 / 지도 바탕을 바꾼다. WebGL을 못 켜거나 Cesium 파일을 못 받으면 Leaflet 평면 지도(`components/watch/WatchLeaflet.ts`)로 되돌린다. 체험 모드와 데모 둘러보기도 같은 지구본이다. Cesium은 npm 고정 버전을 `scripts/copy-cesium-assets.mjs`가 `public/cesium/`으로 복사해 쓰고 `/watch`에 들어갈 때만 받는다. EOX 위성은 비상업(CC BY-NC-SA 4.0)이라 상업 전환 때는 바탕을 바꿔야 한다. 명세와 결정 근거는 docs/specs/watch-globe.md.
+  - 그 밖의 지도(채팅 미니 지도 ChatMiniMap, 판정 결과 MapPanel, 입항 선박 VesselMap): 지금처럼 Leaflet 위에 OpenFreeMap 벡터 타일을 MapLibre로 깔고(`lib/basemap.ts`), 안 되면 미리 구워 둔 정적 타일(`public/basemap/`, `scripts/bake-basemap.mjs`), 그것도 안 되면 레포의 해안선으로 되돌린다.
 - 채팅은 `POST /api/chat/stream`을 SSE로 읽어 실제 단계를 보여 준다(`lib/progress.ts`). 요청 제한 시간 90초. 화면 용어는 순항·주의·긴급.
 - 검증: `npm run typecheck`, `npm run test:contracts`(`scripts/verify-contract.mjs`, 백엔드 계약 스냅샷 `backend-contract.json`과 fixtures 대조), `npm run test:e2e`(`scripts/verify.mjs`, Playwright, 수동 실행).
 

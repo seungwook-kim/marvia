@@ -174,3 +174,37 @@
 .watch-chip.seeded{outline:2px dashed var(--text-2);outline-offset:2px}
 .wm-legend{display:flex;align-items:center;gap:10px;margin:8px 0 0;font-size:var(--text-sm);color:var(--muted)}
 .wm-legend .wm-legend-pin{width:14px;height:14px;flex:none;border:0;box-shadow:none;background:#9ca3af}
+
+/* 위성 지구본 (docs/specs/watch-globe.md, Q4). 지도 칸만 어둡게 두고 둘레 카드와 위쪽 단추 줄은 밝은 그대로.
+   지구본을 쓸 브라우저면 만드는 동안에도 어두운 바탕을 깔아 흰 깜빡임을 막는다(.is-globe는 WatchMap.tsx가 붙인다) */
+.watch-map.is-globe{background:#0b1a2e}
+.watch-map.is-globe .leaflet-host{background:#0b1a2e}
+.watch-globe,.globe-overlay{position:absolute;inset:0}
+.watch-globe{overflow:hidden}
+/* 핀·클러스터·말풍선은 HTML 요소라 지구본 위 덮개에 얹는다. 덮개는 마우스를 지구본에 넘기고, 눌러야 하는 것만 받는다 */
+.globe-overlay{pointer-events:none;overflow:hidden}
+.globe-overlay .watch-pin,.globe-overlay .watch-cluster{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer}
+.globe-overlay .watch-pin{width:34px;height:34px}
+.globe-overlay .watch-cluster{width:46px;height:46px}
+.globe-overlay .port-marker{position:absolute;left:0;top:0;width:28px;height:28px;pointer-events:none}
+/* Leaflet 말풍선(.leaflet-tooltip)이 주던 상자 모양을 지구본에도 같게 준다. 안의 내용(.watch-tip)은 그대로 쓴다 */
+.globe-overlay .watch-tooltip{position:absolute;left:0;top:0;z-index:5;pointer-events:none;background:var(--surface);color:var(--text);
+  border-radius:4px;box-shadow:0 4px 16px #191f2824;padding:0;border:0;white-space:normal}
+.globe-overlay .port-tooltip{position:absolute;left:0;top:0;z-index:4;pointer-events:none;font-weight:700;font-size:var(--text-sm);color:var(--text);
+  background:var(--surface);border-radius:var(--small-radius);padding:3px 8px;box-shadow:0 1px 4px #191f2826;white-space:nowrap}
+/* 어두운 바탕 위의 Cesium 출처 표기: 작고 밝은 글씨 */
+.watch-map .cesium-widget-credits{font-size:11px;line-height:1.4;color:#cbd5e1}
+.watch-map .cesium-credit-textContainer,.watch-map .cesium-credit-logoContainer{display:inline}
+.watch-map .cesium-credit-text,.watch-map .cesium-credit-text a,.watch-map .cesium-credit-textContainer a{color:#cbd5e1}
+.watch-map .cesium-widget-credits a:hover{color:#fff}
+/* 위성 / 지도 바탕 전환 단추: 오른쪽 위. 밝은 화면 토큰을 쓰고 켜진 쪽만 브랜드 색 */
+.globe-base{position:absolute;top:12px;right:12px;z-index:6;display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--small-radius);overflow:hidden;background:var(--surface);box-shadow:0 1px 4px #191f2826}
+.globe-base button{padding:6px 12px;background:transparent;color:var(--text-2);font-size:var(--text-sm);font-weight:700;line-height:1.4}
+.globe-base button+button{border-left:1px solid var(--border-strong)}
+.globe-base button:hover:not(:disabled){background:var(--brand-soft);color:var(--brand)}
+.globe-base button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.globe-base button:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+
+/* 고른 줄(연한 파란 바탕) 위의 작은 보조 글씨는 --muted로는 4.5:1이 안 된다(밝게 4.39, 눈 편하게 3.83). 한 단계 진한 --text-2를 쓴다 (WCAG AA, axe color-contrast).
+   고르지 않은 줄의 모양은 그대로다 */
+.watch-list button.selected .watch-stage,.watch-list button.selected .watch-bl{color:var(--text-2)}

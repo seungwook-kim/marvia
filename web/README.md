@@ -12,9 +12,9 @@ npm install
 npm run dev
 ```
 
-브라우저에서 <http://localhost:3000>을 엽니다. 체험 모드에는 키, `.env`, Docker, Python이 필요 없습니다. 첫 실행은 정상 예시 화물을 자동으로 보여줍니다. 글꼴은 로컬 번들이고, 지도 바탕은 OpenFreeMap 한 곳에서 받으며 못 받으면 미리 구운 타일(`public/basemap/`)과 Natural Earth 해안선으로 그립니다.
+브라우저에서 <http://localhost:3000>을 엽니다. 체험 모드에는 키, `.env`, Docker, Python이 필요 없습니다. 첫 실행은 정상 예시 화물을 자동으로 보여줍니다. 글꼴은 로컬 번들입니다. `/watch` 지도는 CesiumJS 위성 지구본(EOX 위성 바탕 `tiles.maps.eox.at`, 못 받으면 EOX 지도 바탕, 그것도 안 되면 Natural Earth 해안선 구)이고 WebGL이 안 되면 Leaflet 평면 지도로 되돌립니다(docs/specs/watch-globe.md). 그 밖의 지도는 Leaflet이고 바탕을 OpenFreeMap(`tiles.openfreemap.org`)에서 받으며 못 받으면 미리 구운 타일(`public/basemap/`)과 Natural Earth 해안선으로 그립니다.
 
-`npm run dev`와 `npm run build` 앞에 `scripts/copy-maplibre-worker.mjs`가 MapLibre 워커 파일을 `public/maplibre/`로 복사합니다.
+`npm run dev`와 `npm run build` 앞에 `scripts/copy-maplibre-worker.mjs`가 MapLibre 워커 파일을 `public/maplibre/`로, `scripts/copy-cesium-assets.mjs`가 Cesium 파일(Workers, Assets, ThirdParty, Widgets)을 `public/cesium/`으로 복사합니다. `public/cesium/`은 `.gitignore`에 있고 `/watch`에 들어갈 때만 받습니다.
 
 프로덕션 확인:
 
@@ -31,7 +31,7 @@ npm start
 | --- | --- |
 | `/today` | 오늘의 화물: 기억한 화물, 지켜보는 화물, 판정 변동, 카카오 연결 상태. 사이드바 첫 메뉴이자 데모 둘러보기 첫 화면 |
 | `/` | 내 화물(채팅): 왼쪽 대화(첨부, 진행 단계, 미니 지도, 여러 B/L 비교표, 후보 칩, 근거 팝업), 오른쪽 결과(판정 카드, 지켜보기 토글, 배 카드, 지도, ETA 비교, 통관 타임라인, 근거, 후보 선택, 실패 배너) 또는 입항 예정 선박 목록·지도·자세히 보기 |
-| `/watch` | 지켜보는 화물 지도·목록, 배만 지켜보는 줄, 부산항 입항 추세 카드(IMF PortWatch) |
+| `/watch` | 지켜보는 화물 위성 지구본(CesiumJS)·목록, 배만 지켜보는 줄, 부산항 입항 추세 카드(IMF PortWatch) |
 | `/cargo` | 화물 현황표(신용장 묶음), 엑셀 받기 |
 | `/history` | 조회 이력 필터, 판정 분포. 체험 모드에서는 저장된 fixture 판정 재생 |
 | `/settings` | 탭 4개: 회원 정보 / 기억한 화물 / 설정(화면 색, 카카오톡 연결, 판단 기준 읽기 전용) / 계정과 이력 |
@@ -82,7 +82,7 @@ lib/changesTold.ts     판정 변동을 대화 첫 말풍선으로 한 번만 �
 lib/evidenceTypes.ts, meCache.ts, watchVessel.ts   근거 표시 타입, /api/me 캐시, 배만 지켜보기
 lib/fixtures/          7개 응답, 이력, 데모 입력, 설정, 지표, 지켜보기 지도, 서류, 기억, 운영자, 지형 JSON
 public/basemap/        미리 구운 지도 타일 (scripts/bake-basemap.mjs)
-scripts/               계약 검사, Playwright 화면·접근성 검사, 지도 타일 굽기, MapLibre 워커 복사
+scripts/               계약 검사, Playwright 화면·접근성 검사, 지도 타일 굽기, MapLibre 워커 복사, Cesium 파일 복사
 DESIGN.md              디자인 방향과 이유
 NOTES.md               스키마·문서 차이, 알려진 한계, 미확인 값
 THIRD_PARTY.md         지도·폰트·사진 출처와 라이선스
@@ -177,7 +177,7 @@ MARVIA_LIVE_TEST_URL=http://127.0.0.1:3101 npm run test:e2e
 `MARVIA_LIVE_TEST_URL`이 없으면 실제 모드 검사는 SKIP으로 표시됩니다(통과로 세지 않음). 다른 포트를 사용하면 `MARVIA_TEST_URL=http://127.0.0.1:포트 npm run test:e2e`로 지정하세요. 브라우저 채널은 `PLAYWRIGHT_CHANNEL`로 변경할 수 있습니다. 이 변수들은 검사 스크립트용이며 `.env` 파일이 필요하지 않습니다.
 
 - 계약 검사는 백엔드 Python 스키마에서 만든 `scripts/backend-contract.json` 스냅샷(`scripts/make_backend_contract.py`)으로 수행합니다.
-- 브라우저 검사는 지도 바탕 호스트(tiles.openfreemap.org) 말고 외부 HTTP를 차단하고 요청 발생 여부를 검사합니다.
+- 브라우저 검사는 지도 바탕 호스트(tiles.openfreemap.org, `/watch` 지구본은 tiles.maps.eox.at) 말고 외부 HTTP를 차단하고 요청 발생 여부를 검사합니다.
 - 스크린샷은 5개 status + watch/act + 기타 페이지를 각각 1440px, 375px로 촬영하고, 1024/768/390px는 가로 넘침을 검사합니다.
 - 접근성 자동 검사는 axe WCAG 2/2.1 A·AA 기준입니다. 자동 검사만으로 모든 접근성이 보장되는 것은 아닙니다.
 

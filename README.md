@@ -336,7 +336,7 @@ GitHub Actions `tests.yml`이 같은 pytest 범위를, `secret-scan.yml`(gitleak
 | 영역 | 사용 |
 |---|---|
 | Backend | FastAPI, Pydantic v2, Docker, Render (`marvia-api`, 무료) |
-| Frontend | Next.js 16, React 19, Leaflet·MapLibre 지도, Vercel (`marvia`, Hobby) |
+| Frontend | Next.js 16, React 19, Leaflet·MapLibre 지도(`/watch`는 CesiumJS 위성 지구본), Vercel (`marvia`, Hobby) |
 | LLM | Anthropic Messages API 직접 호출(배포: 서비스·기억 Claude Haiku 5.5, 서류 사진 Claude Sonnet 5.5), OpenRouter·Vertex AI 경로(모델 비교·채점) |
 | 도구 | FastMCP (Streamable HTTP), ShipFinder, 해수부 공공데이터, searoute |
 | 데이터 | Supabase(배포 DB·로그인), 로컬은 PostgreSQL 16 |

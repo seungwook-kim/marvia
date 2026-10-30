@@ -7,3 +7,6 @@ screenshots/
 
 # MapLibre 워커 사본. predev/prebuild가 node_modules에서 복사한다 (scripts/copy-maplibre-worker.mjs, 10-06)
 public/maplibre/
+
+# CesiumJS 실행 파일 사본(Workers·Assets·ThirdParty·Widgets). predev/prebuild가 node_modules에서 복사한다 (scripts/copy-cesium-assets.mjs, docs/specs/watch-globe.md)
+public/cesium/

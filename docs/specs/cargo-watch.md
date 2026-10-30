@@ -19,7 +19,7 @@ B/L마다 서로 다른 마커(색 + 글자 A, B, C…)를 쓰고, 마우스를 
 
 | 항목 | 상태 | 위치 |
 |---|---|---|
-| 화면 | 실제 모드에서는 `GET /api/watch`를 읽고, 체험(fixture) 모드와 데모 둘러보기에서는 예시 `web/lib/fixtures/watch-map.json`을 보여 주며 "예시 화면"으로 표시. 데모 둘러보기는 이 배들을 가상으로 움직인다 (`web/lib/tour.ts`) | `web/components/WatchMap.tsx`, `web/app/watch/page.tsx`, `web/lib/api.ts getWatchList` |
+| 화면 | 실제 모드에서는 `GET /api/watch`를 읽고, 체험(fixture) 모드와 데모 둘러보기에서는 예시 `web/lib/fixtures/watch-map.json`을 보여 주며 "예시 화면"으로 표시. 데모 둘러보기는 이 배들을 가상으로 움직인다 (`web/lib/tour.ts`). 지도는 위성 지구본(docs/specs/watch-globe.md) | `web/components/WatchMap.tsx`, `web/app/watch/page.tsx`, `web/lib/api.ts getWatchList` |
 | 켜기·끄기 버튼 | 결과 화면의 `WatchToggle` | `web/components/WatchToggle.tsx`, `PUT /api/cargo/watch`, `POST /api/cargo/watch/state` |
 | 감시 목록 API | 구현 | `GET /api/watch` (`routers/watch.py`, `services/watch.watch_list`) |
 | 배만 지켜보기 | `POST /api/watch/vessels`(mmsi 또는 call_sign), `GET /api/watch/vessels`, `DELETE /api/watch/vessels/{mmsi}`. call_sign만 오면 ShipFinder 검색으로 MMSI가 하나로 정해질 때만 받는다(못 정하면 422) | `services/vessel_watch.py`, `services/vessel_pick.py`, `web/components/WatchVesselButton.tsx` |
@@ -37,4 +37,6 @@ B/L마다 서로 다른 마커(색 + 글자 A, B, C…)를 쓰고, 마우스를 
 - 휴대폰 화면은 가로 메뉴로 바뀐다
 
 ## 지도 바탕
+`/watch` 지도는 CesiumJS 위성 지구본으로 바뀌었다. 바탕 순서(EOX 위성 → EOX OSM → 해안선 구), WebGL·Cesium 실패 때 Leaflet 되돌림, 위성 / 지도 단추는 [watch-globe.md](watch-globe.md)가 정한다. 아래는 그 Leaflet 되돌림 지도와 다른 화면의 지도(채팅 미니 지도, 판정 결과 지도, 입항 선박 지도)가 쓰는 바탕이다.
+
 지도 바탕은 `web/lib/basemap.ts`가 세 단계로 고른다: OpenFreeMap 벡터 타일(WebGL) → 미리 구워 둔 타일(`web/public/basemap`, `web/scripts/bake-basemap.mjs`) → Natural Earth 해안선(`drawLocalGeography`). 자세한 것은 web/README.md.

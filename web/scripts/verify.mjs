@@ -5,6 +5,8 @@
  *    Without MARVIA_LIVE_TEST_URL the live checks are reported as SKIP, never as PASS.
  * Uses installed Chrome by default; PLAYWRIGHT_CHANNEL can override the browser channel.
  * All other off-origin HTTP is blocked and recorded: the app must run on local assets only.
+ *    The /watch globe's satellite tiles (tiles.maps.eox.at) are allowed only in the /watch contexts and are answered with a 1x1 stub tile inside the test, so no real request leaves the machine.
+ * /watch map (docs/specs/watch-globe.md): Cesium globe, Leaflet fallback without WebGL, tour mode. Needs WebGL (SwiftShader flags are passed at launch); without WebGL the globe checks are SKIP.
  * Covers: 7 cargo states, axe WCAG A/AA, zero page errors and external HTTP, candidate validation, MOF evidence filter,
  * history filter + replay + retry isolation, composer keys/IME/limits, real-stage waiting, drawers, roles.
  */
@@ -20,7 +22,9 @@ const base = process.env.MARVIA_TEST_URL ?? 'http://localhost:3100';
 const live = process.env.MARVIA_LIVE_TEST_URL ?? '';
 const MOCK_PORT = Number(process.env.MARVIA_MOCK_API_PORT ?? 3199);
 const mockOrigin = `http://127.0.0.1:${MOCK_PORT}`;
-const browser = await chromium.launch({channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true});
+// 헤드리스 Chrome은 GPU가 없어 WebGL이 꺼질 수 있다. /watch의 Cesium 지구본은 WebGL이 필요하므로 소프트웨어 렌더러(SwiftShader)를 허용한다 (docs/specs/watch-globe.md 테스트)
+const browser = await chromium.launch({channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true,
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']});
 const failures = [], pageErrors = [], external = [], checks = [], skipped = [];
 const interactionsOnly = process.argv.includes('--interactions');
 // 스크린샷과 결과 JSON은 실행한 폴더가 아니라 이 스크립트 옆(web/scripts/screenshots, .gitignore의 screenshots/)에 쓴다.
@@ -50,6 +54,79 @@ async function newContext(width, allowed = [base]) {
     return route.continue();
   });
   return context;
+}
+/* ---------- /watch 지도 확인용 도우미 (docs/specs/watch-globe.md) ---------- */
+// 체험 모드(fixture)에서 지도에 올라야 하는 배 수. 목록 파일에서 직접 센다: 진행 중(active)이고 위치가 있는 줄만 핀이 된다.
+// 체험 모드는 배만 지켜보는 줄이 늘 비어 있다 (lib/watchVessel.ts vesselWatchEnabled). 반출 끝난(done) 줄은 지도에서 빠진다
+const WATCH_FIXTURE = JSON.parse(fs.readFileSync(new URL('../lib/fixtures/watch-map.json', import.meta.url), 'utf8'));
+const LOCATED_SHIPS = WATCH_FIXTURE.items.filter(i => i.status === 'active' && i.lat != null && i.lng != null).length;
+// 데모 둘러보기가 배를 옮기는 간격. 코드의 값을 그대로 읽어 테스트가 따로 낡지 않게 한다
+const TOUR_TICK_MS = Number(/TOUR_TICK_MS\s*=\s*([\d_]+)/.exec(fs.readFileSync(new URL('../lib/tour.ts', import.meta.url), 'utf8'))?.[1].replaceAll('_', '')) || 10_000;
+// Cesium은 번들과 첫 그리기가 무거워 다른 화면보다 오래 기다린다
+const GLOBE_TIMEOUT = 45_000;
+// 위성 타일 대신 돌려줄 1x1 PNG. 실제 EOX 요청을 막고도 바탕 불러오기가 성공한 것처럼 보이게 한다 (외부 접속 0건 유지)
+const TILE_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+/** 이 브라우저가 WebGL을 켤 수 있는지. 못 켜면 지구본 확인은 PASS가 아니라 SKIP으로 남긴다 */
+async function webglAvailable() {
+  const context = await browser.newContext(); const page = await context.newPage();
+  const ok = await page.evaluate(() => { const c = document.createElement('canvas'); return Boolean(c.getContext('webgl2') || c.getContext('webgl')); });
+  await context.close(); return ok;
+}
+/** /watch용 컨텍스트. tour: 데모 둘러보기 켜기(sessionStorage), noWebgl: WebGL을 끈 브라우저 흉내 (EC-01) */
+async function watchContext({tour = false, noWebgl = false} = {}) {
+  // 위성 바탕 호스트(tiles.maps.eox.at)는 /watch 컨텍스트에서만 허용 목록에 둔다 (docs/specs/watch-globe.md 바탕 표). 다른 화면은 그대로 막는다
+  const context = await newContext(1440, [base, 'https://tiles.maps.eox.at']);
+  // 나중에 건 route가 먼저 받는다: 위성 타일 주소는 여기서 가짜 타일로 답해 실제 네트워크로 나가지 않는다
+  await context.route(/^https:\/\/tiles\.maps\.eox\.at\//, route => route.fulfill({status: 200, contentType: 'image/png', body: TILE_PNG}));
+  if (tour) await context.addInitScript(() => { try { window.sessionStorage.setItem('marvia-tour', '1'); } catch { /* 저장소를 못 쓰면 데모가 안 켜진다 */ } });
+  if (noWebgl) await context.addInitScript(() => {
+    // Cesium과 우리 WebGL 확인이 모두 getContext로 묻는다. webgl 계열만 null을 돌려 "WebGL 없음"으로 만든다
+    for (const proto of [window.HTMLCanvasElement?.prototype, window.OffscreenCanvas?.prototype]) {
+      if (!proto?.getContext) continue;
+      const original = proto.getContext;
+      proto.getContext = function (type, ...rest) { return /webgl/i.test(String(type)) ? null : original.call(this, type, ...rest); };
+    }
+  });
+  return context;
+}
+/** /watch를 열고 지도가 expected 렌더러(globe | leaflet)로 뜰 때까지 기다린다. 다른 렌더러가 뜨면 이유를 알 수 있게 실패시킨다 */
+async function openWatch(page, expected) {
+  await page.goto(`${base}/watch`);
+  const host = page.locator('.watch-map [data-renderer]').first();
+  await host.waitFor({state: 'attached', timeout: GLOBE_TIMEOUT});
+  assert.equal(await host.getAttribute('data-renderer'), expected, `/watch map should render with ${expected}`);
+  return host;
+}
+/** 지도 칸 안의 핀 수와 클러스터가 묶은 배 수 (page.evaluate와 waitForFunction이 같이 쓰도록 바깥 값에 기대지 않는다).
+ * 클러스터 숫자는 <b>N</b>, 없으면 title "배 N척"에서 읽는다 */
+const shipsOnMap = () => {
+  const root = document.querySelector('.watch-map');
+  // 화면에 그려진 요소만 센다. 지구본은 핀·클러스터 요소를 DOM에 계속 두고 묶인 배나 지구 뒤편 배는 display:none으로 숨긴다
+  // (Leaflet은 아예 떼어 낸다). 숨은 요소까지 세면 같은 배가 핀과 클러스터에 두 번 잡힌다. 둘 다에서 맞도록 렌더된 것(getClientRects)만 본다
+  const shown = el => el.getClientRects().length > 0;
+  const pins = [...root.querySelectorAll('.watch-pin')].filter(shown).length;
+  let clustered = 0, clusters = 0;
+  for (const c of [...root.querySelectorAll('.watch-cluster')].filter(shown)) {
+    const n = parseInt(c.querySelector('b')?.textContent ?? '', 10) || parseInt(/(\d+)/.exec(c.getAttribute('title') ?? '')?.[1] ?? '', 10);
+    clustered += Number.isFinite(n) ? n : 0; clusters++;
+  }
+  return {pins, clustered, clusters, ports: [...root.querySelectorAll('.port-marker')].filter(shown).length};
+};
+/** 핀과 클러스터가 위치 있는 배를 빠짐없이 덮을 때까지 기다린 뒤 그 값을 돌려준다 (Cesium은 첫 그리기 뒤에야 핀이 놓인다).
+ * want가 null이면 하나라도 놓일 때까지만 기다린다 (데모는 배 수가 시각마다 달라진다) */
+async function coverage(page, want) {
+  // Node 쪽에서 짧게 되풀이해 읽는다 (페이지 안에서 문자열을 코드로 바꾸지 않아 화면의 보안 정책과 부딪히지 않는다)
+  let r = await page.evaluate(shipsOnMap);
+  for (let waited = 0; waited < 15_000 && (want == null ? r.pins + r.clustered === 0 : r.pins + r.clustered !== want); waited += 250) {
+    await page.waitForTimeout(250); r = await page.evaluate(shipsOnMap);
+  }
+  return r;  // 시간 안에 안 맞으면 호출한 쪽 assert가 실제 값을 보여 주며 실패한다
+}
+/** 첫 번째로 보이는 핀 위에 마우스를 올린다. 핀 한가운데 좌표로 움직여 실제로 그 자리에서 받는지(가려지지 않았는지)까지 본다 */
+async function hoverFirstPin(page, selector) {
+  const box = await page.locator(`${selector}:visible`).first().boundingBox();
+  assert(box, `${selector}: a visible pin to hover`);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 6});
 }
 const turns = page => page.locator('.chat-turn').count();
 const input = page => page.locator('#chat-input');
@@ -243,6 +320,106 @@ try {
     await cargo(page, 'ok'); await overflow(page, width); await page.screenshot({path: shot(`20-ok-${width}.png`), fullPage: true});
     await input(page).fill('중국에서 부산 들어오는 배 보여줘'); await input(page).press('Enter'); await page.locator('.vessel-results').waitFor(); await overflow(page, width);
     check(`no page overflow ${width}px (cargo + vessel table)`); await context.close();
+  }
+
+  /* ===== /watch 지도 (docs/specs/watch-globe.md): 지구본 AC-01·02·06, Leaflet 되돌림 AC-03, 데모 둘러보기 AC-05 ===== */
+  if (!(await webglAvailable())) skip('watch globe (Cesium canvas, pins, tooltip, idle, base toggle, tour)', 'this browser cannot create a WebGL context');
+  else {
+    // AC-01·AC-02·AC-06: 지구본이 뜨고, 핀이 위치 있는 배를 모두 덮고, 마우스·목록·단추가 되고, 가만히 두면 다시 그리지 않는다
+    const context = await watchContext(); const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
+    const host = await openWatch(page, 'globe'); await ready(page);
+    assert.equal(await page.locator('.watch-map .watch-globe canvas').count(), 1, 'globe has exactly one Cesium canvas');
+    assert.equal(await page.locator('.watch-map .leaflet-container').count(), 0, 'no Leaflet map while the globe is shown');
+    const found = await coverage(page, LOCATED_SHIPS);
+    assert.equal(found.pins + found.clustered, LOCATED_SHIPS, `pins (${found.pins}) + clustered ships (${found.clustered}) must cover the ${LOCATED_SHIPS} located ships in the fixture`);
+    assert.equal(found.ports, 1, 'exactly one Busan port marker');
+    check(`watch globe: canvas, ${LOCATED_SHIPS} located ships covered by pins + clusters, one port marker`);
+
+    // 핀에 마우스를 올리면 말풍선이 뜬다 (선명, 가린 B/L 등 지금 Leaflet과 같은 칸)
+    if (found.pins > 0) {
+      await hoverFirstPin(page, '.globe-overlay .watch-pin');
+      const tip = page.locator('.globe-overlay .watch-tooltip:visible .watch-tip').first();
+      await tip.waitFor({state: 'visible', timeout: 5000});
+      assert.match(await tip.innerText(), /TE\*{4}\d\d/, 'tooltip shows the masked B/L');
+      check('watch globe: hovering a pin shows the tooltip');
+    } else skip('watch globe: hovering a pin shows the tooltip', 'every ship is inside a cluster at the first camera');
+    await page.mouse.move(2, 2, {steps: 4});
+    await page.locator('.globe-overlay .watch-tooltip:visible').first().waitFor({state: 'hidden', timeout: 3000});
+
+    // 목록 줄을 누르면 그 배로 간다: 혼자면 말풍선, 묶여 있으면 상세 창
+    await page.locator('.watch-list li button').first().click();
+    await page.locator('.globe-overlay .watch-tooltip:visible .watch-tip').or(page.locator('.cluster-panel')).first().waitFor({state: 'visible', timeout: 8000});
+    if (await page.locator('.cluster-panel').count()) await page.locator('.cluster-panel [aria-label="닫기"]').click();
+    check('watch globe: clicking a list row focuses the ship (tooltip or cluster panel)');
+
+    // 모든 배 보기, 경로 끄고 켜기: 지구본은 그대로 동작한다
+    await page.locator('.watch-fit').click();
+    const trackToggle = page.locator('.watch-track-toggle input');
+    await trackToggle.uncheck(); await trackToggle.check();
+    assert.equal(await host.getAttribute('data-renderer'), 'globe', 'globe stays after fit-all and route toggle');
+    check('watch globe: fit-all and route toggle keep the globe');
+
+    // AC-06: 카메라가 멈춘 뒤 3초 동안 조작이 없으면 Cesium이 다시 그린 횟수(data-renders)가 늘지 않는다 (requestRenderMode)
+    await page.mouse.move(2, 2, {steps: 4}); await page.waitForTimeout(2500);
+    const renders = async () => Number(await host.getAttribute('data-renders'));
+    const before = await renders(); assert(Number.isFinite(before) && before > 0, `data-renders is a positive count (got ${before})`);
+    await page.waitForTimeout(3000);
+    assert.equal(await renders(), before, 'idle globe must not render again');
+    check('watch globe: idle page does not re-render (data-renders stays)');
+
+    // 위성 / 지도 바탕 단추: 처음은 위성, 지도를 누르면 지도가 눌린 상태가 된다
+    const group = page.locator('.watch-map [role="group"][aria-label="지도 바탕"]');
+    const satBtn = group.locator('button', {hasText: /^위성$/}), mapBtn = group.locator('button', {hasText: /^지도$/});
+    assert.equal(await satBtn.getAttribute('aria-pressed'), 'true', 'satellite is the first base');
+    await mapBtn.click();
+    assert.equal(await mapBtn.getAttribute('aria-pressed'), 'true', 'map base pressed after click');
+    assert.equal(await satBtn.getAttribute('aria-pressed'), 'false', 'satellite base released');
+    check('watch globe: base toggle satellite -> map');
+
+    await page.waitForTimeout(500);
+    await overflow(page, 1440); if (!interactionsOnly) await audit(page, 'watch-globe-1440');
+    await page.screenshot({path: shot('40-watch-globe-1440.png'), fullPage: true}); check(`watch globe 1440px: no overflow${interactionsOnly ? '' : ', axe'}`);
+    await context.close();
+
+    // AC-05: 데모 둘러보기는 10초마다 위치만 바꾸고 지구본(캔버스)은 새로 만들지 않는다
+    {
+      const context = await watchContext({tour: true}); const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
+      await page.goto(`${base}/watch`);
+      await page.locator('html[data-tour="on"]').waitFor({state: 'attached', timeout: GLOBE_TIMEOUT});  // TourGate가 앱을 한 번 다시 그린 뒤 것만 센다
+      await page.locator('.watch-map [data-renderer="globe"]').waitFor({state: 'attached', timeout: GLOBE_TIMEOUT});
+      await page.waitForTimeout(2000);
+      const canvas = await page.locator('.watch-map .watch-globe canvas').first().elementHandle();
+      assert(canvas, 'tour mode: globe canvas exists');
+      const first = await coverage(page, null); assert(first.pins + first.clustered > 0, 'tour mode: ships on the globe');
+      await page.waitForTimeout(TOUR_TICK_MS + 1500);  // 한 칸보다 조금 더 기다려 위치 갱신을 한 번 겪는다
+      assert(await canvas.evaluate(el => el.isConnected), 'tour tick must not recreate the globe canvas');
+      assert.equal(await page.locator('.watch-map .watch-globe canvas').count(), 1, 'tour mode: still exactly one canvas');
+      assert.equal(await page.locator('.watch-map [data-renderer]').first().getAttribute('data-renderer'), 'globe');
+      const after = await coverage(page, null); assert(after.pins + after.clustered > 0, 'tour mode: ships still on the globe after a tick');
+      check('watch globe tour mode: canvas survives a position tick, pins stay');
+      await context.close();
+    }
+  }
+
+  // AC-03·EC-01: WebGL이 없으면 지금 Leaflet 평면 지도로 그린다. 빈 칸이나 오류 화면 없이 핀과 말풍선이 같이 나온다
+  {
+    const context = await watchContext({noWebgl: true}); const page = await context.newPage(); page.on('pageerror', e => pageErrors.push(e.message));
+    await openWatch(page, 'leaflet'); await ready(page);
+    await page.locator('.watch-map .leaflet-container').waitFor({timeout: 15_000});
+    assert.equal(await page.locator('.watch-map .watch-globe').count(), 0, 'no globe element in the fallback');
+    const found = await coverage(page, LOCATED_SHIPS);
+    assert.equal(found.pins + found.clustered, LOCATED_SHIPS, `fallback: pins (${found.pins}) + clustered ships (${found.clustered}) must cover the ${LOCATED_SHIPS} located ships`);
+    assert(found.pins + found.clusters > 0, 'fallback: at least one pin or cluster');
+    assert.equal(found.ports, 1, 'fallback: one port marker');
+    if (found.pins > 0) {
+      await hoverFirstPin(page, '.watch-map .watch-pin');
+      await page.locator('.watch-map .leaflet-tooltip.watch-tooltip .watch-tip').first().waitFor({state: 'visible', timeout: 5000});
+    }
+    assert.equal(await page.locator('.watch-map [role="alert"]').count(), 0, 'fallback shows no error');
+    await overflow(page, 1440);
+    await page.screenshot({path: shot('41-watch-leaflet-fallback-1440.png'), fullPage: true});
+    check('watch fallback without WebGL: Leaflet map with pins, port marker, tooltip');
+    await context.close();
   }
 
   /* ===== Live mode against the fake API: roles, real SSE stages, fallback, error ===== */
