@@ -11,7 +11,9 @@
      실행마다 새 파일을 만들어 이전 결과를 덮지 않고, 어떤 코드·프롬프트로 잰 점수인지(git 커밋·프롬프트 버전)도 같이 적는다
   4. 문항마다 LLM 호출(모델·토큰·비용·지연·실패 종류)과 실패 로그(stage=error)를 남긴다.
      판정을 못 낸 이유와 요청당 비용을 결과 파일만 보고 알 수 있게 하려는 것이다
-  5. Langfuse 키가 있으면 실행 한 번을 Dataset marvia-golden-30의 실험(Experiment)으로 남긴다 (_LangfuseRun).
+  5. 어느 판정 경로로 풀었는지(engine)를 결과 파일 맨 위 칸과 Langfuse 실험 메타에 적는다 (engine_name).
+     AGENT_GRAPH가 켜져 있으면(기본) v2-langgraph, 꺼져 있으면 v1-skill-mcp다. 실행기는 이 설정을 바꾸지 않고 읽기만 한다
+  6. Langfuse 키가 있으면 실행 한 번을 Dataset marvia-golden-30의 실험(Experiment)으로 남긴다 (_LangfuseRun).
      문항마다 호출을 한 트레이스로 묶어 그 문항에 잇고, 채점 결과를 점수로 붙인다. Experiments 탭에서 실행끼리 비교한다
 서버 코드는 고치지 않는다. 바꿔 끼우는 것(판정기, 재생 transport, 시계)은 이 실행 안에서만 유효하다.
 
@@ -52,6 +54,14 @@ FREEZE_IGNORE = ["langfuse", "opentelemetry", "google.auth"]
 KST = timezone(timedelta(hours=9))  # 결과 파일 이름은 한국 시각으로
 
 
+def engine_name() -> str:
+    """이번 실행이 쓴 판정 경로의 이름. routers/agent.graph_enabled()가 참이면 그래프(v2-langgraph), 아니면 v1 순서(v1-skill-mcp).
+    결과 파일의 engine 칸과 Langfuse 실험 메타에 같은 값을 적어 두 경로의 결과를 파일만 보고 가려내게 한다 (v2-langgraph.md 10절 H12)."""
+    from backend.app.routers.agent import graph_enabled
+
+    return "v2-langgraph" if graph_enabled() else "v1-skill-mcp"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Marvia 평가셋 30건 실행과 채점")
     parser.add_argument("--config", choices=sorted(CONFIGS), required=True)
@@ -72,7 +82,7 @@ def main() -> None:
     work = Path(tempfile.mkdtemp(prefix="marvia_eval_"))
     try:
         # --only는 확인용 부분 실행이라 Langfuse 실행 기록으로 남기지 않는다 (30건 비교가 흐트러진다)
-        recorder = None if args.only else _LangfuseRun.start(args.config)
+        recorder = None if args.only else _LangfuseRun.start(args.config, engine_name())
         solve = lambda rec: _graded(_run_one(rec, args.config, work), args.config)  # noqa: E731
         rows = recorder.run_all(records, solve) if recorder else [solve(rec) for rec in records]
     finally:
@@ -80,12 +90,15 @@ def main() -> None:
 
     summary = score(rows)
     summary["usage"] = usage(rows)
+    engine = engine_name()
     _print(args.config, rows, summary)
+    print(f"판정 경로(engine): {engine}")
     if not args.only:
         RESULTS.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         result = {
             "config": args.config,
+            "engine": engine,  # 어느 판정 경로로 풀었나. 이 칸이 없는 옛 파일은 v1로 잰 것이다 (칸이 생기기 전)
             "description": CONFIGS[args.config],
             "model": os.environ.get("LLM_MODEL") if args.config != "a" else "baseline/rules",
             "run_at": now.isoformat(),
@@ -121,13 +134,14 @@ class _LangfuseRun:
     Langfuse가 실패해도 평가는 계속한다. 못 돈 문항은 기록 없이 로컬에서 풀고, 결과 파일은 그대로 남는다.
     """
 
-    def __init__(self, client, run_name: str, config: str):
+    def __init__(self, client, run_name: str, config: str, engine: str):
         self.client = client
         self.run_name = run_name
         self.config = config
+        self.engine = engine  # 실험 메타에 적는 판정 경로 이름 (engine_name)
 
     @classmethod
-    def start(cls, config: str) -> "_LangfuseRun | None":
+    def start(cls, config: str, engine: str) -> "_LangfuseRun | None":
         if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
             return None
         try:
@@ -138,7 +152,7 @@ class _LangfuseRun:
         now = datetime.now(timezone.utc).astimezone(KST)
         # 실행 이름만 보고 무엇을 잰 것인지 알게: 구성 · 모델 · 생각 설정 · 시각
         thinking = f" thinking={os.environ['VERTEX_THINKING_BUDGET']}" if os.environ.get("VERTEX_THINKING_BUDGET") and config != "a" else ""
-        return cls(get_client(), f"{config} {model}{thinking} {now:%m-%d %H:%M}", config)
+        return cls(get_client(), f"{config} {model}{thinking} {now:%m-%d %H:%M}", config, engine)
 
     def run_all(self, records: list[dict], solve) -> list[dict]:
         """모든 문항을 실험으로 푼다. solve(rec)는 문항 하나를 풀어 결과 줄(row)을 돌려준다. 결과는 평가셋 순서로."""
@@ -164,7 +178,7 @@ class _LangfuseRun:
             result = self.client.get_dataset(DATASET_NAME).run_experiment(
                 name=f"eval {self.config}", run_name=self.run_name, description=CONFIGS[self.config],
                 task=task, evaluators=[evaluator], max_concurrency=1,
-                metadata={"config": self.config, "git_commit": _git_commit() or ""},
+                metadata={"config": self.config, "engine": self.engine, "git_commit": _git_commit() or ""},
             )
             print(f"Langfuse 실험: {self.run_name} ({len(rows)}건) {getattr(result, 'dataset_run_url', '') or ''}")
         except Exception as e:

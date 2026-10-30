@@ -32,6 +32,7 @@ python -m evals.run_eval --config c     # 규칙 + 비교 모델 (.env EVAL_COMP
 - 문항마다 fixtures를 재생 파일로 풀고(`replay_fixtures.py`) 시계를 문항의 clock으로 고정한 채 실제 `run_agent`에 넣는다. 외부 API는 키 없이 재생하고 (b)(c)만 진짜 LLM을 부른다
 - (a)와 (b)는 같은 판정 표 코드(`services/verdict.py`)를 써서 "같은 규칙, LLM 유무"만 다르다
 - 결과 파일에는 축별 점수, 게이트, 문항별 LLM 호출(모델·토큰·비용·지연·실패 종류), 실행한 커밋과 프롬프트 버전이 들어간다
+- 결과 파일 맨 위 `engine` 칸은 어느 판정 경로로 풀었는지다(`v2-langgraph`: `AGENT_GRAPH` 기본 on, `v1-skill-mcp`: `AGENT_GRAPH=off`). 두 경로의 결과는 `python -m evals.compare_runs <파일1> <파일2>`로 문항별 비교한다(차이 N건 출력, 있으면 종료 코드 1)
 - Langfuse 키가 있으면 실행 한 번을 Dataset `marvia-golden-30`의 실험으로 남긴다. 평가셋 사본 올리기는 `python -m evals.push_dataset`
 
 ## 판정 방식

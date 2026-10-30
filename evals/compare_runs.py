@@ -5,6 +5,8 @@
 하는 일: 같은 id의 문항마다 응답의 status, verdict, vessel_match, mmsi, missing_inputs, decided_by와 오류(error) 칸이 같은지 본다.
 정답과의 일치 여부(채점)가 아니라 두 실행의 응답이 서로 같은지를 보는 것이다. v1(AGENT_GRAPH=off) 결과와 그래프(AGENT_GRAPH=on) 결과를 맞대 볼 때 쓴다.
 다른 문항을 id와 칸 이름으로 찍고, 마지막에 "차이 N건"을 출력한다. 차이가 있으면 종료 코드 1이다.
+앞에 두 파일의 engine 칸(어느 판정 경로로 풀었나, run_eval.py engine_name)을 찍는다. 읽어 보여 줄 뿐 차이 수에 넣지 않는다.
+engine 칸이 생기기 전 파일은 "engine 없음"으로 찍는다.
 비교하지 않는 것: 지연(latency_ms), trace_id, 답 문장 시각처럼 실행마다 달라지는 값. 파일을 읽기만 하고 고치지 않는다. LLM·네트워크를 부르지 않는다.
 """
 from __future__ import annotations
@@ -21,6 +23,11 @@ def _rows(path: Path) -> dict[str, dict]:
     """결과 파일의 문항을 id별로 모은다."""
     data = json.loads(path.read_text(encoding="utf-8"))
     return {row["id"]: row for row in data["rows"]}
+
+
+def _engine(path: Path) -> str:
+    """결과 파일의 engine 칸. 칸이 생기기 전 파일에는 없다."""
+    return json.loads(path.read_text(encoding="utf-8")).get("engine") or "engine 없음"
 
 
 def diff(left: dict[str, dict], right: dict[str, dict]) -> list[str]:
@@ -44,6 +51,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print(__doc__)
         return 2
+    print(f"왼쪽 {Path(argv[0]).name}: {_engine(Path(argv[0]))}, 오른쪽 {Path(argv[1]).name}: {_engine(Path(argv[1]))}")
     left, right = _rows(Path(argv[0])), _rows(Path(argv[1]))
     lines = diff(left, right)
     for line in lines:
