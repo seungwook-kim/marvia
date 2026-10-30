@@ -6,6 +6,7 @@
   - customs-stages/rules.md   통관 보류 낱말, 정상 단계 목록
   - port-busan/rules.md       부산 기준점·반경·항구 코드
   - cargo-verdict/rules.md    2층 등급 판정 표 재료
+  - rag-search/rules.md       채팅 RAG 검색 재료 (청킹 크기, 후보 수, 게이트. SKILL.md 없음, services/rag/가 읽는다)
 코드에 숫자를 적지 않는다 (CLAUDE.md "하지 말 것"). 값을 읽는 곳은 이 파일 하나다.
 판정 코드(services/signals.py, services/verdict.py)와 MCP 도구가 같이 쓴다.
 

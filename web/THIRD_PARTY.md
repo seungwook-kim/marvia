@@ -10,6 +10,8 @@
 - **Natural Earth geography via world-atlas 2.0.2** - public domain. `countries-10m.json`에서 한국·북한·일본·중국·대만 지형을 GeoJSON으로 변환해 `lib/fixtures/geography.json`에 저장했습니다. 지도 바탕을 못 그릴 때의 해안선으로 씁니다(`/watch` 지구본은 바다색 구 위에 그립니다). https://www.naturalearthdata.com/about/terms-of-use/ / https://github.com/topojson/world-atlas
 - **topojson-client** - ISC. 지형 변환에 사용했습니다. https://github.com/topojson/topojson-client
 - **Noto Sans KR / IBM Plex Mono** - SIL Open Font License 1.1. Fontsource npm 패키지의 라이선스와 폰트를 로컬 번들로 사용합니다. Manrope 패키지는 의존성에 있으나 화면에서 불러오지 않습니다. https://fontsource.org
+- **intfloat/multilingual-e5-small (ONNX int8, 리비전 614241f622f5)** - MIT (모델 카드 license: mit). 백엔드 채팅 검색(RAG)의 임베딩 모델이고 화면에는 번들되지 않는다. 파일은 레포에 커밋하지 않고 `scripts/fetch_rag_model.py`가 고정 리비전·sha256으로 받아 Docker 이미지에 넣는다(Render 무료 이미지는 제외). https://huggingface.co/intfloat/multilingual-e5-small
+- **sentencepiece** - Apache-2.0. 위 임베딩 모델의 토크나이저를 읽는다(백엔드 `requirements-rag.txt`). https://github.com/google/sentencepiece
 - **Lucide** - ISC. https://lucide.dev/license
 - **Supabase JS** - MIT. 브라우저 로그인. https://github.com/supabase/supabase-js
 - **Next.js / React** - MIT. https://nextjs.org / https://react.dev

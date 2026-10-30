@@ -42,7 +42,9 @@ services:
     # platform: linux/amd64
 
   db:
-    image: postgres:16
+    # pgvector 확장이 든 postgres 16. 033_rag_chunks.sql(채팅 RAG 색인, docs/specs/v2-rag.md 4절)가 vector 확장을 쓴다.
+    # 기본 postgres:16과 같은 Debian(trixie) 기반이라 기존 pgdata 볼륨을 그대로 쓴다. 태그는 Docker Hub에서 확인했다(0.8.7, 2026-10-01)
+    image: pgvector/pgvector:0.8.7-pg16-trixie
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app

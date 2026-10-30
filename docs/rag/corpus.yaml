@@ -1,0 +1,32 @@
+# 코퍼스 A 입력 목록 (docs/specs/v2-rag.md 1절). 사람이 고치고, 색인 빌드와 청커(services/rag/corpus.py)가 읽는다.
+# 문서 하나 = 항목 하나. 여기에 없는 파일은 색인하지 않는다. 폴더 목록은 skills/rag-search/rules.md rag_corpus_folders와 같아야 한다.
+corpora:
+  - corpus_id: skill-ais-reliability
+    path: skills/ais-reliability/SKILL.md
+    kind: skill                 # skill | public_doc
+    last_verified: null         # TODO 사람이 검수일을 채운다 (YYYY-MM-DD). 지어내지 않는다
+    license: internal
+  - corpus_id: skill-customs-stages
+    path: skills/customs-stages/SKILL.md
+    kind: skill
+    last_verified: null         # TODO 사람이 채운다
+    license: internal
+  - corpus_id: skill-cargo-verdict
+    path: skills/cargo-verdict/SKILL.md
+    kind: skill
+    last_verified: null         # TODO 사람이 채운다
+    license: internal
+  - corpus_id: skill-import-basics
+    path: skills/import-basics/SKILL.md
+    kind: skill
+    last_verified: null         # TODO 사람이 채운다
+    license: internal
+  - corpus_id: skill-port-busan
+    path: skills/port-busan/SKILL.md
+    kind: skill
+    last_verified: null         # TODO 사람이 채운다
+    license: internal
+excluded:                       # 이유를 남긴다
+  - {path: "skills/referrals/**", reason: "주소·전화는 코드가 붙인다. LLM에 안 넣는다"}
+  - {path: "skills/*/rules.md", reason: "프론트매터는 코드가 읽는 재료(C6). 본문 표는 키 설명이라 제외 (v2-rag.md Q2)"}
+  - {path: "skills/port-busan/cargo-vessels.md", reason: "프론트매터만 있는 코드용 파일"}

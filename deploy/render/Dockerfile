@@ -1,5 +1,7 @@
 # Render 무료 웹 서비스 배포용 이미지 (SDD 6.8). api와 수집 워커를 한 컨테이너에서 띄운다.
 # Render 무료 플랜은 서비스 하나에 512MB라 worker를 따로 두지 않는다. render.yaml이 이 파일을 가리킨다.
+# 채팅 RAG 임베딩 모델과 backend/requirements-rag.txt는 이 이미지에 넣지 않는다. 배포 RAG_MODE는 bm25다 (docs/specs/v2-rag.md Q5).
+# 512MB 안에 모델이 들어가는지는 Linux 컨테이너 실측(R14)으로 정한 뒤, 들어간다고 나오면 기본 Dockerfile의 app 단계와 같은 줄을 여기에 둔다.
 # 빌드 단계는 Dockerfile.railway와 같다. 그쪽 base · app 단계를 고치면 이 파일도 같이 고친다.
 FROM python:3.12-slim
 
@@ -21,6 +23,8 @@ COPY worker/ ./worker/
 COPY skills/ ./skills/
 COPY scripts/ ./scripts/
 COPY evals/ ./evals/
+# 채팅 RAG: 색인 manifest와 파일 색인(docs/rag/)만 넣는다. 모델은 넣지 않는다 (배포 RAG_MODE=bm25, docs/specs/v2-rag.md Q5)
+COPY docs/rag/ ./docs/rag/
 
 # OCR 모델을 빌드 때 받아 이미지에 넣는다 (첫 요청이 모델 내려받기로 느려지지 않게).
 # 메모리에는 첫 서류 요청 때 올라간다(render.yaml DOC_WARMUP=off). 512MB 제한 로컬 실측: 대기 154MB, OCR 1장 뒤 201MB

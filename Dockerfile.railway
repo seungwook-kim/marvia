@@ -16,6 +16,8 @@ COPY worker/ ./worker/
 COPY skills/ ./skills/
 COPY scripts/ ./scripts/
 COPY evals/ ./evals/
+# 채팅 RAG: 색인 manifest와 파일 색인(docs/rag/)만 넣는다. 임베딩 모델과 requirements-rag.txt는 기본 Dockerfile의 app 단계에만 있다
+COPY docs/rag/ ./docs/rag/
 
 # 서류 사진 OCR (Dockerfile app 단계와 같음). opencv가 찾는 화면 라이브러리와 OCR 패키지
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \

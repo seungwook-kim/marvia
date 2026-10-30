@@ -1,0 +1,7 @@
+# 채팅 실무 질문 검색(RAG)의 로컬 임베딩에만 필요한 패키지 (docs/specs/v2-rag.md 9절, R4).
+# Dockerfile의 app 스테이지(api 서버)에서만 설치한다. worker 이미지에는 넣지 않는다(검색을 안 쓴다).
+# Render 무료 이미지(deploy/render/Dockerfile)는 RAG_MODE=bm25라 설치하지 않는다 (R14 컨테이너 실측 뒤 정한다, Spec Q5).
+# 로컬 개발은 requirements.txt, requirements-doc.txt와 같이 설치한다. torch는 쓰지 않는다
+sentencepiece==0.2.2  # 임베딩 토크나이저. Apache-2.0. HF tokenizers 대신 써서 로드 후 메모리가 약 150MB 적다 (Spec 9절 측정, 토큰 id 20/20 일치)
+onnxruntime==1.30.0   # 임베딩 모델 실행. MIT. requirements-doc.txt와 같은 버전이라 둘 다 설치해도 충돌하지 않는다
+numpy>=1.26           # 벡터 계산. BSD-3-Clause. onnxruntime이 이미 끌고 오지만 코드(services/rag)가 직접 import해서 적는다. 설치본 2.4.6

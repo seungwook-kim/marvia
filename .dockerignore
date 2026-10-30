@@ -17,3 +17,5 @@ evals/fixtures/replay/shipfinder/
 evals/fixtures/replay/mof/
 evals/fixtures/replay/unipass/
 evals/fixtures/replay/positions/
+# RAG 임베딩 모델은 이미지 빌드 안에서 scripts/fetch_rag_model.py가 새로 받는다. 로컬 사본을 빌드 컨텍스트로 보내지 않는다
+models/

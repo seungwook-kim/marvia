@@ -31,6 +31,16 @@ RUN pip install --no-cache-dir -r backend/requirements-doc.txt
 # 네트워크가 막힌 곳에서는 실패한다. 엔진을 한 번 만들면 rapidocr가 패키지 폴더에 받아 둔다
 RUN python -c "from backend.app.services.doc_ocr import _get_engine; _get_engine()"
 
+# 채팅 RAG 임베딩 (docs/specs/v2-rag.md 9절, R4). 로컬 ONNX 모델(multilingual-e5-small int8, 약 118MB)과 토크나이저를
+# 빌드 때 받아 이미지에 넣는다. 런타임에 인터넷에서 받지 않는다. 받는 파일은 sha256을 고정값과 대조하고, docs/rag/의
+# 색인 manifest가 있으면 그 모델 칸과도 견줘 다르면 빌드가 실패한다 (scripts/fetch_rag_model.py).
+# api(app 스테이지)에만 둔다: worker는 검색을 안 쓴다. Render 무료 이미지(deploy/render/Dockerfile)는 RAG_MODE=bm25라
+# 모델을 넣지 않는다 (Spec Q5, R14 컨테이너 실측 뒤 확정). RAG_MODE 기본은 off라 이 모델은 켤 때까지 쓰이지 않는다
+COPY backend/requirements-rag.txt ./backend/requirements-rag.txt
+RUN pip install --no-cache-dir -r backend/requirements-rag.txt
+COPY docs/rag/ ./docs/rag/
+RUN python -m scripts.fetch_rag_model
+
 # 서비스가 MCP 도구를 자기 /mcp로 부른다 (backend/app/services/mcp_client.py). 포트는 아래 CMD의 8000과 같아야 한다.
 # 이 값이 없으면(테스트·평가 실행기) 같은 프로세스 안의 MCP 서버에 메모리로 붙는다
 ENV MCP_URL=http://127.0.0.1:8000/mcp

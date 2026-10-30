@@ -55,3 +55,6 @@ db_dump/
 
 # vercel link가 만드는 프로젝트 연결 정보. 사람마다 다르므로 커밋하지 않는다 (10-20)
 .vercel/
+
+# RAG 임베딩 모델 파일 (scripts/fetch_rag_model.py가 받는다. 커밋 금지, 라이선스 고지는 web/THIRD_PARTY.md)
+models/
