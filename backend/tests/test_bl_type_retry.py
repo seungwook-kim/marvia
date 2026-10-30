@@ -90,8 +90,11 @@ def test_timeout_on_first_try_fails_without_second_call(monkeypatch):
 def test_run_agent_reports_and_stores_matched_type(monkeypatch):
     """찾은 구분이 응답(bl_type_used)과 화물 표에 남길 요청(remember_later) 둘 다에 간다."""
     _unipass(monkeypatch, {"HOUSE": None, "MASTER": _record()})
-    monkeypatch.setattr(agent_router, "_after_customs", lambda request, customs, memory=None:
-                        agent_router._response(status="ok", answer="판정"))
+    # 판정 이후를 가짜로 바꾼다. AGENT_GRAPH=on의 그래프는 _after_customs를 통째로 부르지 않고 그 세 토막(_scope_response,
+    # _identify_stage, _after_identify)을 노드로 나눠 부르므로, 식별 단계가 끝낼 응답을 돌려주게 해서 off와 on 둘 다 같은 응답을 얻는다
+    # (v2-langgraph.md 10절 H2, 패치 대상 이름은 H10에서 다시 정리한다). 아래 단언은 그대로다
+    monkeypatch.setattr(agent_router, "_identify_stage", lambda customs, request:
+                        (agent_router._response(status="ok", answer="판정"), [], "confirmed", None, None))
     stored = []
     monkeypatch.setattr(agent_router.memory_service, "remember_later",
                         lambda user_id, request, response, released: stored.append(request))

@@ -212,9 +212,22 @@ def run_agent(request: AgentRequest,
             # 이 요청 안의 DB 상태. 한 단계가 DB에 못 붙으면 남은 단계는 다시 붙어 보지 않는다 (10-08 QA B7, _db_ready)
             db_token = _db_state.set({"failed": False})
             try:
+                if graph_enabled():
+                    # AGENT_GRAPH=on: 같은 일을 LangGraph 그래프로 돌린다 (v2-langgraph.md 10절 H2).
+                    # facade를 모듈 맨 위에서 import하지 않는다: graph/nodes.py가 이 모듈을 import하므로 순환이 되고,
+                    # 꺼져 있을 때 langgraph를 읽지 않으려는 뜻도 있다. 그래서 켜졌을 때 여기서만 불러 온다
+                    # (graph/nodes.py가 이 모듈의 함수를 호출 시점에 모듈 속성으로 읽는 이유와 같은 짝이다)
+                    from backend.app.graph.facade import run_graph
+                    return run_graph(request, user_id)
                 return _run(request, user_id)
             finally:
                 _db_state.reset(db_token)
+
+
+def graph_enabled() -> bool:
+    """AGENT_GRAPH가 켜졌나. 기본은 꺼짐이라 v1 순서(_run)로 돈다. 요청마다 읽어서 테스트와 배포가 켜고 끌 수 있다.
+    이전 중 전환 스위치이고 H10에서 지운다 (v2-langgraph.md Q2, .env.example AGENT_GRAPH)."""
+    return os.environ.get("AGENT_GRAPH", "off").strip().lower() in ("on", "true", "1")
 
 
 def _run(request: AgentRequest, user_id: str | None) -> AgentResponse:
@@ -325,22 +338,34 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
     progress.step("customs")
     customs, failure, used_type = _fetch_customs(request)
     if failure is not None:
-        # 세관에 아직 없는 B/L이고 MRN이 있으면 해수부 입항 신고로 배 상태까지는 보여 준다 (docs/specs/mrn-fallback.md).
-        # 세관 장애(시간 초과·키 오류)는 대체하지 않는다 (EC-04). 둘은 문구로 가른다 (is_not_found)
-        if is_not_found(failure) and request.mrn:
-            from backend.app.services import mrn_fallback  # 이 경우에만 불러온다
-            try:
-                alternative = mrn_fallback.assess(request)
-            except mrn_fallback.MrnLookupFailed:
-                # 해수부 장애. MRN이 틀렸다고 말하지 않는다 (10-08 QA B11)
-                return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_LOOKUP_FAILED}"})
-            if alternative is not None:
-                return alternative
-            # MRN을 줬는데 해수부에도 없다. B/L만 다시 확인하라고 하면 MRN을 받은 사실이 사라진다 (10-08 QA B11)
-            return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_NOT_FOUND}"})
-        return failure
+        return _customs_failure(request, failure)
 
     response = _after_customs(request, customs, memory)
+    return _with_display_fields(response, customs, used_type)
+
+
+def _customs_failure(request: AgentRequest, failure: AgentResponse) -> AgentResponse:
+    """세관 조회가 실패했을 때 돌려줄 응답. 못 찾았고 MRN이 있으면 해수부 입항 신고로 대체한다 (docs/specs/mrn-fallback.md).
+    _assess와 그래프의 mrn_fallback 노드(graph/nodes.py)가 같은 판단을 쓰도록 _assess에서 꺼냈다 (v2-langgraph.md 2절)."""
+    # 세관에 아직 없는 B/L이고 MRN이 있으면 해수부 입항 신고로 배 상태까지는 보여 준다 (docs/specs/mrn-fallback.md).
+    # 세관 장애(시간 초과·키 오류)는 대체하지 않는다 (EC-04). 둘은 문구로 가른다 (is_not_found)
+    if is_not_found(failure) and request.mrn:
+        from backend.app.services import mrn_fallback  # 이 경우에만 불러온다
+        try:
+            alternative = mrn_fallback.assess(request)
+        except mrn_fallback.MrnLookupFailed:
+            # 해수부 장애. MRN이 틀렸다고 말하지 않는다 (10-08 QA B11)
+            return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_LOOKUP_FAILED}"})
+        if alternative is not None:
+            return alternative
+        # MRN을 줬는데 해수부에도 없다. B/L만 다시 확인하라고 하면 MRN을 받은 사실이 사라진다 (10-08 QA B11)
+        return failure.model_copy(update={"answer": f"{NO_CARGO} {MRN_NOT_FOUND}"})
+    return failure
+
+
+def _with_display_fields(response: AgentResponse, customs: CustomsRecord, used_type: str | None) -> AgentResponse:
+    """판정이 끝난 응답에 화면 전용 칸(처리 이력, 찾은 B/L 구분, 통관 소요 시간)을 붙인다.
+    _assess의 끝부분을 그래프의 decorate 노드(graph/nodes.py)가 그대로 쓰도록 꺼냈다 (v2-langgraph.md 2절)."""
     # UNI-PASS 처리 이력 원문은 화면 전용이다 (docs/specs/customs-detail.md). 판정이 끝난 뒤에 붙여서
     # 판정·검증 단계에는 아예 없다. 이력 저장(_logged)과 후속 질문 LLM 입력에서는 다시 뺀다
     update: dict = {"customs_detail": customs.display_rows, "bl_type_used": used_type}
@@ -353,7 +378,20 @@ def _assess(request: AgentRequest, memory: str | None = None) -> AgentResponse:
 
 
 def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | None = None) -> AgentResponse:
-    """통관 정보를 받은 뒤의 판정 흐름 (SDD 4.1 2~7단계). _assess가 화면 전용 이력을 붙이려고 나눴다."""
+    """통관 정보를 받은 뒤의 판정 흐름 (SDD 4.1 2~7단계). _assess가 화면 전용 이력을 붙이려고 나눴다.
+    세 토막(범위 확인 _scope_response, 식별 _identify_stage, 나머지 _after_identify)을 차례로 이은 것이다.
+    그래프(graph/nodes.py)는 같은 세 토막을 노드 셋(scope_gate, identify, assess_rest)으로 나눠 부른다 (v2-langgraph.md 10절 H2)."""
+    early = _scope_response(customs)
+    if early is not None:
+        return early
+    early, candidates, vessel_match, mmsi, call_sign = _identify_stage(customs, request)
+    if early is not None:
+        return early
+    return _after_identify(request, customs, memory, candidates, vessel_match, mmsi, call_sign)
+
+
+def _scope_response(customs: CustomsRecord) -> AgentResponse | None:
+    """지원 범위 확인 (SDD 4.1 2-1·2-2). 부산이 아니면 unsupported, 이미 반출됐으면 규칙 fine 응답. 그 밖이면 None(계속 진행)."""
     # 지원 범위는 부산항이다 (PRD 4절). 양륙항이 부산이 아니면 배를 찾지 않고 끝낸다.
     # 양륙항 칸이 비어 있으면 범위 밖으로 단정하지 않고 진행한다. 모르는 것을 거절하는 쪽이 더 나쁘다
     # 부산 항구 코드는 skills/port-busan/rules.md busan_port_code
@@ -364,7 +402,12 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
     # 다음 항차 위치로 여유 일수를 계산해 엉뚱한 act가 나온다
     if customs.stage_name == RELEASED_STAGE:
         return _released(customs)
+    return None
 
+
+def _identify_stage(customs: CustomsRecord, request: AgentRequest):
+    """선박 식별 (SDD 4.1 3단계). (끝낼 응답 또는 None, 후보, vessel_match, mmsi, call_sign)을 돌려준다.
+    배를 못 정하면(도구 실패, 0척, 여러 척, 사용자가 고른 배를 확인 못 함) 판정하지 않고 끝낼 응답을 같이 돌려준다."""
     progress.step("identify")
     candidates, vessel_match, mmsi, call_sign = _identify(customs, request)
     # 사용자가 고른 배를 후보에서 확인하지 못했다. 다른 근거로 1척이 확정됐어도 사용자가 고른 배와 다르니
@@ -375,26 +418,35 @@ def _after_customs(request: AgentRequest, customs: CustomsRecord, memory: str | 
     # 배를 못 정하면 판정하지 않는다. 위치·입항 정보 없이 판정하면 근거 없이 "괜찮다"가 나온다
     if vessel_match == TOOL_FAILED:
         # 검색 도구 실패는 우리 쪽 문제라 사용자에게 되묻지 않는다 (SDD 4.1 4단계·8절)
-        return _response(status="partial", answer=_tool_failed_text(VESSEL_TOOL_FAILED))
+        return (_response(status="partial", answer=_tool_failed_text(VESSEL_TOOL_FAILED)),
+                candidates, vessel_match, mmsi, call_sign)
     if vessel_match == "none":
         # 0척 → insufficient (SDD 4.1 3단계). 포워더 입항 예정일을 이미 받았으면 더 물을 게 없어 partial (V5)
         prefix = f"{RESOLVED_NO_CANDIDATES} " if rejected else ""
         if request.forwarder_eta:
-            return _response(status="partial", answer=prefix + NO_VESSEL_AFTER_ETA)
-        return _response(status="insufficient", missing_inputs=["forwarder_eta"], answer=prefix + NO_VESSEL)
+            return (_response(status="partial", answer=prefix + NO_VESSEL_AFTER_ETA),
+                    candidates, vessel_match, mmsi, call_sign)
+        return (_response(status="insufficient", missing_inputs=["forwarder_eta"], answer=prefix + NO_VESSEL),
+                candidates, vessel_match, mmsi, call_sign)
     if vessel_match == "uncertain":
         if rejected:
             answer = RESOLVED_NOT_CANDIDATE
         else:
             answer = ASK_BACK_AFTER_EVIDENCE if (request.voyage_no or request.forwarder_eta) else ASK_BACK
-        return _response(
+        return (_response(
             status="insufficient",
             vessel_match="uncertain",
             vessel_candidates=candidates,
             missing_inputs=[f for f in ("voyage_no", "forwarder_eta") if not getattr(request, f)],
             answer=answer,
-        )
+        ), candidates, vessel_match, mmsi, call_sign)
+    return None, candidates, vessel_match, mmsi, call_sign
 
+
+def _after_identify(request: AgentRequest, customs: CustomsRecord, memory: str | None, candidates: list[VesselCandidate],
+                    vessel_match: str, mmsi: int | None, call_sign: str | None) -> AgentResponse:
+    """배가 확정된 뒤의 흐름 (SDD 4.1 4~7단계): 위치·일정 수집, 1층 신호, 판정 표, 2층 판정(LLM)과 검증.
+    그래프의 assess_rest 노드가 이 함수를 한 번에 부른다 (v2-langgraph.md 10절 H2, H3에서 노드로 쪼갠다)."""
     progress.step("position")
     position = get_live_position(mmsi) if mmsi else None
     schedule = get_port_schedule(call_sign=call_sign, ship_name=customs.ship_name)

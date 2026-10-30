@@ -1,0 +1,137 @@
+"""판정 그래프의 노드. 근거: docs/specs/v2-langgraph.md 2절 노드 표, 10절 H2.
+
+책임: 기존 routers/agent.py의 함수를 호출 시점에 모듈 속성으로 불러(agent._fetch_customs처럼) 그래프 노드로 감싼다.
+판정 문장, 임계값, 검증 규칙은 여기서 새로 쓰지 않는다. 노드는 자기가 바꾸는 State 칸만 돌려준다(부분 갱신).
+
+왜 모듈 속성으로 부르나: 기존 테스트가 routers/agent의 이름(_fetch_customs, UnipassClient, llm, _logged 등)을 monkeypatch한다.
+함수를 import해 두면 패치가 안 먹으므로 `agent.이름`으로 그때그때 읽는다. 함수를 graph/로 옮기는 일은 H10이다.
+
+왜 이 파일이 routers.agent를 맨 위에서 import해도 순환이 안 되나: routers/agent.py는 graph를 모듈 맨 위에서 import하지 않는다.
+run_agent가 AGENT_GRAPH=on일 때만 함수 안에서 graph.facade를 불러 온다(순환 방지와 꺼져 있을 때 langgraph를 읽지 않으려는 것).
+
+H2의 굵기: 판정 뒤쪽(위치·일정 수집 ~ 판정 LLM ~ 검증)은 assess_rest 한 노드가 agent._after_identify를 그대로 부른다.
+H3에서 collect, compute_signals 등으로, H4에서 judge/validate 루프로 쪼갠다.
+"""
+from __future__ import annotations
+
+import os
+
+from backend.app.graph.state import AgentState
+from backend.app.observability.logging import log_failure
+from backend.app.routers import agent
+from backend.app.services import progress
+
+
+def _step(name: str, **update) -> dict:
+    """노드가 State에 돌려줄 값. 지나간 노드 이름(path)을 항상 붙인다 (State path는 유일한 누적 리듀서, 2절)."""
+    return {**update, "path": [name]}
+
+
+def _working_request(state: AgentState):
+    """판정에 쓰는 요청. 저장된 판매 예정일을 채운 judged_request가 있으면 그것, 없으면(후속 질문) 원래 요청.
+    v1 _run이 _assess(judged_request, ...)에 넘기던 값과 같다."""
+    return state.get("judged_request") or state["request"]
+
+
+def guard_input(state: AgentState) -> dict:
+    """판매 예정일이 받아 주는 범위 밖이면 외부 조회·LLM 없이 insufficient로 끝낸다 (10-08 QA B2, v1 _run 첫 단계).
+    응답을 State response에 두면 route가 END로 보낸다. 조회 이력 쓰기는 퍼사드가 한다."""
+    request = state["request"]
+    if agent.sale_due_out_of_range(request.sale_due_date):
+        log_failure("input", "sale_due_date_out_of_range")
+        return _step("guard_input", response=agent._response(
+            status="insufficient", missing_inputs=["sale_due_date"],
+            answer=agent.SALE_DUE_OUT_OF_RANGE.format(day=request.sale_due_date.isoformat())))
+    return _step("guard_input")
+
+
+def load_saved(state: AgentState) -> dict:
+    """화물 표의 이 화물 줄을 읽어 지난 신뢰 ETA, 저장된 B/L 구분, 저장된 판매 예정일을 준비한다 (v1 _run의 else 갈래).
+    후속 질문은 v1도 이 읽기를 하지 않으므로 건너뛴다(DB 호출 수를 v1과 같게 두려는 것).
+    request에는 저장된 구분을 채우고, 화물 표 쓰기에는 이 request를 넘긴다(저장 날짜를 이번 입력으로 다시 쓰면 확인 대기가 지워진다, v1 주석)."""
+    request = state["request"]
+    if request.follow_up_question:
+        return _step("load_saved")
+    row = agent._saved_row(state.get("user_id"), request.bl_no)
+    # 구분을 말하지 않았으면 지난번에 찾은 구분(화물 표 bl_type)부터 조회한다. 하우스·마스터를 매번 둘 다 부르지 않게
+    saved_type = (row or {}).get("bl_type")
+    if request.bl_type is None and saved_type in agent.OTHER_BL_TYPE:
+        request = request.model_copy(update={"bl_type": saved_type})
+    # 판매 예정일을 안 줬으면 화물 표에 저장된 날짜로 판정한다 (10-08 QA B4)
+    saved_due = agent.saved_sale_due(row) if request.sale_due_date is None else None
+    judged = request.model_copy(update={"sale_due_date": saved_due}) if saved_due else request
+    return _step("load_saved", request=request, judged_request=judged, saved_due=saved_due,
+                 previous_eta=agent._last_eta_of(row))
+
+
+def load_memory(state: AgentState) -> dict:
+    """로그인 사용자의 기억(화물 표·메모장)을 읽는다 (docs/specs/memory.md 읽기 흐름, v1 _run).
+    사용자도 DB 주소도 있는데 None이면 읽기가 실패한 것이라 남은 DB 단계를 건너뛰게 표시한다."""
+    context = agent.memory_service.load_context(state.get("user_id"), state["request"].bl_no)
+    if context is None and state.get("user_id") and os.environ.get("DATABASE_URL"):
+        agent._mark_db_failed()
+    return _step("load_memory", memory=context)
+
+
+def follow_up(state: AgentState) -> dict:
+    """후속 질문 전체를 v1 함수 한 번으로 답한다 (SDD 4.4). H5에서 load_previous, guard, answer, validate 노드로 쪼갠다.
+    기억 블록은 후속 LLM에 그대로, 품명 없는 블록(for_judge)은 지난 결과가 없어 다시 판정할 때 판정 LLM에 준다 (10-08 QA B3)."""
+    memory = state.get("memory")
+    response = agent._follow_up(state["request"], state.get("user_id"),
+                                memory.blocks if memory else None, memory.for_judge() if memory else None)
+    return _step("follow_up", response=response)
+
+
+def fetch_customs(state: AgentState) -> dict:
+    """UNI-PASS 조회 (하우스 -> 마스터 순서, 장애는 그 자리에서 failed). 실패 응답은 failure와 response에 같이 둔다.
+    실패 뒤 MRN 대체 여부는 route가 정한다 (v1 _assess 앞부분)."""
+    progress.step("customs")
+    customs, failure, used_type = agent._fetch_customs(_working_request(state))
+    if failure is not None:
+        return _step("fetch_customs", customs=None, failure=failure, response=failure)
+    return _step("fetch_customs", customs=customs, bl_type_used=used_type, failure=None)
+
+
+def mrn_fallback(state: AgentState) -> dict:
+    """세관에 없는 B/L이고 MRN이 있을 때 해수부 입항 신고로 대체한다 (docs/specs/mrn-fallback.md).
+    이 노드로 오는 조건(못 찾음 + MRN)은 routes.after_customs가 정한다. 결과 응답에는 화면 전용 칸을 붙이지 않는다."""
+    return _step("mrn_fallback", response=agent._customs_failure(_working_request(state), state["failure"]))
+
+
+def scope_gate(state: AgentState) -> dict:
+    """지원 범위 확인: 부산이 아니면 unsupported, 이미 반출됐으면 규칙 fine (SDD 4.1 2-1·2-2). 해당 없으면 아무것도 안 쓴다."""
+    early = agent._scope_response(state["customs"])
+    return _step("scope_gate", response=early) if early is not None else _step("scope_gate")
+
+
+def identify(state: AgentState) -> dict:
+    """선박 식별 (SDD 4.1 3단계). 확정하지 못하면 되묻기·partial 응답을 response에 둔다 (v1 _after_customs 앞부분).
+    spec 노드 표의 ask_prepare가 하는 응답 만들기는 H2에서는 여기서 같이 한다. 되묻기 멈춤(interrupt)은 H7이다."""
+    early, candidates, vessel_match, mmsi, call_sign = agent._identify_stage(state["customs"], _working_request(state))
+    update = dict(candidates=candidates, vessel_match=vessel_match, mmsi=mmsi, call_sign=call_sign)
+    if early is not None:
+        update["response"] = early
+    return _step("identify", **update)
+
+
+def assess_rest(state: AgentState) -> dict:
+    """위치·일정 수집부터 판정 LLM과 검증까지 남은 부분을 기존 함수 한 번으로 돌린다 (SDD 4.1 4~7단계).
+    지난 신뢰 ETA는 아직 ContextVar(agent.previous_eta)를 읽는 코드라, 이 노드가 State 값을 ContextVar에 잠시 꽂았다 되돌린다.
+    State로 옮기는 것은 H3이다 (v2-langgraph.md 2절 ContextVar 이전).
+    memory 인자에는 품명 없는 판정용 블록을 준다 (v1 _run의 judge_blocks)."""
+    memory = state.get("memory")
+    token = agent.previous_eta.set(state.get("previous_eta"))
+    try:
+        response = agent._after_identify(_working_request(state), state["customs"],
+                                         memory.for_judge() if memory else None,
+                                         state["candidates"], state["vessel_match"], state["mmsi"], state["call_sign"])
+    finally:
+        agent.previous_eta.reset(token)
+    return _step("assess_rest", response=response)
+
+
+def decorate(state: AgentState) -> dict:
+    """화면 전용 칸을 붙인다: 처리 이력 원문, 찾은 B/L 구분, 통관 소요 시간과 그 근거 카드 (v1 _assess 끝부분).
+    세관 조회에 성공한 뒤의 모든 응답에만 붙는다. 조회 실패·MRN 대체 응답은 이 노드를 거치지 않는다."""
+    response = agent._with_display_fields(state["response"], state["customs"], state.get("bl_type_used"))
+    return _step("decorate", response=response)
