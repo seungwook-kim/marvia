@@ -4,3 +4,7 @@
 # 09-30 test_auth.py HS256 위조 출입증 테스트의 가짜 비밀값 문자열. 어디에도 쓰이지 않는 테스트용 값이다.
 # 같은 날 다음 커밋에서 실행 중에 만드는 값으로 바꿨고, 기록에 남은 이 커밋 하나만 넘어간다.
 a7fdf43cb008c0ef995a737a7d70743cca1e7a4d:backend/tests/test_auth.py:generic-api-key:72
+
+# 10-31 RAG 색인 manifest의 tokenizer_sha256(토크나이저 파일 해시)과 retrieval_keys_hash(검색 설정 해시). 비밀값이 아닌 SHA-256 지문이다.
+113b331ab9fa2e9e4b8e9a99890dc4960226f63b:docs/rag/index_manifest.json:generic-api-key:62
+113b331ab9fa2e9e4b8e9a99890dc4960226f63b:docs/rag/index_manifest.json:generic-api-key:70
